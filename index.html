@@ -269,7 +269,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.30';
+const APP_VERSION = '1.31';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -398,6 +398,12 @@ function computeDerived() {
   }
   for (const s of stations) {
     if (highs.has(s)) continue;
+    // a storm total can't be smaller than today's total: the storm counter was reset partway through
+    if (metric === 'event' && s.v.day != null && s.p < s.v.day - 0.05) {
+      s.suspect = true;
+      s.why = `Storm total (${fmtV(s.p)} in) is less than today's rain (${fmtV(s.v.day)} in), so the gauge's storm counter was reset partway through this storm.`;
+      continue;
+    }
     const h1 = hood(s, highs);
     s.nbMed = h1 ? h1.med : null;
     if (h1 && s.p < 0.4 * h1.med && h1.med - s.p >= 0.25 * k) {
@@ -777,7 +783,7 @@ function addFilterBar() {
           </div>
           <button class="info-btn" id="sus-info-btn" type="button" aria-expanded="false" aria-controls="sus-info" title="How readings are flagged">i</button>
         </div>
-        <div class="info-pop" id="sus-info" hidden>A reading is flagged when it is under 40% of nearby gauges and well below them (including 0.00 where nearby gauges show rain), or over 2.5 times nearby gauges and well above them. Nearby means within 3 mi, or 10 mi where gauges are sparse; high readings at isolated gauges are checked against gauges within 25 mi. Ambient stations registered twice by the same owner are shown once.</div>
+        <div class="info-pop" id="sus-info" hidden>A reading is flagged when it is under 40% of nearby gauges and well below them (including 0.00 where nearby gauges show rain), or over 2.5 times nearby gauges and well above them. Nearby means within 3 mi, or 10 mi where gauges are sparse; high readings at isolated gauges are checked against gauges within 25 mi. On Event, a storm total smaller than the same gauge's rain today is flagged, since its storm counter was reset partway through. Ambient stations registered twice by the same owner are shown once.</div>
         <span class="opt-l">Summarize</span>
         <div class="opt-row">
           <button class="draw-btn" id="draw-btn" title="Drag a box to summarize gauges inside it">⬚ Box</button>

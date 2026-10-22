@@ -195,6 +195,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 }
 #draw-hint button{border:none;background:rgba(255,255,255,.18);color:#fff;font:inherit;font-size:12px;padding:5px 10px;border-radius:14px;cursor:pointer}
 
+#zoom-hint{
+  position:absolute;left:50%;transform:translateX(-50%);bottom:34px;z-index:1000;display:none;
+  background:#1e293b;color:#fff;font-size:12px;font-weight:600;line-height:1.35;text-align:center;
+  padding:8px 14px;border-radius:16px;box-shadow:0 4px 16px rgba(0,0,0,.3);max-width:min(420px,calc(100vw - 40px));
+}
+
 /* ── Phones ─────────────────────────────────────────────── */
 @media (max-width:700px){
   .leaflet-control-zoom{display:none}
@@ -225,6 +231,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   .sel-list .r{padding:8px 0}
   .sel-copy{padding:10px 0;font-size:14px}
   #draw-hint{top:calc(62px + env(safe-area-inset-top,0px))}
+  #zoom-hint{bottom:calc(64px + env(safe-area-inset-bottom,0px))}
   .leaflet-popup-content{margin:12px 14px}
 }
 </style>
@@ -238,7 +245,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 const CENTER = { name: 'center', lat: 37.327167, lon: -108.716722 };   // 37°19'37.8"N 108°43'00.2"W
-const LOAD_RADIUS = 100;   // miles; everything inside this is loaded once
+const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
+// Ambient stations load by map area as people pan and zoom, in cells of
+// 1° latitude by 1.2° longitude (about 70 by 66 miles).
+const CELL_LAT = 1.0, CELL_LON = 1.2;
+const MAX_CELLS = 120;          // past this many cells on screen, ask the viewer to zoom in
+const CELL_TTL = 15 * 60e3;     // reload a cell's stations when they are older than 15 minutes
 
 // ── Rain classes (inches) ────────────────────────────────────────────────────
 const CLASSES = [
@@ -276,22 +288,61 @@ function median(a) {
 let stations = [];
 let dataTime = 'Loading…';
 
-// Flag rule: a gauge reporting 0.00, or one reading under 40% of the median
-// of other gauges within 3 miles (needs at least 2 neighbors).
+// Flag rule: a gauge is likely erroneous when it
+//   - reports 0.00 while it is reporting, or
+//   - reads under 40% of the nearby median AND at least 0.25 inch less, or
+//   - reads over 2.5 times the nearby median AND at least 1 inch more.
+// "Nearby" is gauges within 3 miles; where fewer than 2 are that close, within 10 miles.
+// Each comparison needs at least 2 neighbors.
+const HASH = 0.07;  // degrees; a 3x3 block of these covers a 3-mile search
+const hkey = (i, j) => i + ',' + j;
+function buildHash(list) {
+  const m = new Map();
+  for (const s of list) {
+    const k = hkey(Math.floor(s.lat / HASH), Math.floor(s.lon / HASH));
+    (m.get(k) || m.set(k, []).get(k)).push(s);
+  }
+  return m;
+}
+function near(hash, s, maxMi) {
+  const i = Math.floor(s.lat / HASH), j = Math.floor(s.lon / HASH), out = [];
+  const span = Math.ceil(maxMi / 3.4);   // one cell is at least 3.4 mi across in this region
+  for (let a = -span; a <= span; a++) for (let b = -span; b <= span; b++)
+    for (const o of hash.get(hkey(i + a, j + b)) || []) if (o !== s && miles(s.lat, s.lon, o.lat, o.lon) <= maxMi) out.push(o);
+  return out;
+}
 function computeDerived() {
   for (const s of stations) {
     s.dist = miles(CENTER.lat, CENTER.lon, s.lat, s.lon);
     s.dir = bearing(CENTER.lat, CENTER.lon, s.lat, s.lon);
   }
+  const hash = buildHash(stations);
+  // Compare each gauge with the median of its neighborhood, itself included, so
+  // one bad gauge cannot make its good neighbors look wrong. High readings are
+  // found first and left out when checking for low ones.
+  const hood = (s, skip) => {
+    let r = 3, nb = near(hash, s, 3).filter(o => o.p > 0 && !(skip && skip.has(o)));
+    if (nb.length < 2) { r = 10; nb = near(hash, s, 10).filter(o => o.p > 0 && !(skip && skip.has(o))); }
+    return nb.length >= 2 ? { med: median([...nb.map(o => o.p), s.p]), n: nb.length, r } : null;
+  };
+  const highs = new Set();
   for (const s of stations) {
-    const nb = stations.filter(o => o !== s && o.p > 0 && miles(s.lat, s.lon, o.lat, o.lon) <= 3).map(o => o.p);
-    s.nbMed = nb.length >= 2 ? median(nb) : null;
-    s.suspect = s.p === 0 || (s.nbMed != null && s.p < 0.4 * s.nbMed);
-    s.why = s.p === 0
-      ? 'Reporting, but rain total is 0.00. Likely no rain gauge or a failed gauge.'
-      : s.suspect
-        ? `Reads under 40% of nearby gauges (median ${s.nbMed.toFixed(2)} in within 3 mi). Possible gauge problem.`
-        : '';
+    s.why = ''; s.suspect = false;
+    const h0 = hood(s);
+    if (s.p > 0 && h0 && s.p > 2.5 * h0.med && s.p - h0.med >= 1) {
+      highs.add(s); s.suspect = true; s.nbMed = h0.med;
+      s.why = `Reads far above nearby gauges (median ${h0.med.toFixed(2)} in, ${h0.n} gauges within ${h0.r} mi). Possible gauge problem, such as sprinkler water or a stuck tipping bucket.`;
+    }
+  }
+  for (const s of stations) {
+    if (highs.has(s)) continue;
+    if (s.p === 0) { s.suspect = true; s.why = 'Reporting, but rain total is 0.00. Likely no rain gauge or a failed gauge.'; continue; }
+    const h1 = hood(s, highs);
+    s.nbMed = h1 ? h1.med : null;
+    if (h1 && s.p < 0.4 * h1.med && h1.med - s.p >= 0.25) {
+      s.suspect = true;
+      s.why = `Reads far below nearby gauges (median ${h1.med.toFixed(2)} in, ${h1.n} gauges within ${h1.r} mi). Possible gauge problem, such as a clogged funnel.`;
+    }
   }
 }
 
@@ -353,6 +404,12 @@ function initMap() {
   createMarkerLayer();
   render();
   fitRadius();
+  const hint = document.createElement('div');
+  hint.id = 'zoom-hint';
+  hint.textContent = 'Zoom in to load personal weather stations here. Official gauges show at every zoom.';
+  leafletMap.getContainer().appendChild(hint);
+  let t;
+  leafletMap.on('moveend', () => { clearTimeout(t); t = setTimeout(() => ensureCells(false), 350); });
   loadData();
 }
 
@@ -375,7 +432,7 @@ function createMarkerLayer() {
   if (markerLayer) leafletMap.removeLayer(markerLayer);
   markerLayer = clusteringEnabled
     ? L.markerClusterGroup({
-        maxClusterRadius: 40, disableClusteringAtZoom: 13, spiderfyOnMaxZoom: true, showCoverageOnHover: false,
+        maxClusterRadius: 40, disableClusteringAtZoom: 13, spiderfyOnMaxZoom: true, showCoverageOnHover: false, chunkedLoading: true,
         iconCreateFunction: cluster => {
           const vals = cluster.getAllChildMarkers().map(m => m.options.rain).filter(v => v != null);
           const med = median(vals) ?? 0, c = rainClass(med);
@@ -394,6 +451,7 @@ function render() {
   markerLayer.clearLayers();
   for (const k in markersById) delete markersById[k];
   const list = stations.filter(s => visible(s)).sort((a, b) => a.p - b.p); // wettest on top
+  const markers = [];
   for (const s of list) {
     const c = rainClass(s.p);
     const cls = `pin${s.suspect ? ' suspect' : ''}${s.src === 'O' ? ' official' : ''}${pinStyle === 'dot' ? ' dot' : ''}`;
@@ -404,9 +462,10 @@ function render() {
     const m = L.marker([s.lat, s.lon], { icon, rain: s.suspect ? null : s.p, riseOnHover: true });
     m.bindPopup(() => buildPopup(s), { maxWidth: IS_PHONE ? 260 : 300, autoPanPaddingTopLeft: [10, IS_PHONE ? 70 : 10] });
     if (!IS_PHONE) m.bindTooltip(`${s.name} · ${s.p.toFixed(2)} in`, { direction: 'top', offset: [0, -12] });
-    markerLayer.addLayer(m);
+    markers.push(m);
     markersById[s.id] = m;
   }
+  if (markerLayer.addLayers) markerLayer.addLayers(markers); else markers.forEach(m => markerLayer.addLayer(m));
   updateStats();
   if (activeBBox || activePoly) buildSelectionPanel();
 }
@@ -497,7 +556,9 @@ function addFilterBar() {
           <button class="seg-btn" data-rad="10">10</button>
           <button class="seg-btn" data-rad="25">25</button>
           <button class="seg-btn" data-rad="50">50</button>
-          <button class="seg-btn active" data-rad="100">100 mi</button>
+          <button class="seg-btn active" data-rad="100">100</button>
+          <button class="seg-btn" data-rad="250">250</button>
+          <button class="seg-btn" data-rad="500">500 mi</button>
         </div>
       </div>
       <div class="filter-row">
@@ -562,7 +623,7 @@ function addLegend() {
       CLASSES.map(k => `<div class="legend-row"><div class="legend-sw" style="background:${k.bg}"></div>${k.label}</div>`).join('') +
       `<div class="legend-row" style="margin-top:4px"><div class="legend-sw suspect"></div>Likely erroneous reading</div>
        <div class="legend-row"><div class="legend-sw official"></div>Official (ASOS, RAWS, USCRN, other)</div>
-       <div class="note">Likely erroneous: reporting 0.00, or under 40% of the median of gauges within 3 mi. Ambient stations registered twice by the same owner are shown once.</div></div>`;
+       <div class="note">Likely erroneous: reporting 0.00; under 40% of nearby gauges and at least 0.25 in lower; or over 2.5 times nearby gauges and at least 1 in higher. Nearby means within 3 mi, or 10 mi where gauges are sparse. Ambient stations registered twice by the same owner are shown once.</div></div>`;
     L.DomEvent.disableClickPropagation(el);
     L.DomEvent.disableScrollPropagation(el);
     makeCollapsible(el, IS_PHONE);
@@ -796,7 +857,7 @@ function addSearchBar() {
     if (!visible(s)) {
       if (s.suspect && suspectFilter === 'exclude') document.querySelector('[data-sus="include"]').click();
       if (srcFilter !== 'all' && srcFilter !== s.src) document.querySelector('[data-src="all"]').click();
-      if (s.dist > radius) document.querySelector('[data-rad="100"]').click();
+      if (s.dist > radius) document.querySelector('[data-rad="500"]').click();
     }
     leafletMap.setView([s.lat, s.lon], 13);
     setTimeout(() => markersById[s.id]?.openPopup(), 300);
@@ -815,88 +876,164 @@ function addSearchBar() {
   clearBtn.addEventListener('click', () => { input.value = ''; clearBtn.style.display = 'none'; results.style.display = 'none'; leafletMap.closePopup(); });
 }
 
-// ── Live loading (Ambient + official) ───────────────────────────────────────
+// ── Live loading ─────────────────────────────────────────────────────────────
 const fmtTime = ms => new Date(ms).toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: 'numeric', minute: '2-digit' });
 const titleCase = s => s.toLowerCase().replace(/\b([a-z])/g, c => c.toUpperCase()).replace(/\bRaws\b/g, 'RAWS').replace(/\bAp\b/g, 'Airport').replace(/\bCo\b/g, 'CO').replace(/\bNm\b/g, 'NM').replace(/\bUt\b/g, 'UT').replace(/\b(N|S|E|W|Ne|Nw|Se|Sw|Nne|Nnw|Sse|Ssw|Ene|Ese|Wnw|Wsw)\b/g, d => d.toUpperCase());
 
-async function ambientStations(now) {
-  const seen = new Map();
-  const dLat = LOAD_RADIUS / 69, dLon = LOAD_RADIUS / (69 * Math.cos(toRad(CENTER.lat)));
+// Ambient public network ----------------------------------------------------
+const cells = new Map();        // "i,j" -> { t: last load time, busy }
+const ambient = new Map();      // device id -> station
+let official = [];
+
+const cellInRange = (i, j) => {  // nearest point of the cell to the center is within MAX_RADIUS
+  const lat = Math.min(Math.max(CENTER.lat, i * CELL_LAT), (i + 1) * CELL_LAT);
+  const lon = Math.min(Math.max(CENTER.lon, j * CELL_LON), (j + 1) * CELL_LON);
+  return miles(CENTER.lat, CENTER.lon, lat, lon) <= MAX_RADIUS;
+};
+
+async function fetchBox(w, s, e, n, depth, seen) {
+  const q = new URLSearchParams({ '$publicBox[0][0]': w, '$publicBox[0][1]': s, '$publicBox[1][0]': e, '$publicBox[1][1]': n, '$limit': 100 });
+  const r = await fetch('https://lightning.ambientweather.net/devices?' + q);
+  if (!r.ok) throw new Error('Ambient HTTP ' + r.status);
+  const arr = (await r.json()).data || [];
   // The API returns at most 100 devices per box, so split any full box into quarters.
-  async function box(w, s, e, n, depth) {
-    const q = new URLSearchParams({ '$publicBox[0][0]': w, '$publicBox[0][1]': s, '$publicBox[1][0]': e, '$publicBox[1][1]': n, '$limit': 100 });
-    const r = await fetch('https://lightning.ambientweather.net/devices?' + q);
-    if (!r.ok) throw new Error('Ambient HTTP ' + r.status);
-    const arr = (await r.json()).data || [];
-    if (arr.length >= 100 && depth < 6) {
-      const mx = (w + e) / 2, my = (s + n) / 2;
-      await Promise.all([box(w, s, mx, my, depth + 1), box(mx, s, e, my, depth + 1), box(w, my, mx, n, depth + 1), box(mx, my, e, n, depth + 1)]);
-    } else arr.forEach(x => seen.set(x._id, x));
-  }
-  const N = 6, w0 = CENTER.lon - dLon, s0 = CENTER.lat - dLat, sx = 2 * dLon / N, sy = 2 * dLat / N, jobs = [];
-  for (let i = 0; i < N; i++) for (let k = 0; k < N; k++) jobs.push(box(w0 + k * sx, s0 + i * sy, w0 + (k + 1) * sx, s0 + (i + 1) * sy, 0));
-  await Promise.all(jobs);
-  const out = [];
-  for (const x of seen.values()) {
-    const c = x.info?.coords?.geo?.coordinates, d = x.lastData || {};
-    if (!c || d.dailyrainin == null || !(d.dateutc >= now - 3 * 3600e3)) continue;
-    const lat = c[1], lon = c[0];
-    if (miles(CENTER.lat, CENTER.lon, lat, lon) > LOAD_RADIUS) continue;
-    const s = { src: 'A', net: 'Ambient', name: ((x.public && x.public.name) || x.info.name || 'Ambient station').trim(),
-      area: (x.info.coords.location || '').trim(), lat, lon, p: +(+d.dailyrainin).toFixed(2), time: fmtTime(d.dateutc), slug: x.public?.slug };
-    // one owner sometimes registers the same station twice
-    const twin = out.find(o => miles(o.lat, o.lon, lat, lon) < 0.05 && Math.abs(o.p - s.p) < 0.01);
-    if (twin) { if (twin.name !== s.name) twin.name += ' / ' + s.name; continue; }
-    out.push(s);
-  }
-  return out;
+  if (arr.length >= 100 && depth < 6) {
+    const mx = (w + e) / 2, my = (s + n) / 2;
+    await Promise.all([fetchBox(w, s, mx, my, depth + 1, seen), fetchBox(mx, s, e, my, depth + 1, seen),
+                       fetchBox(w, my, mx, n, depth + 1, seen), fetchBox(mx, my, e, n, depth + 1, seen)]);
+  } else arr.forEach(x => seen.set(x._id, x));
 }
 
-async function officialStations() {
-  const nets = ['CO_ASOS', 'UT_ASOS', 'NM_ASOS', 'AZ_ASOS', 'USCRN', 'CO_DCP', 'UT_DCP', 'NM_DCP', 'AZ_DCP'];
+async function loadCell(key) {
+  const [i, j] = key.split(',').map(Number);
+  const c = cells.get(key) || { t: 0 };
+  c.busy = true; cells.set(key, c);
+  try {
+    const seen = new Map(), now = Date.now();
+    await fetchBox(j * CELL_LON, i * CELL_LAT, (j + 1) * CELL_LON, (i + 1) * CELL_LAT, 0, seen);
+    for (const [id, st] of ambient) if (st.cell === key) ambient.delete(id);
+    for (const x of seen.values()) {
+      const co = x.info?.coords?.geo?.coordinates, d = x.lastData || {};
+      if (!co || d.dailyrainin == null || !(d.dateutc >= now - 3 * 3600e3)) continue;
+      const lat = co[1], lon = co[0];
+      if (miles(CENTER.lat, CENTER.lon, lat, lon) > MAX_RADIUS) continue;
+      ambient.set(x._id, { src: 'A', net: 'Ambient', cell: key,
+        name: ((x.public && x.public.name) || x.info.name || 'Ambient station').trim(),
+        area: (x.info.coords.location || '').trim(), lat, lon, p: +(+d.dailyrainin).toFixed(2),
+        time: fmtTime(d.dateutc), slug: x.public?.slug });
+    }
+    c.t = now; c.err = false;
+  } catch (e) { c.err = true; }
+  c.busy = false;
+}
+
+let cellRun = 0;
+async function ensureCells(force) {
+  const hint = document.getElementById('zoom-hint');
+  const b = leafletMap.getBounds().pad(0.1);
+  const i0 = Math.floor(b.getSouth() / CELL_LAT), i1 = Math.floor(b.getNorth() / CELL_LAT);
+  const j0 = Math.floor(b.getWest() / CELL_LON), j1 = Math.floor(b.getEast() / CELL_LON);
+  const inView = [];
+  for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) if (cellInRange(i, j)) inView.push(hkey(i, j));
+  if (inView.length > MAX_CELLS) { hint.style.display = 'block'; if (!loading) setStatus(); return; }
+  hint.style.display = 'none';
+  const now = Date.now();
+  const need = inView.filter(k => { const c = cells.get(k); return !c || (!c.busy && (force || c.err || now - c.t > CELL_TTL)); });
+  if (!need.length) return;
+  const run = ++cellRun;
+  const msg = document.getElementById('refresh-msg');
+  msg.className = 'refresh-msg';
+  let done = 0, failed = 0;
+  // nearest cells first, six at a time
+  const ctr = leafletMap.getCenter();
+  need.sort((a, z) => { const [ai, aj] = a.split(',').map(Number), [zi, zj] = z.split(',').map(Number);
+    return Math.hypot(ai + .5 - ctr.lat / CELL_LAT, aj + .5 - ctr.lng / CELL_LON) - Math.hypot(zi + .5 - ctr.lat / CELL_LAT, zj + .5 - ctr.lng / CELL_LON); });
+  for (let k = 0; k < need.length; k += 6) {
+    msg.textContent = `Loading personal stations for this area (${Math.round(100 * k / need.length)}%)…`;
+    await Promise.all(need.slice(k, k + 6).map(async key => { await loadCell(key); done++; if (cells.get(key).err) failed++; }));
+    if (k % 24 === 0 || k + 6 >= need.length) rebuild();
+  }
+  if (run !== cellRun) return;
+  setStatus(failed ? `Some areas did not load (${failed} of ${need.length}). Use Refresh to try again.` : '', !!failed);
+}
+
+// Official gauges via the Iowa Environmental Mesonet ------------------------
+async function loadOfficial() {
+  const states = ['CO', 'UT', 'NM', 'AZ', 'WY', 'NV', 'ID', 'TX', 'OK', 'KS', 'NE', 'CA'];
+  const nets = ['USCRN', ...states.flatMap(s => [s + '_ASOS', s + '_DCP'])];
   const data = {};
-  await Promise.all(nets.map(n => fetch('https://mesonet.agron.iastate.edu/api/1/currents.json?network=' + n)
+  const res = await Promise.allSettled(nets.map(n => fetch('https://mesonet.agron.iastate.edu/api/1/currents.json?network=' + n)
     .then(r => { if (!r.ok) throw new Error('IEM HTTP ' + r.status); return r.json(); }).then(j => data[n] = j.data || [])));
+  if (res.every(r => r.status === 'rejected')) throw new Error('IEM unreachable');
   const out = [];
   for (const n of nets) for (const r of data[n] || []) {
-    if (r.pday == null || miles(CENTER.lat, CENTER.lon, r.lat, r.lon) > LOAD_RADIUS) continue;
+    if (r.pday == null || miles(CENTER.lat, CENTER.lon, r.lat, r.lon) > MAX_RADIUS) continue;
     const isDcp = n.endsWith('_DCP'), isRaws = /RAWS/i.test(r.name);
     // DCP platforms are mostly stream gauges whose precip field reads 0 when
     // there is no rain sensor; keep RAWS, and other platforms only if they report rain.
     if (isDcp && !isRaws && !(r.pday > 0)) continue;
-    if (out.some(o => miles(o.lat, o.lon, r.lat, r.lon) < 0.3)) continue;   // same site in two networks
+    out.push({ n, r, isRaws });
+  }
+  const kept = [];
+  const hash = new Map();
+  for (const { n, r, isRaws } of out) {
+    const s0 = { lat: r.lat, lon: r.lon };
+    if (near(hash, s0, 0.3).length) continue;   // same site in two networks
     const net = n.endsWith('_ASOS') ? 'NWS ASOS' : n === 'USCRN' ? 'NOAA USCRN' : isRaws ? 'RAWS' : 'Remote gauge';
     let name = titleCase(r.name);
     if (n.endsWith('_ASOS')) name += ` (${/^[A-Z]{3}$/.test(r.station) ? 'K' + r.station : r.station})`;
-    out.push({ src: 'O', net, name, area: n.slice(0, 2), lat: r.lat, lon: r.lon, p: +(+r.pday).toFixed(2),
-      time: r.utc_valid ? fmtTime(Date.parse(r.utc_valid)) : (r.local_valid || '').slice(11, 16), iem: { net: n, id: r.station } });
+    const st = { src: 'O', net, name, area: n === 'USCRN' ? '' : n.slice(0, 2), lat: r.lat, lon: r.lon, p: +(+r.pday).toFixed(2),
+      time: r.utc_valid ? fmtTime(Date.parse(r.utc_valid)) : (r.local_valid || '').slice(11, 16), iem: { net: n, id: r.station } };
+    kept.push(st);
+    const k = hkey(Math.floor(st.lat / HASH), Math.floor(st.lon / HASH));
+    (hash.get(k) || hash.set(k, []).get(k)).push(st);
   }
-  return out;
+  official = kept;
+}
+
+// Combine, de-duplicate and redraw ------------------------------------------
+function rebuild() {
+  const amb = [];
+  const hash = new Map();
+  for (const s of ambient.values()) {
+    // one owner sometimes registers the same station twice
+    const twin = near(hash, s, 0.05).find(o => Math.abs(o.p - s.p) < 0.01);
+    if (twin) { if (!twin.name.includes(s.name)) twin.name += ' / ' + s.name; continue; }
+    const c = { ...s };
+    amb.push(c);
+    const k = hkey(Math.floor(c.lat / HASH), Math.floor(c.lon / HASH));
+    (hash.get(k) || hash.set(k, []).get(k)).push(c);
+  }
+  stations = [...amb, ...official].map((s, i) => ({ ...s, id: i }));
+  computeDerived(); render();
+}
+
+let lastLoad = 0;
+function setStatus(extra, isErr) {
+  const msg = document.getElementById('refresh-msg');
+  const a = stations.filter(s => s.src === 'A').length, o = stations.filter(s => s.src === 'O').length;
+  msg.className = 'refresh-msg' + (isErr ? ' err' : '');
+  const zoomedOut = document.getElementById('zoom-hint').style.display === 'block';
+  msg.textContent = extra || `${a} personal and ${o} official gauges loaded, all live. ` +
+    (zoomedOut ? 'Zoom in to load personal stations for more of the map.' : 'Personal stations load for the area on screen.');
 }
 
 let loading = false;
 async function loadData() {
   if (loading) return;
   loading = true;
-  const btn = document.getElementById('refresh-btn'), msg = document.getElementById('refresh-msg');
+  const btn = document.getElementById('refresh-btn');
   btn.disabled = true; btn.textContent = 'Loading…';
-  msg.className = 'refresh-msg'; msg.textContent = 'Pulling Ambient network and official gauges…';
+  setStatus('Pulling official gauges and personal stations…');
   const now = Date.now();
-  const [amb, off] = await Promise.allSettled([ambientStations(now), officialStations()]);
-  const keepOld = src => stations.filter(s => s.src === src);
-  const A = amb.status === 'fulfilled' ? amb.value : keepOld('A');
-  const O = off.status === 'fulfilled' ? off.value : keepOld('O');
-  stations = [...A, ...O].map((s, i) => ({ ...s, id: i }));
+  let offErr = false;
+  try { await loadOfficial(); } catch (e) { offErr = true; }
   dataTime = `${new Date(now).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'long', day: 'numeric' })}, live as of ${fmtTime(now)}`;
-  computeDerived(); render();
+  rebuild();
+  await ensureCells(true);
   btn.disabled = false; btn.textContent = '↻ Refresh live data';
-  const fails = [amb.status !== 'fulfilled' && 'Ambient', off.status !== 'fulfilled' && 'official-gauge'].filter(Boolean);
-  if (fails.length) {
-    msg.className = 'refresh-msg err';
-    msg.textContent = `${fails.join(' and ')} data could not be loaded (no connection, or the browser blocked it). ${stations.length ? 'Showing the last values it had.' : ''}`;
-  } else {
-    msg.textContent = `${A.length} Ambient and ${O.length} official gauges, all live.`;
-  }
+  if (offErr) setStatus('Official gauges could not be loaded (no connection, or the browser blocked it). Showing the last values it had.', true);
+  else if (!document.getElementById('refresh-msg').classList.contains('err')) setStatus();
   loading = false;
 }
 

@@ -31,6 +31,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .pin.snotel{border-radius:4px;border:2.5px solid #0c4a6e}
 .pin.dot.snotel{width:13px;height:13px;border-radius:2px;transform:rotate(45deg)}
 .pin.dot.suspect{border-width:1.5px}
+.center-hit{cursor:move;display:flex;align-items:center;justify-content:center}
 .center-pin{
   width:18px;height:18px;border-radius:50%;
   border:2px solid #dc2626;background:rgba(255,255,255,.85);position:relative;
@@ -274,8 +275,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.25';
-const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };   // Four Corners Monument, 36°59′56″N 109°02′43″W
+const APP_VERSION = '1.26';
+const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
+// Data is loaded for the 500 mi around Four Corners; the crosshair (CENTER) can be dragged within it.
+const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
 // Ambient stations load by map area as people pan and zoom, in cells of
 // 1° latitude by 1.2° longitude (about 70 by 66 miles).
@@ -485,10 +488,30 @@ function initMap() {
   addSearchBar();
 
   // Center marker
-  L.marker([CENTER.lat, CENTER.lon], {
-    icon: L.divIcon({ className: '', html: '<div class="center-pin"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }),
-    zIndexOffset: -1000, keyboard: false,
-  }).bindTooltip(`Center: Four Corners Monument`, { direction: 'top', offset: [0, -10] }).addTo(leafletMap);
+  // Center marker: drag it to measure the radius and distances from somewhere else
+  const centerMarker = L.marker([CENTER.lat, CENTER.lon], {
+    icon: L.divIcon({ className: 'center-hit', html: '<div class="center-pin"></div>', iconSize: [30, 30], iconAnchor: [15, 15] }),
+    draggable: true, autoPan: true, keyboard: false, zIndexOffset: 1000,
+  }).bindTooltip('Center: Four Corners Monument. Drag to move.', { direction: 'top', offset: [0, -14] }).addTo(leafletMap);
+  centerMarker.on('drag', e => {
+    const ll = e.target.getLatLng();
+    CENTER.lat = ll.lat; CENTER.lon = ll.lng;
+    drawRings();
+  });
+  centerMarker.on('dragend', e => {
+    const ll = e.target.getLatLng();
+    if (miles(DATA_CENTER.lat, DATA_CENTER.lon, ll.lat, ll.lng) > MAX_RADIUS) {
+      // outside the area data is loaded for: send it back
+      CENTER.lat = DATA_CENTER.lat; CENTER.lon = DATA_CENTER.lon; CENTER.name = 'Four Corners';
+      e.target.setLatLng([CENTER.lat, CENTER.lon]);
+      e.target.setTooltipContent('Center: Four Corners Monument. Drag to move.');
+    } else {
+      CENTER.lat = ll.lat; CENTER.lon = ll.lng;
+      CENTER.name = `${ll.lat.toFixed(3)}°N ${Math.abs(ll.lng).toFixed(3)}°W`;
+      e.target.setTooltipContent(`Center: ${CENTER.name}. Drag to move; reload to reset.`);
+    }
+    computeDerived(); render();
+  });
 
   ringLayer = L.layerGroup().addTo(leafletMap);
   createMarkerLayer();
@@ -1017,9 +1040,9 @@ const ambient = new Map();      // device id -> station
 let official = [];
 
 const cellInRange = (i, j) => {  // nearest point of the cell to the center is within MAX_RADIUS
-  const lat = Math.min(Math.max(CENTER.lat, i * CELL_LAT), (i + 1) * CELL_LAT);
-  const lon = Math.min(Math.max(CENTER.lon, j * CELL_LON), (j + 1) * CELL_LON);
-  return miles(CENTER.lat, CENTER.lon, lat, lon) <= MAX_RADIUS;
+  const lat = Math.min(Math.max(DATA_CENTER.lat, i * CELL_LAT), (i + 1) * CELL_LAT);
+  const lon = Math.min(Math.max(DATA_CENTER.lon, j * CELL_LON), (j + 1) * CELL_LON);
+  return miles(DATA_CENTER.lat, DATA_CENTER.lon, lat, lon) <= MAX_RADIUS;
 };
 
 async function fetchBox(w, s, e, n, depth, seen) {
@@ -1047,7 +1070,7 @@ async function loadCell(key, sample) {
       const co = x.info?.coords?.geo?.coordinates, d = x.lastData || {};
       if (!co || d.dailyrainin == null || !(d.dateutc >= now - 3 * 3600e3)) continue;
       const lat = co[1], lon = co[0];
-      if (miles(CENTER.lat, CENTER.lon, lat, lon) > MAX_RADIUS) continue;
+      if (miles(DATA_CENTER.lat, DATA_CENTER.lon, lat, lon) > MAX_RADIUS) continue;
       ambient.set(x._id, { src: 'A', net: 'Ambient', cell: key,
         name: ((x.public && x.public.name) || x.info.name || 'Ambient station').trim(),
         area: (x.info.coords.location || '').trim(), lat, lon,
@@ -1106,7 +1129,7 @@ async function loadOfficial() {
   if (res.every(r => r.status === 'rejected')) throw new Error('IEM unreachable');
   const out = [];
   for (const n of nets) for (const r of data[n] || []) {
-    if (r.pday == null || miles(CENTER.lat, CENTER.lon, r.lat, r.lon) > MAX_RADIUS) continue;
+    if (r.pday == null || miles(DATA_CENTER.lat, DATA_CENTER.lon, r.lat, r.lon) > MAX_RADIUS) continue;
     const isDcp = n.endsWith('_DCP'), isRaws = /RAWS/i.test(r.name);
     // DCP platforms are mostly stream gauges whose precip field reads 0 when
     // there is no rain sensor; keep RAWS, and other platforms only if they report rain.
@@ -1173,7 +1196,7 @@ async function awdb(trips, elements, duration, begin, end) {
 async function loadSnotel() {
   const r = await fetch(AWDB + 'stations?stationTriplets=' + encodeURIComponent(['CO', 'UT', 'NM', 'AZ', 'WY', 'ID', 'NV'].map(s => `*:${s}:SNTL`).join(',')) + '&returnStationElements=false&activeOnly=true');
   if (!r.ok) throw new Error('NRCS HTTP ' + r.status);
-  const sites = (await r.json()).filter(s => miles(CENTER.lat, CENTER.lon, s.latitude, s.longitude) <= MAX_RADIUS);
+  const sites = (await r.json()).filter(s => miles(DATA_CENTER.lat, DATA_CENTER.lon, s.latitude, s.longitude) <= MAX_RADIUS);
   const now = Date.now(), p = dParts(now);
   const dayStart = denverMidnight(p.y, p.m, p.d);
   const weekStart = dayStart - p.wd * 86400e3;            // week starts Sunday

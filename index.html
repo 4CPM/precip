@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Rain Gauge Map</title>
+<title>4 Corners Precip Map</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
@@ -188,6 +188,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 /* ── Radius label ───────────────────────────────────────── */
 .ring-label{font-size:11px;font-weight:700;color:#dc2626;background:rgba(255,255,255,.85);padding:1px 6px;border-radius:8px;white-space:nowrap;border:1px solid rgba(220,38,38,.3)}
 
+/* ── App name and version ───────────────────────────────── */
+.app-name{font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#94a3b8;margin-bottom:3px;white-space:nowrap}
+.app-name span{font-weight:500;letter-spacing:0;text-transform:none}
+
 /* ── Collapsible panels ─────────────────────────────────── */
 .panel-head{display:flex;align-items:center;gap:8px;width:100%;border:none;background:transparent;padding:0;cursor:pointer;font-family:inherit;color:inherit;text-align:left}
 .panel-head h2,.panel-head h4{margin:0;flex:1;white-space:nowrap}
@@ -269,6 +273,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // Ambient Weather Network and official gauges (NWS ASOS, RAWS and other remote
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
+// Version shown on the map. Bump it with every published change.
+const APP_VERSION = '1.15';
 const CENTER = { name: 'center', lat: 37.327167, lon: -108.716722 };   // 37°19'37.8"N 108°43'00.2"W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
 // Ambient stations load by map area as people pan and zoom, in cells of
@@ -586,6 +592,7 @@ function addInfoPanel() {
     const el = L.DomUtil.create('div', 'info-panel');
     el.id = 'info-panel';
     el.innerHTML = `
+      <div class="app-name">4 Corners Precip Map <span id="app-ver"></span></div>
       <button class="panel-head" type="button"><h2 id="info-title">Rain Today</h2><span class="summary" id="st-summary">Loading…</span><span class="chev">▾</span></button>
       <div class="panel-body">
         <div class="asof" id="asof"></div>
@@ -599,6 +606,7 @@ function addInfoPanel() {
     L.DomEvent.disableClickPropagation(el);
     L.DomEvent.disableScrollPropagation(el);
     el.querySelector('#refresh-btn').addEventListener('click', loadData);
+    el.querySelector('#app-ver').textContent = 'v' + APP_VERSION;
     makeCollapsible(el, IS_PHONE);
     return el;
   };
@@ -724,8 +732,8 @@ function legendHtml() {
     : '<div class="note">Year depends on when each gauge was installed or reset, so it isn\'t checked against nearby gauges. Year readings over 80 in are flagged as impossible here.</div>';
   return `<button class="panel-head" type="button"><h4>${M.title}</h4><span class="chev">▾</span></button><div class="panel-body">` +
     CLASSES.map(c => `<div class="legend-row"><div class="legend-sw" style="background:${c.bg}"></div>${c.label}</div>`).join('') +
-    `<div class="legend-row" style="margin-top:4px"><div class="legend-sw suspect"></div>Likely erroneous reading</div>
-     <div class="legend-row"><div class="legend-sw official"></div>Official (NWS, RAWS)</div>
+    `<div class="legend-row" style="margin-top:4px"><div class="legend-sw suspect"></div>Likely erroneous</div>
+     <div class="legend-row"><div class="legend-sw official"></div>Official (NWS etc.)</div>
      <div class="legend-row"><div class="legend-sw snotel"></div>SNOTEL (NRCS)</div>${offNote}${chk}</div>`;
 }
 let legendEl;

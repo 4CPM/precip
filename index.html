@@ -288,12 +288,13 @@ function median(a) {
 let stations = [];
 let dataTime = 'Loading…';
 
-// Flag rule: a gauge is likely erroneous when it
-//   - reports 0.00 while it is reporting, or
-//   - reads under 40% of the nearby median AND at least 0.25 inch less, or
-//   - reads over 2.5 times the nearby median AND at least 1 inch more.
+// Flag rule: a gauge is likely erroneous when it reads
+//   - under 40% of the nearby median AND at least 0.25 inch less (this catches
+//     0.00 readings where it rained, but leaves 0.00 alone where it did not), or
+//   - over 2.5 times the nearby median AND at least 1 inch more (2 inches when
+//     the comparison has to reach out to 10 miles), or
+//   - more than 12 inches, beyond anything this region records in a day.
 // "Nearby" is gauges within 3 miles; where fewer than 2 are that close, within 10 miles.
-// Each comparison needs at least 2 neighbors.
 const HASH = 0.07;  // degrees; a 3x3 block of these covers a 3-mile search
 const hkey = (i, j) => i + ',' + j;
 function buildHash(list) {
@@ -321,27 +322,35 @@ function computeDerived() {
   // one bad gauge cannot make its good neighbors look wrong. High readings are
   // found first and left out when checking for low ones.
   const hood = (s, skip) => {
-    let r = 3, nb = near(hash, s, 3).filter(o => o.p > 0 && !(skip && skip.has(o)));
-    if (nb.length < 2) { r = 10; nb = near(hash, s, 10).filter(o => o.p > 0 && !(skip && skip.has(o))); }
+    let r = 3, nb = near(hash, s, 3).filter(o => !(skip && skip.has(o)));
+    if (nb.length < 2) { r = 10; nb = near(hash, s, 10).filter(o => !(skip && skip.has(o))); }
     return nb.length >= 2 ? { med: median([...nb.map(o => o.p), s.p]), n: nb.length, r } : null;
   };
   const highs = new Set();
   for (const s of stations) {
-    s.why = ''; s.suspect = false;
+    s.why = ''; s.suspect = false; s.nbMed = null;
+    if (s.p > 12) {   // beyond anything this region records in a day
+      highs.add(s); s.suspect = true;
+      s.why = 'Reads more rain than this region records in a day. Gauge error.';
+      continue;
+    }
     const h0 = hood(s);
-    if (s.p > 0 && h0 && s.p > 2.5 * h0.med && s.p - h0.med >= 1) {
+    // a wider (10 mi) neighborhood needs a bigger gap, since storm cells can be that small
+    const gap = h0 && h0.r === 3 ? 1 : 2;
+    if (h0 && s.p > 2.5 * h0.med && s.p - h0.med >= gap) {
       highs.add(s); s.suspect = true; s.nbMed = h0.med;
       s.why = `Reads far above nearby gauges (median ${h0.med.toFixed(2)} in, ${h0.n} gauges within ${h0.r} mi). Possible gauge problem, such as sprinkler water or a stuck tipping bucket.`;
     }
   }
   for (const s of stations) {
     if (highs.has(s)) continue;
-    if (s.p === 0) { s.suspect = true; s.why = 'Reporting, but rain total is 0.00. Likely no rain gauge or a failed gauge.'; continue; }
     const h1 = hood(s, highs);
     s.nbMed = h1 ? h1.med : null;
     if (h1 && s.p < 0.4 * h1.med && h1.med - s.p >= 0.25) {
       s.suspect = true;
-      s.why = `Reads far below nearby gauges (median ${h1.med.toFixed(2)} in, ${h1.n} gauges within ${h1.r} mi). Possible gauge problem, such as a clogged funnel.`;
+      s.why = s.p === 0
+        ? `Reads 0.00 while nearby gauges got rain (median ${h1.med.toFixed(2)} in, ${h1.n} gauges within ${h1.r} mi). Likely no rain gauge or a failed gauge.`
+        : `Reads far below nearby gauges (median ${h1.med.toFixed(2)} in, ${h1.n} gauges within ${h1.r} mi). Possible gauge problem, such as a clogged funnel.`;
     }
   }
 }
@@ -623,7 +632,7 @@ function addLegend() {
       CLASSES.map(k => `<div class="legend-row"><div class="legend-sw" style="background:${k.bg}"></div>${k.label}</div>`).join('') +
       `<div class="legend-row" style="margin-top:4px"><div class="legend-sw suspect"></div>Likely erroneous reading</div>
        <div class="legend-row"><div class="legend-sw official"></div>Official (ASOS, RAWS, USCRN, other)</div>
-       <div class="note">Likely erroneous: reporting 0.00; under 40% of nearby gauges and at least 0.25 in lower; or over 2.5 times nearby gauges and at least 1 in higher. Nearby means within 3 mi, or 10 mi where gauges are sparse. Ambient stations registered twice by the same owner are shown once.</div></div>`;
+       <div class="note">Likely erroneous: under 40% of nearby gauges and at least 0.25 in lower (including 0.00 where it rained nearby), or over 2.5 times nearby gauges and at least 1 in higher (2 in where gauges are sparse), or over 12 in. Nearby means within 3 mi, or 10 mi where gauges are sparse. Ambient stations registered twice by the same owner are shown once.</div></div>`;
     L.DomEvent.disableClickPropagation(el);
     L.DomEvent.disableScrollPropagation(el);
     makeCollapsible(el, IS_PHONE);

@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Rain Gauge Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f8fafc;color:#1e293b}
+#map{width:100%;height:100vh}
+
+/* ── Pins ─────────────────────────────────────────────── */
+.pin{
+  display:flex;align-items:center;justify-content:center;
+  border-radius:11px;font-weight:700;font-size:11px;
+  font-variant-numeric:tabular-nums;
+  border:2px solid rgba(255,255,255,.9);
+  box-shadow:0 2px 6px rgba(0,0,0,.4);
+  cursor:pointer;height:22px;min-width:38px;padding:0 5px;
+}
+.pin.suspect{border:2px dashed #475569;background:#e2e8f0 !important;color:#475569 !important}
+.pin.official{border-color:#111827;border-width:2.5px}
+.pin.dot{min-width:0;width:12px;height:12px;padding:0;border-radius:50%;font-size:0;box-shadow:0 1px 3px rgba(0,0,0,.35)}
+.pin.dot.official{width:14px;height:14px;border-radius:2px}
+.pin.dot.suspect{border-width:1.5px}
+.center-pin{
+  width:18px;height:18px;border-radius:50%;
+  border:2px solid #dc2626;background:rgba(255,255,255,.85);position:relative;
+}
+.center-pin::before,.center-pin::after{content:"";position:absolute;background:#dc2626}
+.center-pin::before{left:7px;top:-6px;width:2px;height:26px}
+.center-pin::after{top:7px;left:-6px;height:2px;width:26px}
+
+/* ── Popup ─────────────────────────────────────────────── */
+.st-popup{min-width:220px;font-size:12px;color:#334155}
+.st-popup h3{margin:0 0 2px;font-size:14px;color:#1e293b}
+.st-popup .sub{color:#64748b;margin-bottom:8px}
+.st-popup .big{font-size:22px;font-weight:700;color:#1e293b;font-variant-numeric:tabular-nums}
+.st-popup .big small{font-size:12px;font-weight:600;color:#64748b}
+.st-popup .row{display:flex;justify-content:space-between;gap:12px;padding:2px 0;border-bottom:1px solid #f1f5f9}
+.st-popup .row:last-child{border-bottom:none}
+.st-popup .row span:last-child{font-weight:600;color:#1e293b;text-align:right}
+.st-popup .warn{margin:6px 0;padding:5px 8px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:11px;line-height:1.4}
+.st-popup a{color:#2563eb;text-decoration:none;font-weight:600}
+.st-popup a:hover{text-decoration:underline}
+
+/* ── Info panel ────────────────────────────────────────── */
+.info-panel{
+  background:rgba(255,255,255,.94);color:#1e293b;
+  padding:14px 18px;border-radius:10px;
+  box-shadow:0 4px 20px rgba(0,0,0,.15);
+  width:250px;font-size:13px;line-height:1.5;
+  backdrop-filter:blur(8px);
+}
+.info-panel h2{font-size:15px;color:#1e293b;margin-bottom:2px}
+.info-panel .asof{font-size:11px;color:#64748b;margin-bottom:8px}
+.info-panel .stat{display:flex;justify-content:space-between;padding:2px 0;gap:16px}
+.info-panel .stat .val{font-weight:600;color:#2563eb;white-space:nowrap;font-variant-numeric:tabular-nums}
+.panel-btn{
+  display:block;width:100%;margin-top:10px;padding:6px 0;
+  border:1px solid rgba(37,99,235,.35);border-radius:6px;
+  background:#eff6ff;color:#2563eb;font-size:12px;font-weight:600;
+  cursor:pointer;text-align:center;font-family:inherit;
+}
+.panel-btn:hover{background:#dbeafe}
+.panel-btn:disabled{opacity:.6;cursor:wait}
+.refresh-msg{font-size:11px;color:#64748b;margin-top:6px;line-height:1.4}
+.refresh-msg.err{color:#b91c1c}
+
+/* ── Filter bar ─────────────────────────────────────────── */
+.filter-bar{
+  display:flex;flex-direction:column;
+  background:rgba(255,255,255,.94);padding:8px 10px;border-radius:10px;
+  box-shadow:0 4px 20px rgba(0,0,0,.15);backdrop-filter:blur(8px);
+}
+.filter-row{display:flex;gap:6px;align-items:center}
+.filter-row+.filter-row{margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,.07);justify-content:center;gap:12px}
+.filter-btn{
+  padding:5px 11px;border-radius:6px;font-size:12px;font-weight:600;
+  cursor:pointer;border:none;background:rgba(0,0,0,.06);color:#64748b;font-family:inherit;
+}
+.filter-btn:hover{background:rgba(0,0,0,.1)}
+.filter-btn.active{color:#fff;background:#0e7490}
+.toggle-btn{display:inline-flex;align-items:center;gap:7px;cursor:pointer;border:none;background:transparent;padding:3px 4px;border-radius:6px;font-family:inherit}
+.toggle-btn:hover{background:rgba(0,0,0,.06)}
+.toggle-track{display:inline-block;width:32px;height:18px;border-radius:9px;background:rgba(0,0,0,.18);position:relative;transition:background .2s;flex-shrink:0}
+.toggle-thumb{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:left .2s}
+.toggle-btn.active .toggle-track{background:#0891b2}
+.toggle-btn.active .toggle-thumb{left:16px}
+.toggle-label-text{font-size:12px;font-weight:600;color:#64748b}
+.toggle-btn.active .toggle-label-text{color:#0891b2}
+.seg-ctrl{display:inline-flex;border-radius:6px;overflow:hidden;border:1px solid rgba(0,0,0,.15)}
+.seg-btn{padding:3px 8px;border:none;background:#fff;font-family:inherit;font-size:11px;font-weight:600;color:#64748b;cursor:pointer;white-space:nowrap}
+.seg-btn:not(:last-child){border-right:1px solid rgba(0,0,0,.12)}
+.seg-btn:hover:not(.active){background:rgba(0,0,0,.04)}
+.seg-btn.active{background:#0891b2;color:#fff}
+
+/* ── Legend ────────────────────────────────────────────── */
+.legend{
+  background:rgba(255,255,255,.94);color:#1e293b;
+  padding:12px 14px;border-radius:8px;
+  box-shadow:0 2px 12px rgba(0,0,0,.12);font-size:12px;backdrop-filter:blur(8px);
+}
+.legend h4{margin:0 0 6px;font-size:13px}
+.legend-row{display:flex;align-items:center;gap:8px;padding:1px 0;font-variant-numeric:tabular-nums}
+.legend-sw{width:28px;height:13px;border-radius:7px;border:1px solid rgba(0,0,0,.12);flex-shrink:0}
+.legend-sw.suspect{background:#e2e8f0;border:1.5px dashed #475569}
+.legend-sw.official{background:#fff;border:2.5px solid #111827}
+.legend .note{margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,.08);color:#64748b;font-size:11px;max-width:200px;line-height:1.4}
+
+/* ── Search ─────────────────────────────────────────────── */
+.search-bar{
+  position:absolute;top:12px;left:50%;transform:translateX(-50%);
+  z-index:1000;display:flex;align-items:center;
+  background:rgba(255,255,255,.96);border-radius:10px;
+  box-shadow:0 4px 24px rgba(0,0,0,.2);
+}
+.search-bar input{border:none;outline:none;background:transparent;font-size:14px;color:#1e293b;padding:10px 14px;width:260px;font-family:inherit}
+.search-bar input::placeholder{color:#94a3b8}
+.search-clear{background:none;border:none;cursor:pointer;padding:0 12px;color:#94a3b8;font-size:16px;line-height:1;display:none}
+.search-clear:hover{color:#475569}
+.search-results{
+  position:absolute;top:calc(100% + 4px);left:0;right:0;
+  background:rgba(255,255,255,.98);border-radius:8px;
+  box-shadow:0 4px 16px rgba(0,0,0,.15);max-height:240px;overflow-y:auto;display:none;
+}
+.search-result-item{padding:7px 12px;font-size:12px;color:#1e293b;cursor:pointer;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;gap:10px}
+.search-result-item:last-child{border-bottom:none}
+.search-result-item:hover,.search-result-item.selected{background:#eff6ff;color:#2563eb}
+.search-result-item .count{color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* ── Draw control ───────────────────────────────────────── */
+.draw-control{background:rgba(255,255,255,.94);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.15);display:flex;gap:4px;padding:8px 10px}
+.draw-btn{padding:5px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:none;background:rgba(0,0,0,.06);color:#64748b;font-family:inherit}
+.draw-btn:hover{background:rgba(0,0,0,.1);color:#334155}
+.draw-btn.active{background:#f59e0b;color:#fff}
+.draw-btn.poly.active{background:#8b5cf6;color:#fff}
+.draw-clear{padding:5px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:none;background:rgba(239,68,68,.12);color:#ef4444;display:none;font-family:inherit}
+.draw-clear:hover{background:rgba(239,68,68,.22)}
+.draw-sep{width:1px;background:rgba(0,0,0,.12);margin:0 2px;align-self:stretch}
+.draw-active{cursor:crosshair !important}
+.draw-active .leaflet-interactive{pointer-events:none}
+
+/* ── Selection stats panel ──────────────────────────────── */
+#sel-panel{
+  position:absolute;bottom:28px;left:12px;z-index:1000;
+  background:rgba(255,255,255,.95);color:#1e293b;
+  padding:12px 14px;border-radius:10px;
+  box-shadow:0 4px 20px rgba(0,0,0,.15);
+  width:300px;max-width:calc(100vw - 24px);font-size:12px;display:none;
+}
+.sel-header{display:flex;justify-content:space-between;align-items:center;gap:8px;font-weight:600;color:#475569;margin-bottom:6px;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.sel-close{border:none;background:rgba(239,68,68,.12);color:#ef4444;font:inherit;font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;padding:4px 10px;border-radius:6px;cursor:pointer;flex-shrink:0}
+.sel-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:8px}
+.sel-stats div{background:#f1f5f9;border-radius:6px;padding:4px 6px;text-align:center}
+.sel-stats b{display:block;font-size:14px;color:#1e293b;font-variant-numeric:tabular-nums}
+.sel-stats span{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.04em}
+.sel-list{max-height:180px;overflow-y:auto;border-top:1px solid #e2e8f0}
+.sel-list .r{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid #f1f5f9;cursor:pointer}
+.sel-list .r:hover{color:#2563eb}
+.sel-list .r b{font-variant-numeric:tabular-nums}
+.sel-list .r.sus{color:#94a3b8}
+.sel-copy{margin-top:8px;width:100%;padding:5px 0;border:1px solid rgba(37,99,235,.35);border-radius:6px;background:#eff6ff;color:#2563eb;font-weight:600;font-size:12px;cursor:pointer;font-family:inherit}
+.sel-copy:hover{background:#dbeafe}
+
+/* ── Radius label ───────────────────────────────────────── */
+.ring-label{font-size:11px;font-weight:700;color:#dc2626;background:rgba(255,255,255,.85);padding:1px 6px;border-radius:8px;white-space:nowrap;border:1px solid rgba(220,38,38,.3)}
+
+/* ── Collapsible panels ─────────────────────────────────── */
+.panel-head{display:flex;align-items:center;gap:8px;width:100%;border:none;background:transparent;padding:0;cursor:pointer;font-family:inherit;color:inherit;text-align:left}
+.panel-head h2,.panel-head h4{margin:0;flex:1;white-space:nowrap}
+.panel-head .summary{font-size:12px;font-weight:600;color:#2563eb;white-space:nowrap;font-variant-numeric:tabular-nums}
+.panel-head .chev{font-size:12px;color:#64748b;transition:transform .2s}
+.collapsed .panel-head .chev{transform:rotate(-90deg)}
+.collapsed .panel-body{display:none}
+.panel-body{margin-top:8px}
+.info-panel:not(.collapsed) .panel-head .summary{display:none}
+.filter-bar .panel-head{padding:2px 2px 0}
+.filter-bar .panel-head h4{font-size:13px;color:#1e293b}
+.filter-bar.collapsed{padding:8px 12px}
+.legend.collapsed{padding:8px 12px}
+
+/* ── Draw hint ──────────────────────────────────────────── */
+#draw-hint{
+  position:absolute;left:50%;transform:translateX(-50%);top:62px;z-index:1001;
+  display:none;align-items:center;gap:10px;
+  background:#1e293b;color:#fff;font-size:13px;font-weight:600;
+  padding:8px 8px 8px 14px;border-radius:20px;box-shadow:0 4px 16px rgba(0,0,0,.3);white-space:nowrap;
+}
+#draw-hint button{border:none;background:rgba(255,255,255,.18);color:#fff;font:inherit;font-size:12px;padding:5px 10px;border-radius:14px;cursor:pointer}
+
+/* ── Phones ─────────────────────────────────────────────── */
+@media (max-width:700px){
+  .leaflet-control-zoom{display:none}
+  .search-bar{left:10px;right:10px;transform:none;top:calc(10px + env(safe-area-inset-top,0px))}
+  .search-bar input{width:auto;flex:1;min-width:0;font-size:16px;padding:11px 14px}
+  .search-clear{font-size:20px;padding:0 14px}
+  .search-result-item{padding:11px 14px;font-size:14px}
+  .leaflet-top{top:calc(58px + env(safe-area-inset-top,0px))}
+  .leaflet-top .leaflet-control{margin-top:6px}
+  .leaflet-left .leaflet-control{margin-left:10px}
+  .leaflet-right .leaflet-control{margin-right:10px}
+  .info-panel{width:auto;max-width:calc(100vw - 150px);padding:9px 12px;font-size:13px}
+  .info-panel h2{font-size:14px}
+  .info-panel:not(.collapsed){max-width:calc(100vw - 20px);width:calc(100vw - 20px)}
+  .filter-bar{max-width:calc(100vw - 20px)}
+  .filter-bar:not(.collapsed){width:calc(100vw - 20px)}
+  .filter-row{flex-wrap:wrap}
+  .filter-row+.filter-row{justify-content:flex-start}
+  .filter-btn,.draw-btn,.draw-clear{padding:9px 14px;font-size:14px}
+  .seg-btn{padding:8px 11px;font-size:13px}
+  .toggle-label-text{font-size:13px}
+  .panel-btn{padding:10px 0;font-size:14px}
+  .legend{font-size:12px;padding:9px 12px}
+  .legend .note{max-width:none}
+  .leaflet-bottom .leaflet-control{margin-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
+  #sel-panel{left:8px;right:8px;width:auto;max-width:none;bottom:calc(8px + env(safe-area-inset-bottom,0px));max-height:42vh;overflow-y:auto;font-size:14px}
+  .sel-list{max-height:none}
+  .sel-list .r{padding:8px 0}
+  .sel-copy{padding:10px 0;font-size:14px}
+  #draw-hint{top:calc(62px + env(safe-area-inset-top,0px))}
+  .leaflet-popup-content{margin:12px 14px}
+}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<script>
+// ── Data ────────────────────────────────────────────────────────────────────
+// Ambient Weather Network and official gauges (NWS ASOS, RAWS and other remote
+// gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
+// the page opens and on Refresh.
+const CENTER = { name: 'center', lat: 37.327167, lon: -108.716722 };   // 37°19'37.8"N 108°43'00.2"W
+const LOAD_RADIUS = 100;   // miles; everything inside this is loaded once
+
+// ── Rain classes (inches) ────────────────────────────────────────────────────
+const CLASSES = [
+  { min: 2.00, label: '2.00+',       bg: '#c51b8a', fg: '#fff' },
+  { min: 1.50, label: '1.50 – 1.99', bg: '#7a0177', fg: '#fff' },
+  { min: 1.25, label: '1.25 – 1.49', bg: '#253494', fg: '#fff' },
+  { min: 1.00, label: '1.00 – 1.24', bg: '#2c7fb8', fg: '#fff' },
+  { min: 0.75, label: '0.75 – 0.99', bg: '#41b6c4', fg: '#0f172a' },
+  { min: 0.50, label: '0.50 – 0.74', bg: '#31a354', fg: '#fff' },
+  { min: 0.25, label: '0.25 – 0.49', bg: '#a1d99b', fg: '#0f172a' },
+  { min: 0.01, label: '0.01 – 0.24', bg: '#e5f5e0', fg: '#0f172a' },
+];
+function rainClass(p) { return CLASSES.find(c => p >= c.min) || CLASSES[CLASSES.length - 1]; }
+
+// ── Geometry ─────────────────────────────────────────────────────────────────
+const toRad = x => x * Math.PI / 180;
+function miles(a1, o1, a2, o2) {
+  const R = 3958.8, dl = toRad(a2 - a1), dn = toRad(o2 - o1);
+  const h = Math.sin(dl/2)**2 + Math.cos(toRad(a1))*Math.cos(toRad(a2))*Math.sin(dn/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function bearing(a1, o1, a2, o2) {
+  const y = Math.sin(toRad(o2-o1))*Math.cos(toRad(a2));
+  const x = Math.cos(toRad(a1))*Math.sin(toRad(a2)) - Math.sin(toRad(a1))*Math.cos(toRad(a2))*Math.cos(toRad(o2-o1));
+  const deg = (Math.atan2(y, x)*180/Math.PI + 360) % 360;
+  return ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'][Math.round(deg/22.5) % 16];
+}
+function median(a) {
+  if (!a.length) return null;
+  const s = [...a].sort((x, y) => x - y), m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m-1] + s[m]) / 2;
+}
+
+// ── Station model ────────────────────────────────────────────────────────────
+let stations = [];
+let dataTime = 'Loading…';
+
+// Flag rule: a gauge reporting 0.00, or one reading under 40% of the median
+// of other gauges within 3 miles (needs at least 2 neighbors).
+function computeDerived() {
+  for (const s of stations) {
+    s.dist = miles(CENTER.lat, CENTER.lon, s.lat, s.lon);
+    s.dir = bearing(CENTER.lat, CENTER.lon, s.lat, s.lon);
+  }
+  for (const s of stations) {
+    const nb = stations.filter(o => o !== s && o.p > 0 && miles(s.lat, s.lon, o.lat, o.lon) <= 3).map(o => o.p);
+    s.nbMed = nb.length >= 2 ? median(nb) : null;
+    s.suspect = s.p === 0 || (s.nbMed != null && s.p < 0.4 * s.nbMed);
+    s.why = s.p === 0
+      ? 'Reporting, but rain total is 0.00. Likely no rain gauge or a failed gauge.'
+      : s.suspect
+        ? `Reads under 40% of nearby gauges (median ${s.nbMed.toFixed(2)} in within 3 mi). Possible gauge problem.`
+        : '';
+  }
+}
+
+// ── State ────────────────────────────────────────────────────────────────────
+let leafletMap, markerLayer, ringLayer;
+let srcFilter = 'all';          // 'all' | 'A' | 'O'
+let suspectFilter = 'exclude';  // 'exclude' | 'include' | 'only'
+let radius = 100;               // miles
+let clusteringEnabled = true;   // on by default: hundreds of gauges at 100 mi
+let pinStyle = 'label';
+let activeStation = null;       // search pick
+let activeBBox = null, drawMode = false, drawRect = null, drawStart = null;
+let polyMode = false, polyDrawing = false, activePoly = null, polyVertices = [], polyPreviewLayer = null, polyLayer = null;
+const markersById = {};
+
+function visible(s, ignoreRegion) {
+  if (s.dist > radius + 1e-9) return false;
+  if (srcFilter !== 'all' && s.src !== srcFilter) return false;
+  if (suspectFilter === 'exclude' && s.suspect) return false;
+  if (suspectFilter === 'only' && !s.suspect) return false;
+  if (!ignoreRegion) {
+    if (activeBBox && (s.lat < activeBBox.minLat || s.lat > activeBBox.maxLat || s.lon < activeBBox.minLon || s.lon > activeBBox.maxLon)) return false;
+    if (activePoly && !pointInPolygon(s.lat, s.lon, activePoly)) return false;
+  }
+  return true;
+}
+
+// ── Map ──────────────────────────────────────────────────────────────────────
+function initMap() {
+  leafletMap = L.map('map', { zoomControl: true }).setView([CENTER.lat, CENTER.lon], 10);
+  const lightBase = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles &copy; Esri', maxZoom: 16 });
+  const lightRef = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 16 });
+  const light = L.layerGroup([lightBase, lightRef]);
+  const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors', maxZoom: 19 });
+  const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap &copy; OpenTopoMap', maxZoom: 17 });
+  const imagery = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Imagery &copy; Esri', maxZoom: 19 });
+  light.addTo(leafletMap);
+  L.control.layers({ 'Light gray': light, 'Streets (OSM)': osm, 'Topographic': topo, 'Imagery': imagery }, null, { position: 'bottomleft' }).addTo(leafletMap);
+  L.control.scale({ imperial: true, metric: false, position: 'bottomleft' }).addTo(leafletMap);
+
+  addInfoPanel();
+  addFilterBar();
+  addDrawControl();
+  addLegend();
+  addSearchBar();
+
+  // Center marker
+  L.marker([CENTER.lat, CENTER.lon], {
+    icon: L.divIcon({ className: '', html: '<div class="center-pin"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }),
+    zIndexOffset: -1000, keyboard: false,
+  }).bindTooltip(`Center: 37°19′37.8″N 108°43′00.2″W`, { direction: 'top', offset: [0, -10] }).addTo(leafletMap);
+
+  ringLayer = L.layerGroup().addTo(leafletMap);
+  createMarkerLayer();
+  render();
+  fitRadius();
+  loadData();
+}
+
+function fitRadius() {
+  const dLat = radius / 69, dLon = radius / (69 * Math.cos(toRad(CENTER.lat)));
+  leafletMap.fitBounds([[CENTER.lat - dLat, CENTER.lon - dLon], [CENTER.lat + dLat, CENTER.lon + dLon]], { padding: [20, 20] });
+}
+
+function drawRings() {
+  ringLayer.clearLayers();
+  L.circle([CENTER.lat, CENTER.lon], { radius: radius * 1609.344, color: '#dc2626', weight: 1.5, dashArray: '5 5', fill: false, interactive: false }).addTo(ringLayer);
+  const labelLat = CENTER.lat + radius / 69;
+  L.marker([labelLat, CENTER.lon], {
+    icon: L.divIcon({ className: '', html: `<span class="ring-label">${radius} mi</span>`, iconSize: [44, 16], iconAnchor: [22, 8] }),
+    interactive: false, keyboard: false,
+  }).addTo(ringLayer);
+}
+
+function createMarkerLayer() {
+  if (markerLayer) leafletMap.removeLayer(markerLayer);
+  markerLayer = clusteringEnabled
+    ? L.markerClusterGroup({
+        maxClusterRadius: 40, disableClusteringAtZoom: 13, spiderfyOnMaxZoom: true, showCoverageOnHover: false,
+        iconCreateFunction: cluster => {
+          const vals = cluster.getAllChildMarkers().map(m => m.options.rain).filter(v => v != null);
+          const med = median(vals) ?? 0, c = rainClass(med);
+          return L.divIcon({
+            html: `<div style="width:40px;height:40px;border-radius:50%;background:${c.bg};color:${c.fg};font-size:11px;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:center;border:3px solid rgba(255,255,255,.85);box-shadow:0 2px 6px rgba(0,0,0,.35);line-height:1.05"><span>${med.toFixed(2)}</span><span style="font-size:9px;font-weight:600;opacity:.85">n=${vals.length}</span></div>`,
+            className: '', iconSize: [40, 40], iconAnchor: [20, 20],
+          });
+        },
+      })
+    : L.layerGroup();
+  markerLayer.addTo(leafletMap);
+}
+
+function render() {
+  drawRings();
+  markerLayer.clearLayers();
+  for (const k in markersById) delete markersById[k];
+  const list = stations.filter(s => visible(s)).sort((a, b) => a.p - b.p); // wettest on top
+  for (const s of list) {
+    const c = rainClass(s.p);
+    const cls = `pin${s.suspect ? ' suspect' : ''}${s.src === 'O' ? ' official' : ''}${pinStyle === 'dot' ? ' dot' : ''}`;
+    const style = s.suspect ? '' : `background:${c.bg};color:${c.fg}`;
+    const icon = pinStyle === 'dot'
+      ? L.divIcon({ className: '', html: `<div class="${cls}" style="${style}"></div>`, iconSize: [14, 14], iconAnchor: [7, 7] })
+      : L.divIcon({ className: '', html: `<div class="${cls}" style="${style}">${s.p.toFixed(2)}</div>`, iconSize: [40, 22], iconAnchor: [20, 11] });
+    const m = L.marker([s.lat, s.lon], { icon, rain: s.suspect ? null : s.p, riseOnHover: true });
+    m.bindPopup(() => buildPopup(s), { maxWidth: IS_PHONE ? 260 : 300, autoPanPaddingTopLeft: [10, IS_PHONE ? 70 : 10] });
+    if (!IS_PHONE) m.bindTooltip(`${s.name} · ${s.p.toFixed(2)} in`, { direction: 'top', offset: [0, -12] });
+    markerLayer.addLayer(m);
+    markersById[s.id] = m;
+  }
+  updateStats();
+  if (activeBBox || activePoly) buildSelectionPanel();
+}
+
+function buildPopup(s) {
+  const el = document.createElement('div');
+  el.className = 'st-popup';
+  const netLabel = s.src === 'A' ? 'Ambient Weather Network' : s.net;
+  const links = [];
+  if (s.iem) links.push(`<a href="https://mesonet.agron.iastate.edu/sites/site.php?station=${s.iem.id}&network=${s.iem.net}" target="_blank" rel="noopener">Station page (IEM) →</a>`);
+  if (s.slug) links.push(`<a href="https://ambientweather.net/dashboard/${s.slug}" target="_blank" rel="noopener">Ambient dashboard →</a>`);
+  el.innerHTML = `
+    <h3></h3>
+    <div class="sub"></div>
+    <div class="big">${s.p.toFixed(2)} <small>in since midnight</small></div>
+    ${s.why ? `<div class="warn">${s.why}</div>` : ''}
+    <div class="row"><span>As of</span><span>${s.time}</span></div>
+    <div class="row"><span>From ${CENTER.name}</span><span>${s.dist.toFixed(1)} mi ${s.dist < 0.05 ? '' : s.dir}</span></div>
+    <div class="row"><span>Lat, Lon</span><span>${s.lat.toFixed(4)}, ${s.lon.toFixed(4)}</span></div>
+    ${links.length ? `<div style="margin-top:6px;display:flex;flex-direction:column;gap:2px">${links.join('')}</div>` : ''}`;
+  el.querySelector('h3').textContent = s.name;
+  el.querySelector('.sub').textContent = [netLabel, s.area].filter(Boolean).join(' · ');
+  return el;
+}
+
+// ── Info panel ───────────────────────────────────────────────────────────────
+const IS_PHONE = window.matchMedia('(max-width:700px)').matches;
+
+function makeCollapsible(el, startCollapsed) {
+  if (startCollapsed) el.classList.add('collapsed');
+  el.querySelector('.panel-head').addEventListener('click', () => el.classList.toggle('collapsed'));
+}
+
+function addInfoPanel() {
+  const c = L.control({ position: 'topleft' });
+  c.onAdd = () => {
+    const el = L.DomUtil.create('div', 'info-panel');
+    el.id = 'info-panel';
+    el.innerHTML = `
+      <button class="panel-head" type="button"><h2>Rain Today</h2><span class="summary" id="st-summary">Loading…</span><span class="chev">▾</span></button>
+      <div class="panel-body">
+        <div class="asof" id="asof"></div>
+        <div class="stat"><span>Gauges shown</span><span class="val" id="st-n"></span></div>
+        <div class="stat"><span>Median</span><span class="val" id="st-med"></span></div>
+        <div class="stat"><span>Range</span><span class="val" id="st-rng"></span></div>
+        <div class="stat"><span>Likely erroneous</span><span class="val" id="st-sus"></span></div>
+        <button class="panel-btn" id="refresh-btn">↻ Refresh live data</button>
+        <div class="refresh-msg" id="refresh-msg">Loading live gauges…</div>
+      </div>`;
+    L.DomEvent.disableClickPropagation(el);
+    L.DomEvent.disableScrollPropagation(el);
+    el.querySelector('#refresh-btn').addEventListener('click', loadData);
+    makeCollapsible(el, IS_PHONE);
+    return el;
+  };
+  c.addTo(leafletMap);
+}
+
+function updateStats() {
+  const vis = stations.filter(s => visible(s));
+  const good = vis.filter(s => !s.suspect).map(s => s.p);
+  const inRadius = stations.filter(s => s.dist <= radius);
+  document.getElementById('asof').textContent = `${dataTime} · within ${radius} mi of ${CENTER.name}`;
+  document.getElementById('st-n').textContent = vis.length;
+  document.getElementById('st-med').textContent = good.length ? `${median(good).toFixed(2)} in` : '—';
+  document.getElementById('st-rng').textContent = good.length ? `${Math.min(...good).toFixed(2)} – ${Math.max(...good).toFixed(2)} in` : '—';
+  document.getElementById('st-sus').textContent = `${inRadius.filter(s => s.suspect).length}${suspectFilter === 'exclude' ? ' (hidden)' : ''}`;
+  document.getElementById('st-summary').textContent = good.length ? `${median(good).toFixed(2)} in median · ${vis.length}` : (stations.length ? 'No gauges' : 'Loading…');
+}
+
+// ── Filter bar ───────────────────────────────────────────────────────────────
+function addFilterBar() {
+  const c = L.control({ position: 'topright' });
+  c.onAdd = () => {
+    const el = L.DomUtil.create('div', 'filter-bar');
+    el.id = 'options-panel';
+    el.innerHTML = `
+      <button class="panel-head" type="button"><h4>Filters &amp; tools</h4><span class="chev">▾</span></button>
+      <div class="panel-body">
+      <div class="filter-row">
+        <button class="filter-btn active" data-src="all">All</button>
+        <button class="filter-btn" data-src="A">Ambient</button>
+        <button class="filter-btn" data-src="O">Official</button>
+      </div>
+      <div class="filter-row">
+        <span class="toggle-label-text">Radius</span>
+        <div class="seg-ctrl">
+          <button class="seg-btn" data-rad="10">10</button>
+          <button class="seg-btn" data-rad="25">25</button>
+          <button class="seg-btn" data-rad="50">50</button>
+          <button class="seg-btn active" data-rad="100">100 mi</button>
+        </div>
+      </div>
+      <div class="filter-row">
+        <button class="toggle-btn active" id="cluster-btn"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Cluster</span></button>
+        <button class="toggle-btn" id="dot-btn"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Dots</span></button>
+      </div>
+      <div class="filter-row">
+        <span class="toggle-label-text">Likely erroneous</span>
+        <div class="seg-ctrl">
+          <button class="seg-btn active" data-sus="exclude">Exclude</button>
+          <button class="seg-btn" data-sus="include">Include</button>
+          <button class="seg-btn" data-sus="only">Only</button>
+        </div>
+      </div>
+      <div class="filter-row">
+        <span class="toggle-label-text">Summarize an area</span>
+        <button class="draw-btn" id="draw-btn" title="Drag a box to summarize gauges inside it">⬚ Box</button>
+        <button class="draw-clear" id="draw-clear">Clear ×</button>
+        <button class="draw-btn poly" id="poly-draw-btn" title="Draw a freeform area to summarize gauges inside it">⬟ Polygon</button>
+        <button class="draw-clear" id="poly-clear">Clear ×</button>
+      </div>
+      </div>`;
+    L.DomEvent.disableClickPropagation(el);
+    L.DomEvent.disableScrollPropagation(el);
+    makeCollapsible(el, IS_PHONE);
+    el.querySelectorAll('[data-src]').forEach(b => b.addEventListener('click', () => {
+      srcFilter = b.dataset.src;
+      el.querySelectorAll('[data-src]').forEach(x => x.classList.toggle('active', x === b));
+      render();
+    }));
+    el.querySelectorAll('[data-rad]').forEach(b => b.addEventListener('click', () => {
+      radius = +b.dataset.rad;
+      el.querySelectorAll('[data-rad]').forEach(x => x.classList.toggle('active', x === b));
+      render(); fitRadius();
+    }));
+    el.querySelectorAll('[data-sus]').forEach(b => b.addEventListener('click', () => {
+      suspectFilter = b.dataset.sus;
+      el.querySelectorAll('[data-sus]').forEach(x => x.classList.toggle('active', x === b));
+      render();
+    }));
+    el.querySelector('#cluster-btn').addEventListener('click', e => {
+      clusteringEnabled = !clusteringEnabled;
+      e.currentTarget.classList.toggle('active', clusteringEnabled);
+      createMarkerLayer(); render();
+    });
+    el.querySelector('#dot-btn').addEventListener('click', e => {
+      pinStyle = pinStyle === 'label' ? 'dot' : 'label';
+      e.currentTarget.classList.toggle('active', pinStyle === 'dot');
+      render();
+    });
+    return el;
+  };
+  c.addTo(leafletMap);
+}
+
+// ── Legend ───────────────────────────────────────────────────────────────────
+function addLegend() {
+  const c = L.control({ position: 'bottomright' });
+  c.onAdd = () => {
+    const el = L.DomUtil.create('div', 'legend');
+    el.innerHTML = `<button class="panel-head" type="button"><h4>Rain since midnight (in)</h4><span class="chev">▾</span></button><div class="panel-body">` +
+      CLASSES.map(k => `<div class="legend-row"><div class="legend-sw" style="background:${k.bg}"></div>${k.label}</div>`).join('') +
+      `<div class="legend-row" style="margin-top:4px"><div class="legend-sw suspect"></div>Likely erroneous reading</div>
+       <div class="legend-row"><div class="legend-sw official"></div>Official (ASOS, RAWS, USCRN, other)</div>
+       <div class="note">Likely erroneous: reporting 0.00, or under 40% of the median of gauges within 3 mi. Ambient stations registered twice by the same owner are shown once.</div></div>`;
+    L.DomEvent.disableClickPropagation(el);
+    L.DomEvent.disableScrollPropagation(el);
+    makeCollapsible(el, IS_PHONE);
+    return el;
+  };
+  c.addTo(leafletMap);
+}
+
+// ── Draw box / polygon ───────────────────────────────────────────────────────
+function addDrawControl() {
+  document.getElementById('draw-btn').addEventListener('click', toggleDrawMode);
+  document.getElementById('draw-clear').addEventListener('click', clearBBox);
+  document.getElementById('poly-draw-btn').addEventListener('click', togglePolyMode);
+  document.getElementById('poly-clear').addEventListener('click', clearPoly);
+
+  const container = leafletMap.getContainer();
+  const panel = document.createElement('div');
+  panel.id = 'sel-panel';
+  container.appendChild(panel);
+  L.DomEvent.disableClickPropagation(panel);
+  L.DomEvent.disableScrollPropagation(panel);
+
+  const hint = document.createElement('div');
+  hint.id = 'draw-hint';
+  hint.innerHTML = '<span id="draw-hint-text"></span><button type="button" id="draw-cancel">Cancel</button>';
+  container.appendChild(hint);
+  L.DomEvent.disableClickPropagation(hint);
+  hint.querySelector('#draw-cancel').addEventListener('click', () => { if (drawMode) toggleDrawMode(); if (polyMode) togglePolyMode(); });
+
+  // Pointer events cover mouse, finger and pen alike.
+  const inUi = e => e.target.closest('.leaflet-control, .search-bar, #sel-panel, #draw-hint');
+  const ll = e => leafletMap.mouseEventToLatLng(e);
+  let active = false;
+  container.addEventListener('pointerdown', e => {
+    if (!(drawMode || polyMode) || inUi(e) || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    e.preventDefault(); e.stopPropagation();
+    active = true;
+    try { container.setPointerCapture(e.pointerId); } catch (_) {}
+    if (drawMode) onBoxDown({ latlng: ll(e) }); else onPolyDown({ latlng: ll(e) });
+  }, true);
+  container.addEventListener('pointermove', e => {
+    if (!active) return;
+    e.preventDefault();
+    if (drawMode) onBoxMove({ latlng: ll(e) }); else if (polyMode) onPolyMove({ latlng: ll(e) });
+  }, true);
+  const end = e => {
+    if (!active) return;
+    active = false;
+    if (drawMode) onBoxUp({ latlng: ll(e) }); else if (polyMode) onPolyUp();
+  };
+  container.addEventListener('pointerup', end, true);
+  container.addEventListener('pointercancel', end, true);
+}
+
+function setMapInteraction(on, hintText) {
+  const fn = on ? 'enable' : 'disable';
+  leafletMap.dragging[fn](); leafletMap.doubleClickZoom[fn](); leafletMap.scrollWheelZoom[fn](); leafletMap.touchZoom[fn]();
+  const c = leafletMap.getContainer();
+  c.classList.toggle('draw-active', !on);
+  c.style.touchAction = on ? '' : 'none';
+  const hint = document.getElementById('draw-hint');
+  if (!on) {
+    document.getElementById('draw-hint-text').textContent = hintText;
+    hint.style.display = 'flex';
+    leafletMap.closePopup();
+    if (IS_PHONE) document.getElementById('options-panel').classList.add('collapsed');
+  } else hint.style.display = 'none';
+}
+
+function toggleDrawMode() {
+  if (polyMode) togglePolyMode();
+  drawMode = !drawMode;
+  const btn = document.getElementById('draw-btn');
+  btn.classList.toggle('active', drawMode);
+  btn.textContent = '⬚ Box';
+  setMapInteraction(!drawMode, IS_PHONE ? 'Drag a finger to draw a box' : 'Drag on the map to draw a box');
+  if (!drawMode) { if (drawRect && !activeBBox) { leafletMap.removeLayer(drawRect); drawRect = null; } drawStart = null; }
+}
+function onBoxDown(e) { if (!drawMode) return; drawStart = e.latlng; if (drawRect) { leafletMap.removeLayer(drawRect); drawRect = null; } }
+function onBoxMove(e) {
+  if (!drawMode || !drawStart) return;
+  const b = L.latLngBounds(drawStart, e.latlng);
+  if (drawRect) drawRect.setBounds(b);
+  else drawRect = L.rectangle(b, { color: '#f59e0b', weight: 2, fillColor: '#f59e0b', fillOpacity: .08, dashArray: '6 4', interactive: false }).addTo(leafletMap);
+}
+function onBoxUp(e) {
+  if (!drawMode || !drawStart) return;
+  const b = L.latLngBounds(drawStart, e.latlng), sw = b.getSouthWest(), ne = b.getNorthEast();
+  drawStart = null;
+  if (Math.abs(ne.lat - sw.lat) < 0.005 && Math.abs(ne.lng - sw.lng) < 0.005) { if (drawRect) { leafletMap.removeLayer(drawRect); drawRect = null; } return; }
+  activeBBox = { minLat: sw.lat, maxLat: ne.lat, minLon: sw.lng, maxLon: ne.lng };
+  leafletMap.fitBounds(b, { paddingTopLeft: [20, IS_PHONE ? 120 : 20], paddingBottomRight: [20, IS_PHONE ? window.innerHeight * 0.45 : 20] });
+  if (activePoly) clearPoly(true);
+  toggleDrawMode();
+  document.getElementById('draw-clear').style.display = 'inline';
+  render();
+}
+function clearBBox(silent) {
+  activeBBox = null;
+  if (drawRect) { leafletMap.removeLayer(drawRect); drawRect = null; }
+  document.getElementById('draw-clear').style.display = 'none';
+  document.getElementById('sel-panel').style.display = 'none';
+  if (silent !== true) render();
+}
+
+function pointInPolygon(lat, lon, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [ai, oi] = poly[i], [aj, oj] = poly[j];
+    if ((ai > lat) !== (aj > lat) && lon < (oj - oi) * (lat - ai) / (aj - ai) + oi) inside = !inside;
+  }
+  return inside;
+}
+function togglePolyMode() {
+  if (drawMode) toggleDrawMode();
+  polyMode = !polyMode;
+  const btn = document.getElementById('poly-draw-btn');
+  btn.classList.toggle('active', polyMode);
+  btn.textContent = '⬟ Polygon';
+  setMapInteraction(!polyMode, IS_PHONE ? 'Trace the area with a finger' : 'Hold the button and trace the area');
+  polyDrawing = false; polyVertices = [];
+  if (polyPreviewLayer) { leafletMap.removeLayer(polyPreviewLayer); polyPreviewLayer = null; }
+}
+function onPolyDown(e) {
+  if (!polyMode) return;
+  polyDrawing = true; polyVertices = [[e.latlng.lat, e.latlng.lng]];
+  if (polyPreviewLayer) { leafletMap.removeLayer(polyPreviewLayer); polyPreviewLayer = null; }
+}
+function onPolyMove(e) {
+  if (!polyMode || !polyDrawing) return;
+  const last = leafletMap.latLngToContainerPoint(polyVertices[polyVertices.length - 1]);
+  const cur = leafletMap.latLngToContainerPoint(e.latlng);
+  if ((cur.x - last.x) ** 2 + (cur.y - last.y) ** 2 < 25) return;
+  polyVertices.push([e.latlng.lat, e.latlng.lng]);
+  const pts = [...polyVertices, polyVertices[0]];
+  if (polyPreviewLayer) polyPreviewLayer.setLatLngs(pts);
+  else polyPreviewLayer = L.polyline(pts, { color: '#8b5cf6', weight: 2, dashArray: '6 4', interactive: false }).addTo(leafletMap);
+}
+function onPolyUp() {
+  if (!polyMode || !polyDrawing) return;
+  polyDrawing = false;
+  if (polyVertices.length < 3) { if (polyPreviewLayer) { leafletMap.removeLayer(polyPreviewLayer); polyPreviewLayer = null; } polyVertices = []; return; }
+  const verts = [...polyVertices];
+  togglePolyMode();
+  if (polyLayer) leafletMap.removeLayer(polyLayer);
+  if (activeBBox) clearBBox(true);
+  activePoly = verts;
+  polyLayer = L.polygon(activePoly, { color: '#8b5cf6', weight: 2, fillColor: '#8b5cf6', fillOpacity: .08, dashArray: '6 4', interactive: false }).addTo(leafletMap);
+  document.getElementById('poly-clear').style.display = 'inline';
+  render();
+}
+function clearPoly(silent) {
+  activePoly = null; polyVertices = [];
+  if (polyLayer) { leafletMap.removeLayer(polyLayer); polyLayer = null; }
+  if (polyPreviewLayer) { leafletMap.removeLayer(polyPreviewLayer); polyPreviewLayer = null; }
+  document.getElementById('poly-clear').style.display = 'none';
+  document.getElementById('sel-panel').style.display = 'none';
+  if (silent !== true) render();
+}
+
+function buildSelectionPanel() {
+  const panel = document.getElementById('sel-panel');
+  const sel = stations.filter(s => visible(s)).sort((a, b) => b.p - a.p);
+  const good = sel.filter(s => !s.suspect).map(s => s.p);
+  panel.style.display = 'block';
+  const f = v => v == null ? '—' : v.toFixed(2);
+  const mean = good.length ? good.reduce((a, b) => a + b, 0) / good.length : null;
+  panel.innerHTML = `
+    <div class="sel-header"><span>${sel.length} gauge${sel.length === 1 ? '' : 's'} in ${activeBBox ? 'box' : 'polygon'}${sel.length - good.length ? ` · ${sel.length - good.length} likely erroneous, not in stats` : ''}</span><button type="button" class="sel-close" id="sel-close">Clear ×</button></div>
+    <div class="sel-stats">
+      <div><b>${f(median(good))}</b><span>Median</span></div>
+      <div><b>${f(mean)}</b><span>Mean</span></div>
+      <div><b>${good.length ? f(Math.min(...good)) : '—'}</b><span>Min</span></div>
+      <div><b>${good.length ? f(Math.max(...good)) : '—'}</b><span>Max</span></div>
+    </div>
+    <div class="sel-list"></div>
+    <button class="sel-copy" id="sel-copy">Copy table (paste into Excel)</button>`;
+  panel.querySelector('#sel-close').addEventListener('click', () => activeBBox ? clearBBox() : clearPoly());
+  const list = panel.querySelector('.sel-list');
+  for (const s of sel) {
+    const r = document.createElement('div');
+    r.className = 'r' + (s.suspect ? ' sus' : '');
+    const n = document.createElement('span'); n.textContent = s.name + (s.suspect ? ' (likely erroneous)' : '');
+    const v = document.createElement('b'); v.textContent = s.p.toFixed(2);
+    r.append(n, v);
+    r.addEventListener('click', () => { leafletMap.setView([s.lat, s.lon], Math.max(leafletMap.getZoom(), 12)); markersById[s.id]?.openPopup(); });
+    list.appendChild(r);
+  }
+  panel.querySelector('#sel-copy').addEventListener('click', e => {
+    const head = ['Station','Network','Area','Dist (mi)','Dir','Rain (in)','As of','Likely erroneous','Lat','Lon'];
+    const rows = sel.map(s => [s.name, s.src === 'A' ? 'Ambient' : s.net, s.area, s.dist.toFixed(1), s.dir, s.p.toFixed(2), s.time, s.suspect ? 'yes' : '', s.lat, s.lon]);
+    const tsv = [head, ...rows].map(r => r.join('\t')).join('\n');
+    const btn = e.currentTarget;
+    navigator.clipboard.writeText(tsv).then(() => { btn.textContent = 'Copied'; setTimeout(() => btn.textContent = 'Copy table (paste into Excel)', 1500); })
+      .catch(() => { btn.textContent = 'Copy blocked by browser'; });
+  });
+}
+
+// ── Search ───────────────────────────────────────────────────────────────────
+function addSearchBar() {
+  const container = leafletMap.getContainer();
+  const bar = document.createElement('div'); bar.className = 'search-bar';
+  const results = document.createElement('div'); results.className = 'search-results';
+  const input = document.createElement('input');
+  input.type = 'text'; input.id = 'station-search'; input.placeholder = 'Search station or town…'; input.autocomplete = 'off';
+  const clearBtn = document.createElement('button'); clearBtn.className = 'search-clear'; clearBtn.textContent = '×'; clearBtn.title = 'Clear search';
+  bar.append(results, input, clearBtn);
+  container.appendChild(bar);
+  L.DomEvent.disableClickPropagation(bar);
+  L.DomEvent.disableScrollPropagation(bar);
+  let hi = -1, matches = [];
+
+  function show(q) {
+    q = q.trim().toLowerCase(); results.innerHTML = '';
+    if (!q) { results.style.display = 'none'; return; }
+    matches = stations.filter(s => [s.name, s.area, s.net].join(' ').toLowerCase().includes(q)).sort((a, b) => a.dist - b.dist).slice(0, 30);
+    if (!matches.length) { results.style.display = 'none'; return; }
+    matches.forEach(s => {
+      const item = document.createElement('div'); item.className = 'search-result-item';
+      const n = document.createElement('span'); n.textContent = s.name + (s.area ? ` · ${s.area}` : '');
+      const c = document.createElement('span'); c.className = 'count'; c.textContent = `${s.p.toFixed(2)} in`;
+      item.append(n, c);
+      item.addEventListener('mousedown', e => { e.preventDefault(); pick(s); });
+      results.appendChild(item);
+    });
+    results.style.display = 'block'; hi = -1;
+  }
+  function pick(s) {
+    input.value = s.name; results.style.display = 'none'; clearBtn.style.display = 'inline';
+    // make sure it is visible under current filters
+    if (!visible(s)) {
+      if (s.suspect && suspectFilter === 'exclude') document.querySelector('[data-sus="include"]').click();
+      if (srcFilter !== 'all' && srcFilter !== s.src) document.querySelector('[data-src="all"]').click();
+      if (s.dist > radius) document.querySelector('[data-rad="100"]').click();
+    }
+    leafletMap.setView([s.lat, s.lon], 13);
+    setTimeout(() => markersById[s.id]?.openPopup(), 300);
+  }
+  input.addEventListener('input', () => show(input.value));
+  input.addEventListener('focus', () => show(input.value));
+  input.addEventListener('blur', () => setTimeout(() => results.style.display = 'none', 150));
+  input.addEventListener('keydown', e => {
+    const items = results.querySelectorAll('.search-result-item');
+    if (e.key === 'ArrowDown') { e.preventDefault(); hi = Math.min(hi + 1, items.length - 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); hi = Math.max(hi - 1, -1); }
+    else if (e.key === 'Enter') { const s = matches[hi >= 0 ? hi : 0]; if (s) pick(s); }
+    else if (e.key === 'Escape') { input.value = ''; clearBtn.style.display = 'none'; results.style.display = 'none'; }
+    items.forEach((el, i) => el.classList.toggle('selected', i === hi));
+  });
+  clearBtn.addEventListener('click', () => { input.value = ''; clearBtn.style.display = 'none'; results.style.display = 'none'; leafletMap.closePopup(); });
+}
+
+// ── Live loading (Ambient + official) ───────────────────────────────────────
+const fmtTime = ms => new Date(ms).toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: 'numeric', minute: '2-digit' });
+const titleCase = s => s.toLowerCase().replace(/\b([a-z])/g, c => c.toUpperCase()).replace(/\bRaws\b/g, 'RAWS').replace(/\bAp\b/g, 'Airport').replace(/\bCo\b/g, 'CO').replace(/\bNm\b/g, 'NM').replace(/\bUt\b/g, 'UT').replace(/\b(N|S|E|W|Ne|Nw|Se|Sw|Nne|Nnw|Sse|Ssw|Ene|Ese|Wnw|Wsw)\b/g, d => d.toUpperCase());
+
+async function ambientStations(now) {
+  const seen = new Map();
+  const dLat = LOAD_RADIUS / 69, dLon = LOAD_RADIUS / (69 * Math.cos(toRad(CENTER.lat)));
+  // The API returns at most 100 devices per box, so split any full box into quarters.
+  async function box(w, s, e, n, depth) {
+    const q = new URLSearchParams({ '$publicBox[0][0]': w, '$publicBox[0][1]': s, '$publicBox[1][0]': e, '$publicBox[1][1]': n, '$limit': 100 });
+    const r = await fetch('https://lightning.ambientweather.net/devices?' + q);
+    if (!r.ok) throw new Error('Ambient HTTP ' + r.status);
+    const arr = (await r.json()).data || [];
+    if (arr.length >= 100 && depth < 6) {
+      const mx = (w + e) / 2, my = (s + n) / 2;
+      await Promise.all([box(w, s, mx, my, depth + 1), box(mx, s, e, my, depth + 1), box(w, my, mx, n, depth + 1), box(mx, my, e, n, depth + 1)]);
+    } else arr.forEach(x => seen.set(x._id, x));
+  }
+  const N = 6, w0 = CENTER.lon - dLon, s0 = CENTER.lat - dLat, sx = 2 * dLon / N, sy = 2 * dLat / N, jobs = [];
+  for (let i = 0; i < N; i++) for (let k = 0; k < N; k++) jobs.push(box(w0 + k * sx, s0 + i * sy, w0 + (k + 1) * sx, s0 + (i + 1) * sy, 0));
+  await Promise.all(jobs);
+  const out = [];
+  for (const x of seen.values()) {
+    const c = x.info?.coords?.geo?.coordinates, d = x.lastData || {};
+    if (!c || d.dailyrainin == null || !(d.dateutc >= now - 3 * 3600e3)) continue;
+    const lat = c[1], lon = c[0];
+    if (miles(CENTER.lat, CENTER.lon, lat, lon) > LOAD_RADIUS) continue;
+    const s = { src: 'A', net: 'Ambient', name: ((x.public && x.public.name) || x.info.name || 'Ambient station').trim(),
+      area: (x.info.coords.location || '').trim(), lat, lon, p: +(+d.dailyrainin).toFixed(2), time: fmtTime(d.dateutc), slug: x.public?.slug };
+    // one owner sometimes registers the same station twice
+    const twin = out.find(o => miles(o.lat, o.lon, lat, lon) < 0.05 && Math.abs(o.p - s.p) < 0.01);
+    if (twin) { if (twin.name !== s.name) twin.name += ' / ' + s.name; continue; }
+    out.push(s);
+  }
+  return out;
+}
+
+async function officialStations() {
+  const nets = ['CO_ASOS', 'UT_ASOS', 'NM_ASOS', 'AZ_ASOS', 'USCRN', 'CO_DCP', 'UT_DCP', 'NM_DCP', 'AZ_DCP'];
+  const data = {};
+  await Promise.all(nets.map(n => fetch('https://mesonet.agron.iastate.edu/api/1/currents.json?network=' + n)
+    .then(r => { if (!r.ok) throw new Error('IEM HTTP ' + r.status); return r.json(); }).then(j => data[n] = j.data || [])));
+  const out = [];
+  for (const n of nets) for (const r of data[n] || []) {
+    if (r.pday == null || miles(CENTER.lat, CENTER.lon, r.lat, r.lon) > LOAD_RADIUS) continue;
+    const isDcp = n.endsWith('_DCP'), isRaws = /RAWS/i.test(r.name);
+    // DCP platforms are mostly stream gauges whose precip field reads 0 when
+    // there is no rain sensor; keep RAWS, and other platforms only if they report rain.
+    if (isDcp && !isRaws && !(r.pday > 0)) continue;
+    if (out.some(o => miles(o.lat, o.lon, r.lat, r.lon) < 0.3)) continue;   // same site in two networks
+    const net = n.endsWith('_ASOS') ? 'NWS ASOS' : n === 'USCRN' ? 'NOAA USCRN' : isRaws ? 'RAWS' : 'Remote gauge';
+    let name = titleCase(r.name);
+    if (n.endsWith('_ASOS')) name += ` (${/^[A-Z]{3}$/.test(r.station) ? 'K' + r.station : r.station})`;
+    out.push({ src: 'O', net, name, area: n.slice(0, 2), lat: r.lat, lon: r.lon, p: +(+r.pday).toFixed(2),
+      time: r.utc_valid ? fmtTime(Date.parse(r.utc_valid)) : (r.local_valid || '').slice(11, 16), iem: { net: n, id: r.station } });
+  }
+  return out;
+}
+
+let loading = false;
+async function loadData() {
+  if (loading) return;
+  loading = true;
+  const btn = document.getElementById('refresh-btn'), msg = document.getElementById('refresh-msg');
+  btn.disabled = true; btn.textContent = 'Loading…';
+  msg.className = 'refresh-msg'; msg.textContent = 'Pulling Ambient network and official gauges…';
+  const now = Date.now();
+  const [amb, off] = await Promise.allSettled([ambientStations(now), officialStations()]);
+  const keepOld = src => stations.filter(s => s.src === src);
+  const A = amb.status === 'fulfilled' ? amb.value : keepOld('A');
+  const O = off.status === 'fulfilled' ? off.value : keepOld('O');
+  stations = [...A, ...O].map((s, i) => ({ ...s, id: i }));
+  dataTime = `${new Date(now).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'long', day: 'numeric' })}, live as of ${fmtTime(now)}`;
+  computeDerived(); render();
+  btn.disabled = false; btn.textContent = '↻ Refresh live data';
+  const fails = [amb.status !== 'fulfilled' && 'Ambient', off.status !== 'fulfilled' && 'official-gauge'].filter(Boolean);
+  if (fails.length) {
+    msg.className = 'refresh-msg err';
+    msg.textContent = `${fails.join(' and ')} data could not be loaded (no connection, or the browser blocked it). ${stations.length ? 'Showing the last values it had.' : ''}`;
+  } else {
+    msg.textContent = `${A.length} Ambient and ${O.length} official gauges, all live.`;
+  }
+  loading = false;
+}
+
+initMap();
+</script>
+</body>
+</html>

@@ -274,8 +274,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.16';
-const CENTER = { name: 'center', lat: 37.327167, lon: -108.716722 };   // 37°19'37.8"N 108°43'00.2"W
+const APP_VERSION = '1.17';
+const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
 // Ambient stations load by map area as people pan and zoom, in cells of
 // 1° latitude by 1.2° longitude (about 70 by 66 miles).
@@ -486,7 +486,7 @@ function initMap() {
   L.marker([CENTER.lat, CENTER.lon], {
     icon: L.divIcon({ className: '', html: '<div class="center-pin"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }),
     zIndexOffset: -1000, keyboard: false,
-  }).bindTooltip(`Center: 37°19′37.8″N 108°43′00.2″W`, { direction: 'top', offset: [0, -10] }).addTo(leafletMap);
+  }).bindTooltip(`Center: Four Corners Monument`, { direction: 'top', offset: [0, -10] }).addTo(leafletMap);
 
   ringLayer = L.layerGroup().addTo(leafletMap);
   createMarkerLayer();

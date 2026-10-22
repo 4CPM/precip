@@ -116,6 +116,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .seg-btn:not(:last-child){border-right:1px solid rgba(0,0,0,.12)}
 .seg-btn:hover:not(.active){background:rgba(0,0,0,.04)}
 .seg-btn.active{background:#0891b2;color:#fff}
+.seg-btn:disabled{opacity:.35;cursor:not-allowed;background:#fff}
+.center-note{font-size:12px;line-height:1.4;max-width:230px}
+.center-note b{display:block;margin-bottom:3px}
 
 /* ── Legend ────────────────────────────────────────────── */
 .legend{
@@ -275,7 +278,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.26';
+const APP_VERSION = '1.27';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 // Data is loaded for the 500 mi around Four Corners; the crosshair (CENTER) can be dragged within it.
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
@@ -489,10 +492,14 @@ function initMap() {
 
   // Center marker
   // Center marker: drag it to measure the radius and distances from somewhere else
+  const centerNote = () => `<div class="center-note"><b>Center: ${CENTER.name === 'Four Corners' ? 'Four Corners Monument' : CENTER.name}</b>` +
+    `Drag the cross to measure the radius and distances from somewhere else. Reload the page to put it back on Four Corners.<br><br>` +
+    `Gauges are loaded for 500 miles around Four Corners, so a radius that would reach past that is greyed out.</div>`;
   const centerMarker = L.marker([CENTER.lat, CENTER.lon], {
     icon: L.divIcon({ className: 'center-hit', html: '<div class="center-pin"></div>', iconSize: [30, 30], iconAnchor: [15, 15] }),
-    draggable: true, autoPan: true, keyboard: false, zIndexOffset: 1000,
-  }).bindTooltip('Center: Four Corners Monument. Drag to move.', { direction: 'top', offset: [0, -14] }).addTo(leafletMap);
+    draggable: true, autoPan: true, keyboard: false, zIndexOffset: 1000, title: 'Click for info, drag to move',
+  }).bindPopup(centerNote, { offset: [0, -8] }).addTo(leafletMap);
+  centerMarker.on('dragstart', () => centerMarker.closePopup());
   centerMarker.on('drag', e => {
     const ll = e.target.getLatLng();
     CENTER.lat = ll.lat; CENTER.lon = ll.lng;
@@ -500,16 +507,15 @@ function initMap() {
   });
   centerMarker.on('dragend', e => {
     const ll = e.target.getLatLng();
-    if (miles(DATA_CENTER.lat, DATA_CENTER.lon, ll.lat, ll.lng) > MAX_RADIUS) {
-      // outside the area data is loaded for: send it back
+    if (miles(DATA_CENTER.lat, DATA_CENTER.lon, ll.lat, ll.lng) > MAX_RADIUS - 10) {
+      // too close to the edge of the area gauges are loaded for (no room even for 10 mi): send it back
       CENTER.lat = DATA_CENTER.lat; CENTER.lon = DATA_CENTER.lon; CENTER.name = 'Four Corners';
       e.target.setLatLng([CENTER.lat, CENTER.lon]);
-      e.target.setTooltipContent('Center: Four Corners Monument. Drag to move.');
     } else {
       CENTER.lat = ll.lat; CENTER.lon = ll.lng;
       CENTER.name = `${ll.lat.toFixed(3)}°N ${Math.abs(ll.lng).toFixed(3)}°W`;
-      e.target.setTooltipContent(`Center: ${CENTER.name}. Drag to move; reload to reset.`);
     }
+    limitRadius();
     computeDerived(); render();
   });
 
@@ -525,6 +531,18 @@ function initMap() {
   let t;
   leafletMap.on('moveend', () => { clearTimeout(t); t = setTimeout(() => ensureCells(false), 350); });
   loadData();
+}
+
+// Grey out radius choices that would reach past the area gauges are loaded for;
+// if the current one no longer fits, step down to the largest that does.
+function limitRadius() {
+  const room = MAX_RADIUS - miles(DATA_CENTER.lat, DATA_CENTER.lon, CENTER.lat, CENTER.lon) + 0.5;
+  const btns = [...document.querySelectorAll('[data-rad]')];
+  btns.forEach(b => { b.disabled = +b.dataset.rad > room; b.title = b.disabled ? 'Reaches past the area gauges are loaded for' : ''; });
+  if (radius > room) {
+    const fit = btns.filter(b => !b.disabled).pop();
+    if (fit) { radius = +fit.dataset.rad; btns.forEach(x => x.classList.toggle('active', x === fit)); }
+  }
 }
 
 function fitRadius(r = radius) {

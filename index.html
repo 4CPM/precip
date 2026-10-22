@@ -262,8 +262,9 @@ const MAX_CELLS = 120;          // past this many cells on screen, ask the viewe
 const CELL_TTL = 15 * 60e3;     // reload a cell's stations when they are older than 15 minutes
 
 // ── What to show, and its color classes ─────────────────────────────────────
-// Ambient stations report all seven values. Official gauges report only the
-// past hour (used for Rate) and the day's total.
+// Ambient stations report the seven rain values. NWS, RAWS and USCRN gauges report
+// only the past hour (used for Rate) and the day's total. SNOTEL sites give Day,
+// Week, Month and Year from their running precipitation total, plus snow.
 // "check" says whether the likely-erroneous test applies; Year and Total depend
 // on when each gauge was installed or reset, so neighbors can't be compared fairly.
 // "scale" sizes that test's inch thresholds to the value being shown.
@@ -275,6 +276,8 @@ const METRICS = {
   month: { label: 'Month', title: 'Rain this month (in)',              unit: 'in',    amb: 'monthlyrainin',             breaks: [0.01, 0.50, 1.00, 1.50, 2.00, 2.50, 3.00, 4.00], scale: 2,    check: true },
   year:  { label: 'Year',  title: 'Rain this year (in)',               unit: 'in',    amb: 'yearlyrainin',              breaks: [0.01, 2, 4, 6, 8, 10, 12, 15],                   scale: 10,   check: false, max: 80 },
   total: { label: 'Total', title: 'Total since gauge set up or reset (in)', unit: 'in', amb: 'totalrainin',            breaks: [0.01, 5, 10, 15, 20, 30, 40, 60],                scale: 20,   check: false },
+  swe:   { label: 'Snow water', title: 'Snow water equivalent (in)',     unit: 'in',                                    breaks: [0.1, 1, 2, 4, 6, 10, 15, 20],                    scale: 1,    check: false, snowOnly: true },
+  snow:  { label: 'Snow depth', title: 'Snow depth (in)',                unit: 'in',                                    breaks: [1, 6, 12, 18, 24, 36, 48, 72],                   scale: 1,    check: false, snowOnly: true },
 };
 const COLORS = [   // lowest class first
   { bg: '#e5f5e0', fg: '#0f172a' }, { bg: '#a1d99b', fg: '#0f172a' }, { bg: '#31a354', fg: '#fff' }, { bg: '#41b6c4', fg: '#0f172a' },
@@ -283,7 +286,7 @@ const COLORS = [   // lowest class first
 let metric = 'day';
 const fmtV = v => v >= 100 ? v.toFixed(0) : v.toFixed(2);
 function classesFor(m) {
-  const b = METRICS[m].breaks, whole = m === 'year' || m === 'total';
+  const b = METRICS[m].breaks, whole = m === 'year' || m === 'total' || m === 'snow';
   const lo = v => whole && v >= 1 ? String(v) : v.toFixed(2);
   return b.map((min, i) => ({ min, ...COLORS[i],
     label: i === b.length - 1 ? lo(min) + '+' : `${lo(min)} – ${(b[i + 1] - 0.01).toFixed(2)}` })).reverse();
@@ -520,6 +523,7 @@ function buildPopup(s) {
   el.className = 'st-popup';
   const netLabel = s.src === 'A' ? 'Ambient Weather Network' : s.net;
   const links = [];
+  if (s.snotel) links.push(`<a href="https://wcc.sc.egov.usda.gov/nwcc/site?sitenum=${s.snotel}" target="_blank" rel="noopener">SNOTEL site page (NRCS) →</a>`);
   if (s.iem) links.push(`<a href="https://mesonet.agron.iastate.edu/sites/site.php?station=${s.iem.id}&network=${s.iem.net}" target="_blank" rel="noopener">Station page (IEM) →</a>`);
   if (s.slug) links.push(`<a href="https://ambientweather.net/dashboard/${s.slug}" target="_blank" rel="noopener">Ambient dashboard →</a>`);
   el.innerHTML = `
@@ -531,6 +535,7 @@ function buildPopup(s) {
     ${s.why ? `<div class="warn">${s.why}</div>` : ''}
     <div class="row"><span>As of</span><span>${s.time}</span></div>
     <div class="row"><span>From ${CENTER.name}</span><span>${s.dist.toFixed(1)} mi ${s.dist < 0.05 ? '' : s.dir}</span></div>
+    ${s.elev ? `<div class="row"><span>Elevation</span><span>${s.elev.toLocaleString()} ft</span></div>` : ''}
     <div class="row"><span>Lat, Lon</span><span>${s.lat.toFixed(4)}, ${s.lon.toFixed(4)}</span></div>
     ${links.length ? `<div style="margin-top:6px;display:flex;flex-direction:column;gap:2px">${links.join('')}</div>` : ''}`;
   el.querySelector('h3').textContent = s.name;
@@ -676,14 +681,17 @@ function addFilterBar() {
 // ── Legend ───────────────────────────────────────────────────────────────────
 function legendHtml() {
   const M = METRICS[metric];
-  const offNote = M.off ? '' : '<div class="note">Official gauges don\'t report this value, so only personal stations show.</div>';
-  const chk = M.check
+  const offNote = M.snowOnly ? '<div class="note">Only SNOTEL sites report snow.</div>'
+    : ['event', 'total'].includes(metric) ? '<div class="note">Official gauges don\'t report this value, so only personal stations show.</div>'
+    : metric === 'rate' ? '<div class="note">SNOTEL sites don\'t report Rate.</div>'
+    : metric === 'year' ? '<div class="note">SNOTEL Year is January 1 to now, worked out from the water-year total.</div>' : '';
+  const chk = M.snowOnly ? '' : M.check
     ? '<div class="note">Likely erroneous: under 40% of nearby gauges and well below them (including 0.00 where nearby gauges show rain), or over 2.5 times nearby gauges and well above them. Nearby means within 3 mi, or 10 mi where gauges are sparse. Ambient stations registered twice by the same owner are shown once.</div>'
     : '<div class="note">Year and Total depend on when each gauge was installed or reset, so they aren\'t checked against nearby gauges. Year readings over 80 in are flagged as impossible here.</div>';
   return `<button class="panel-head" type="button"><h4>${M.title}</h4><span class="chev">▾</span></button><div class="panel-body">` +
     CLASSES.map(c => `<div class="legend-row"><div class="legend-sw" style="background:${c.bg}"></div>${c.label}</div>`).join('') +
     `<div class="legend-row" style="margin-top:4px"><div class="legend-sw suspect"></div>Likely erroneous reading</div>
-     <div class="legend-row"><div class="legend-sw official"></div>Official (ASOS, RAWS, USCRN, other)</div>${offNote}${chk}</div>`;
+     <div class="legend-row"><div class="legend-sw official"></div>Official (ASOS, RAWS, SNOTEL, USCRN, other)</div>${offNote}${chk}</div>`;
 }
 let legendEl;
 function addLegend() {
@@ -1073,6 +1081,100 @@ async function loadOfficial() {
   official = kept;
 }
 
+// SNOTEL via NRCS -------------------------------------------------------------
+// SNOTEL reports a running precipitation total (PREC) that resets to 0 on
+// October 1, in tenths of an inch, with timestamps in Pacific Standard Time.
+// Rain for a period = how far that total rose since the period began.
+let snotel = [];
+const AWDB = 'https://wcc.sc.egov.usda.gov/awdbRestApi/services/v1/';
+const TZ = 'America/Denver';
+function dParts(ms) {
+  const o = {};
+  for (const x of new Intl.DateTimeFormat('en-US', { timeZone: TZ, year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', hourCycle: 'h23', weekday: 'short' }).formatToParts(ms)) o[x.type] = x.value;
+  return { y: +o.year, m: +o.month, d: +o.day, h: +o.hour, wd: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(o.weekday) };
+}
+function denverMidnight(y, m, d) {   // ms of 00:00 Denver time on that date
+  for (const off of [6, 7]) { const t = Date.UTC(y, m - 1, d, off); const q = dParts(t); if (q.h === 0 && q.d === d) return t; }
+  return Date.UTC(y, m - 1, d, 7);
+}
+const pstHour = ms => new Date(ms - 8 * 3600e3).toISOString().slice(0, 13).replace('T', ' ') + ':00';
+const pstDay = ms => new Date(ms - 8 * 3600e3).toISOString().slice(0, 10);
+const pstMs = s => Date.parse(s.replace(' ', 'T') + (s.length > 10 ? ':00' : 'T00:00:00') + '-08:00');
+// Rise of a running total across a series, allowing for the October 1 reset
+// and ignoring the gauge's small up-and-down wobble.
+function rise(seq) {
+  if (seq[0] == null) return null;          // no starting reading, so the period can't be measured
+  seq = seq.filter(v => v != null);
+  if (seq.length < 2) return seq.length ? 0 : null;
+  let base = seq[0], peak = base, carried = 0;
+  for (const v of seq.slice(1)) {
+    if (peak - v > 0.5) { carried += peak - base; base = 0; peak = v; }
+    else if (v > peak) peak = v;
+  }
+  return +(carried + peak - base).toFixed(2);
+}
+async function awdb(trips, elements, duration, begin, end) {
+  const r = await fetch(`${AWDB}data?stationTriplets=${trips.join(',')}&elements=${elements}&duration=${duration}&beginDate=${encodeURIComponent(begin)}&endDate=${encodeURIComponent(end)}`);
+  if (!r.ok) throw new Error('NRCS HTTP ' + r.status);
+  const out = {};
+  for (const st of await r.json()) for (const el of st.data || []) (out[st.stationTriplet] ||= {})[el.stationElement.elementCode] = el.values || [];
+  return out;
+}
+async function loadSnotel() {
+  const r = await fetch(AWDB + 'stations?stationTriplets=' + encodeURIComponent(['CO', 'UT', 'NM', 'AZ', 'WY', 'ID', 'NV'].map(s => `*:${s}:SNTL`).join(',')) + '&returnStationElements=false&activeOnly=true');
+  if (!r.ok) throw new Error('NRCS HTTP ' + r.status);
+  const sites = (await r.json()).filter(s => miles(CENTER.lat, CENTER.lon, s.latitude, s.longitude) <= MAX_RADIUS);
+  const now = Date.now(), p = dParts(now);
+  const dayStart = denverMidnight(p.y, p.m, p.d);
+  const weekStart = dayStart - p.wd * 86400e3;            // week starts Sunday
+  const monthStart = denverMidnight(p.y, p.m, 1);
+  const hourly0 = pstHour(dayStart - 3600e3), hourly1 = pstHour(now + 3600e3);
+  const daily0 = pstDay(Math.min(weekStart, monthStart) - 2 * 86400e3), daily1 = pstDay(now);
+  const out = [];
+  const chunks = [];
+  for (let i = 0; i < sites.length; i += 50) chunks.push(sites.slice(i, i + 50));
+  const one = async group => {
+    const trips = group.map(s => s.stationTriplet);
+    const [H, D, M] = await Promise.all([
+      awdb(trips, 'PREC,WTEQ,SNWD', 'HOURLY', hourly0, hourly1),
+      awdb(trips, 'PREC', 'DAILY', daily0, daily1),
+      awdb(trips, 'PREC', 'MONTHLY', `${p.y - 1}-12-01`, `${p.y}-${String(p.m).padStart(2, '0')}-01`),
+    ]);
+    for (const s of group) {
+      const h = H[s.stationTriplet] || {}, prec = (h.PREC || []).filter(x => x.value != null);
+      if (!prec.length) continue;
+      const last = prec[prec.length - 1], lastMs = pstMs(last.date);
+      if (now - lastMs > 6 * 3600e3) continue;                       // not reporting
+      const atOrBefore = (vals, ms) => { let v = null; for (const x of vals) { if (pstMs(x.date) <= ms) v = x.value; else break; } return v; };
+      // Day: from the reading at Denver midnight through the latest hour
+      const startDay = atOrBefore(prec, dayStart);
+      const day = rise([startDay, ...prec.filter(x => pstMs(x.date) > dayStart).map(x => x.value)]);
+      // Week and Month: from the daily total that closed the day before, then on to the latest hour
+      const dv = ((D[s.stationTriplet] || {}).PREC || []).filter(x => x.value != null);
+      const fromDaily = start => {
+        const before = dv.filter(x => pstMs(x.date) + 86400e3 <= start + 3 * 3600e3);
+        if (!before.length) return null;
+        const seq = [before[before.length - 1].value, ...dv.filter(x => pstMs(x.date) + 86400e3 > start + 3 * 3600e3).map(x => x.value), last.value];
+        return rise(seq);
+      };
+      // Year (January 1 on): last December's closing total, each month's closing total, then the latest hour
+      const mv = ((M[s.stationTriplet] || {}).PREC || []).filter(x => x.value != null);
+      const dec = mv.find(x => x.year === p.y - 1 && x.month === 12);
+      const year = dec ? rise([dec.value, ...mv.filter(x => x.year === p.y && x.month < p.m).map(x => x.value), last.value]) : null;
+      const lastOf = code => { const a = (h[code] || []).filter(x => x.value != null); return a.length ? +a[a.length - 1].value : null; };
+      out.push({ src: 'O', net: 'SNOTEL', name: `${s.name} SNOTEL`, area: s.stateCode, lat: s.latitude, lon: s.longitude, elev: s.elevation,
+        snotel: s.stationId, time: fmtTime(lastMs),
+        v: { day, week: fromDaily(weekStart), month: fromDaily(monthStart), year, swe: lastOf('WTEQ'), snow: lastOf('SNWD') } });
+    }
+  };
+  // three batches at a time; redraw as each set arrives
+  for (let i = 0; i < chunks.length; i += 3) {
+    await Promise.all(chunks.slice(i, i + 3).map(one));
+    snotel = out.slice();
+    rebuild();
+  }
+}
+
 // Combine, de-duplicate and redraw ------------------------------------------
 function rebuild() {
   const amb = [];
@@ -1086,17 +1188,17 @@ function rebuild() {
     const k = hkey(Math.floor(c.lat / HASH), Math.floor(c.lon / HASH));
     (hash.get(k) || hash.set(k, []).get(k)).push(c);
   }
-  stations = [...amb, ...official].filter(s => s.v[metric] != null).map((s, i) => ({ ...s, p: s.v[metric], id: i }));
+  stations = [...amb, ...official, ...snotel].filter(s => s.v[metric] != null).map((s, i) => ({ ...s, p: s.v[metric], id: i }));
   computeDerived(); render();
 }
 
 let lastLoad = 0;
 function setStatus(extra, isErr) {
   const msg = document.getElementById('refresh-msg');
-  const a = stations.filter(s => s.src === 'A').length, o = stations.filter(s => s.src === 'O').length;
+  const a = stations.filter(s => s.src === 'A').length, o = stations.filter(s => s.src === 'O').length, sn = stations.filter(s => s.snotel).length;
   msg.className = 'refresh-msg' + (isErr ? ' err' : '');
   const zoomedOut = document.getElementById('zoom-hint').style.display === 'block';
-  msg.textContent = extra || `${a} personal and ${o} official gauges loaded, all live. ` +
+  msg.textContent = extra || `${a} personal and ${o} official gauges loaded (${sn} of them SNOTEL), all live. ` +
     (zoomedOut ? 'Zoomed out, so personal stations are a sample; zoom in for all of them.' : 'Personal stations load for the area on screen.');
 }
 
@@ -1110,6 +1212,8 @@ async function loadData() {
   const now = Date.now();
   let offErr = false;
   try { await loadOfficial(); } catch (e) { offErr = true; }
+  loadSnotel().then(() => { if (!loading) setStatus(); })
+    .catch(() => setStatus('SNOTEL sites could not be loaded (no connection, or the browser blocked it).', true));
   dataTime = `${new Date(now).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'long', day: 'numeric' })}, live as of ${fmtTime(now)}`;
   rebuild();
   await ensureCells(true);

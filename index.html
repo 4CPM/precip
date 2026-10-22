@@ -90,6 +90,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .opt-l{font-size:11px;font-weight:600;color:#64748b;text-align:right;white-space:nowrap}
 .opt-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .seg-ctrl.wrap{flex-wrap:wrap;max-width:420px}
+.info-btn{width:17px;height:17px;border-radius:50%;border:1.5px solid #94a3b8;background:#fff;color:#64748b;font:italic 700 11px Georgia,serif;line-height:1;padding:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.info-btn:hover,.info-btn.active{border-color:#0891b2;color:#0891b2;background:#ecfeff}
+.info-btn:focus-visible{outline:2px solid #0891b2;outline-offset:1px}
+.info-pop{grid-column:1 / -1;font-size:11px;line-height:1.45;color:#475569;background:#f1f5f9;border-radius:6px;padding:7px 9px;max-width:400px}
 .filter-row{display:flex;gap:6px;align-items:center}
 .filter-row+.filter-row{margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,.07);justify-content:center;gap:12px}
 .filter-btn{
@@ -233,6 +237,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   .filter-bar{max-width:calc(100vw - 20px)}
   .filter-bar:not(.collapsed){width:auto}
   .seg-ctrl.wrap{max-width:none}
+  .opt-grid{grid-template-columns:auto minmax(0,1fr)}
+  .seg-ctrl{flex-wrap:wrap}
+  .seg-btn{padding:6px 7px}
+  .info-btn{width:22px;height:22px;font-size:13px}
+  .info-pop{font-size:12px;max-width:none}
   .draw-btn,.draw-clear{padding:6px 10px;font-size:12px}
   .seg-btn{padding:6px 8px;font-size:12px}
   .opt-l,.toggle-label-text{font-size:12px}
@@ -434,12 +443,26 @@ function initMap() {
     attribution: '&copy; OpenStreetMap &copy; OpenTopoMap', maxZoom: 17 });
   const imagery = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Imagery &copy; Esri', maxZoom: 19 });
+  const usgs = (svc, label) => L.tileLayer(`https://basemap.nationalmap.gov/arcgis/rest/services/${svc}/MapServer/tile/{z}/{y}/{x}`, {
+    attribution: 'USGS The National Map', maxZoom: 16 });
+  const esri = (svc, maxZoom) => L.tileLayer(`https://server.arcgisonline.com/ArcGIS/rest/services/${svc}/MapServer/tile/{z}/{y}/{x}`, {
+    attribution: 'Tiles &copy; Esri', maxZoom });
+  const usgsTopo = usgs('USGSTopo'), usgsImgTopo = usgs('USGSImageryTopo'), usgsRelief = usgs('USGSShadedReliefOnly');
+  const usgsHydro = L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSHydroCached/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'USGS The National Map', maxZoom: 16, opacity: 0.9 });
+  const esriTopo = esri('World_Topo_Map', 19);
+  const esriTerrain = L.layerGroup([esri('World_Terrain_Base', 13), esri('Reference/World_Reference_Overlay', 13)]);
+  const esriNatGeo = esri('NatGeo_World_Map', 16);
   light.addTo(leafletMap);
   leafletMap.attributionControl.setPrefix(
     '© 2026 4 Corners Precip Map · Data: Ambient Weather Network station owners; NWS, RAWS and NOAA via ' +
     '<a href="https://mesonet.agron.iastate.edu/" target="_blank" rel="noopener">Iowa Environmental Mesonet</a> · ' +
     'Readings are unofficial and unverified · <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
-  L.control.layers({ 'Light gray': light, 'Streets (OSM)': osm, 'Topographic': topo, 'Imagery': imagery }, null, { position: 'bottomleft' }).addTo(leafletMap);
+  L.control.layers({
+    'Light gray': light, 'Streets (OSM)': osm, 'Topographic (OpenTopoMap)': topo,
+    'USGS Topo': usgsTopo, 'USGS Imagery + topo': usgsImgTopo, 'USGS Shaded relief': usgsRelief,
+    'Esri World Topo': esriTopo, 'Esri Terrain': esriTerrain, 'Esri National Geographic': esriNatGeo, 'Imagery (Esri)': imagery,
+  }, { 'USGS Hydrography': usgsHydro }, { position: 'bottomleft' }).addTo(leafletMap);
   L.control.scale({ imperial: true, metric: false, position: 'bottomleft' }).addTo(leafletMap);
 
   addInfoPanel();
@@ -629,11 +652,15 @@ function addFilterBar() {
           <button class="toggle-btn" id="dot-btn"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Dots</span></button>
         </div>
         <span class="opt-l">Likely erroneous</span>
-        <div class="seg-ctrl">
-          <button class="seg-btn active" data-sus="exclude">Exclude</button>
-          <button class="seg-btn" data-sus="include">Include</button>
-          <button class="seg-btn" data-sus="only">Only</button>
+        <div class="opt-row">
+          <div class="seg-ctrl">
+            <button class="seg-btn active" data-sus="exclude">Exclude</button>
+            <button class="seg-btn" data-sus="include">Include</button>
+            <button class="seg-btn" data-sus="only">Only</button>
+          </div>
+          <button class="info-btn" id="sus-info-btn" type="button" aria-expanded="false" aria-controls="sus-info" title="How readings are flagged">i</button>
         </div>
+        <div class="info-pop" id="sus-info" hidden>A reading is flagged when it is under 40% of nearby gauges and well below them (including 0.00 where nearby gauges show rain), or over 2.5 times nearby gauges and well above them. Nearby means within 3 mi, or 10 mi where gauges are sparse. Ambient stations registered twice by the same owner are shown once.</div>
         <span class="opt-l">Summarize</span>
         <div class="opt-row">
           <button class="draw-btn" id="draw-btn" title="Drag a box to summarize gauges inside it">⬚ Box</button>
@@ -645,6 +672,11 @@ function addFilterBar() {
     L.DomEvent.disableClickPropagation(el);
     L.DomEvent.disableScrollPropagation(el);
     makeCollapsible(el, IS_PHONE);
+    el.querySelector('#sus-info-btn').addEventListener('click', e => {
+      const box = el.querySelector('#sus-info'), open = box.hidden;
+      box.hidden = !open; e.currentTarget.setAttribute('aria-expanded', String(open));
+      e.currentTarget.classList.toggle('active', open);
+    });
     el.querySelectorAll('[data-metric]').forEach(b => b.addEventListener('click', () => {
       metric = b.dataset.metric;
       CLASSES = classesFor(metric);
@@ -688,14 +720,13 @@ function legendHtml() {
     : metric === 'event' ? '<div class="note">Official gauges and SNOTEL sites don\'t report this value, so only personal stations show.</div>'
     : metric === 'rate' ? '<div class="note">SNOTEL sites don\'t report Rate.</div>'
     : metric === 'year' ? '<div class="note">SNOTEL Year is January 1 to now, worked out from the water-year total.</div>' : '';
-  const chk = M.snowOnly ? '' : M.check
-    ? '<div class="note">Likely erroneous: under 40% of nearby gauges and well below them (including 0.00 where nearby gauges show rain), or over 2.5 times nearby gauges and well above them. Nearby means within 3 mi, or 10 mi where gauges are sparse. Ambient stations registered twice by the same owner are shown once.</div>'
+  const chk = M.snowOnly || M.check ? ''
     : '<div class="note">Year depends on when each gauge was installed or reset, so it isn\'t checked against nearby gauges. Year readings over 80 in are flagged as impossible here.</div>';
   return `<button class="panel-head" type="button"><h4>${M.title}</h4><span class="chev">▾</span></button><div class="panel-body">` +
     CLASSES.map(c => `<div class="legend-row"><div class="legend-sw" style="background:${c.bg}"></div>${c.label}</div>`).join('') +
     `<div class="legend-row" style="margin-top:4px"><div class="legend-sw suspect"></div>Likely erroneous reading</div>
-     <div class="legend-row"><div class="legend-sw official"></div>Official (ASOS, RAWS, USCRN, other)</div>
-     <div class="legend-row"><div class="legend-sw snotel"></div>SNOTEL (NRCS snow sites)</div>${offNote}${chk}</div>`;
+     <div class="legend-row"><div class="legend-sw official"></div>Official (NWS, RAWS)</div>
+     <div class="legend-row"><div class="legend-sw snotel"></div>SNOTEL (NRCS)</div>${offNote}${chk}</div>`;
 }
 let legendEl;
 function addLegend() {

@@ -269,7 +269,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.29';
+const APP_VERSION = '1.30';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -420,7 +420,7 @@ let activeStation = null;       // search pick
 let activeBBox = null, drawMode = false, drawRect = null, drawStart = null;
 let polyMode = false, polyDrawing = false, activePoly = null, polyVertices = [], polyPreviewLayer = null, polyLayer = null;
 const markersById = {};
-let contourMode = 'off';        // 'off' | 'lines' | 'filled'
+let contourMode = 'filled';        // 'off' | 'lines' | 'filled'
 let contourLayer = null;
 const CONTOUR_MASK_MI = 10;     // leave the map blank where no gauge is this close
 
@@ -764,9 +764,9 @@ function addFilterBar() {
         </div>
         <span class="opt-l">Contours</span>
         <div class="seg-ctrl">
-          <button class="seg-btn active" data-con="off">Off</button>
+          <button class="seg-btn" data-con="off">Off</button>
           <button class="seg-btn" data-con="lines">Lines</button>
-          <button class="seg-btn" data-con="filled">Filled</button>
+          <button class="seg-btn active" data-con="filled">Filled</button>
         </div>
         <span class="opt-l">Likely erroneous</span>
         <div class="opt-row">

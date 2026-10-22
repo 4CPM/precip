@@ -206,6 +206,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   padding:8px 14px;border-radius:16px;box-shadow:0 4px 16px rgba(0,0,0,.3);max-width:min(420px,calc(100vw - 40px));
 }
 
+/* ── Credit line ────────────────────────────────────────── */
+.leaflet-control-attribution{white-space:normal;max-width:min(640px,calc(100vw - 20px));line-height:1.35;font-size:11px;text-align:right}
+
 /* ── Phones ─────────────────────────────────────────────── */
 @media (max-width:700px){
   .leaflet-control-zoom{display:none}
@@ -236,7 +239,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   .sel-list .r{padding:8px 0}
   .sel-copy{padding:10px 0;font-size:14px}
   #draw-hint{top:calc(62px + env(safe-area-inset-top,0px))}
-  #zoom-hint{bottom:calc(64px + env(safe-area-inset-bottom,0px))}
+  #zoom-hint{bottom:calc(78px + env(safe-area-inset-bottom,0px))}
+  .leaflet-control-attribution{font-size:9.5px;max-width:calc(100vw - 70px)}
   .leaflet-popup-content{margin:12px 14px}
 }
 </style>
@@ -422,6 +426,10 @@ function initMap() {
   const imagery = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Imagery &copy; Esri', maxZoom: 19 });
   light.addTo(leafletMap);
+  leafletMap.attributionControl.setPrefix(
+    '© 2026 Four Corners Rain Map · Data: Ambient Weather Network station owners; NWS, RAWS and NOAA via ' +
+    '<a href="https://mesonet.agron.iastate.edu/" target="_blank" rel="noopener">Iowa Environmental Mesonet</a> · ' +
+    'Readings are unofficial and unverified · <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
   L.control.layers({ 'Light gray': light, 'Streets (OSM)': osm, 'Topographic': topo, 'Imagery': imagery }, null, { position: 'bottomleft' }).addTo(leafletMap);
   L.control.scale({ imperial: true, metric: false, position: 'bottomleft' }).addTo(leafletMap);
 

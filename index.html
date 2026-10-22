@@ -430,7 +430,7 @@ function initMap() {
     attribution: 'Imagery &copy; Esri', maxZoom: 19 });
   light.addTo(leafletMap);
   leafletMap.attributionControl.setPrefix(
-    '© 2026 Four Corners Rain Map · Data: Ambient Weather Network station owners; NWS, RAWS and NOAA via ' +
+    '© 2026 Four Corners Precip Map · Data: Ambient Weather Network station owners; NWS, RAWS and NOAA via ' +
     '<a href="https://mesonet.agron.iastate.edu/" target="_blank" rel="noopener">Iowa Environmental Mesonet</a> · ' +
     'Readings are unofficial and unverified · <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
   L.control.layers({ 'Light gray': light, 'Streets (OSM)': osm, 'Topographic': topo, 'Imagery': imagery }, null, { position: 'bottomleft' }).addTo(leafletMap);

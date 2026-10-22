@@ -46,6 +46,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .st-popup .row{display:flex;justify-content:space-between;gap:12px;padding:2px 0;border-bottom:1px solid #f1f5f9}
 .st-popup .row:last-child{border-bottom:none}
 .st-popup .row span:last-child{font-weight:600;color:#1e293b;text-align:right}
+.st-popup .vals{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;margin:6px 0 8px}
+.st-popup .vals div{background:#f1f5f9;border-radius:6px;padding:3px 2px;text-align:center}
+.st-popup .vals div.on{background:#dbeafe}
+.st-popup .vals b{display:block;font-size:12px;color:#1e293b;font-variant-numeric:tabular-nums}
+.st-popup .vals span{font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:.04em}
 .st-popup .warn{margin:6px 0;padding:5px 8px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:11px;line-height:1.4}
 .st-popup a{color:#2563eb;text-decoration:none;font-weight:600}
 .st-popup a:hover{text-decoration:underline}
@@ -252,17 +257,34 @@ const CELL_LAT = 1.0, CELL_LON = 1.2;
 const MAX_CELLS = 120;          // past this many cells on screen, ask the viewer to zoom in
 const CELL_TTL = 15 * 60e3;     // reload a cell's stations when they are older than 15 minutes
 
-// ── Rain classes (inches) ────────────────────────────────────────────────────
-const CLASSES = [
-  { min: 2.00, label: '2.00+',       bg: '#c51b8a', fg: '#fff' },
-  { min: 1.50, label: '1.50 – 1.99', bg: '#7a0177', fg: '#fff' },
-  { min: 1.25, label: '1.25 – 1.49', bg: '#253494', fg: '#fff' },
-  { min: 1.00, label: '1.00 – 1.24', bg: '#2c7fb8', fg: '#fff' },
-  { min: 0.75, label: '0.75 – 0.99', bg: '#41b6c4', fg: '#0f172a' },
-  { min: 0.50, label: '0.50 – 0.74', bg: '#31a354', fg: '#fff' },
-  { min: 0.25, label: '0.25 – 0.49', bg: '#a1d99b', fg: '#0f172a' },
-  { min: 0.01, label: '0.01 – 0.24', bg: '#e5f5e0', fg: '#0f172a' },
+// ── What to show, and its color classes ─────────────────────────────────────
+// Ambient stations report all seven values. Official gauges report only the
+// past hour (used for Rate) and the day's total.
+// "check" says whether the likely-erroneous test applies; Year and Total depend
+// on when each gauge was installed or reset, so neighbors can't be compared fairly.
+// "scale" sizes that test's inch thresholds to the value being shown.
+const METRICS = {
+  rate:  { label: 'Rate',  title: 'Rain in the past hour (in/hr)',     unit: 'in/hr', amb: 'hourlyrainin',  off: 'phour', breaks: [0.01, 0.05, 0.10, 0.20, 0.30, 0.50, 0.75, 1.00], scale: 0.25, check: true },
+  day:   { label: 'Day',   title: 'Rain since midnight (in)',          unit: 'in',    amb: 'dailyrainin',   off: 'pday',  breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00], scale: 1,    check: true },
+  event: { label: 'Event', title: 'Rain this storm (in)',              unit: 'in',    amb: 'eventrainin',               breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00], scale: 1,    check: true },
+  week:  { label: 'Week',  title: 'Rain this week (in)',               unit: 'in',    amb: 'weeklyrainin',              breaks: [0.01, 0.25, 0.50, 1.00, 1.50, 2.00, 2.50, 3.00], scale: 1.5,  check: true },
+  month: { label: 'Month', title: 'Rain this month (in)',              unit: 'in',    amb: 'monthlyrainin',             breaks: [0.01, 0.50, 1.00, 1.50, 2.00, 2.50, 3.00, 4.00], scale: 2,    check: true },
+  year:  { label: 'Year',  title: 'Rain this year (in)',               unit: 'in',    amb: 'yearlyrainin',              breaks: [0.01, 2, 4, 6, 8, 10, 12, 15],                   scale: 10,   check: false },
+  total: { label: 'Total', title: 'Total since gauge set up or reset (in)', unit: 'in', amb: 'totalrainin',            breaks: [0.01, 5, 10, 15, 20, 30, 40, 60],                scale: 20,   check: false },
+};
+const COLORS = [   // lowest class first
+  { bg: '#e5f5e0', fg: '#0f172a' }, { bg: '#a1d99b', fg: '#0f172a' }, { bg: '#31a354', fg: '#fff' }, { bg: '#41b6c4', fg: '#0f172a' },
+  { bg: '#2c7fb8', fg: '#fff' },    { bg: '#253494', fg: '#fff' },    { bg: '#7a0177', fg: '#fff' }, { bg: '#c51b8a', fg: '#fff' },
 ];
+let metric = 'day';
+const fmtV = v => v >= 100 ? v.toFixed(0) : v.toFixed(2);
+function classesFor(m) {
+  const b = METRICS[m].breaks, whole = m === 'year' || m === 'total';
+  const lo = v => whole && v >= 1 ? String(v) : v.toFixed(2);
+  return b.map((min, i) => ({ min, ...COLORS[i],
+    label: i === b.length - 1 ? lo(min) + '+' : `${lo(min)} – ${(b[i + 1] - 0.01).toFixed(2)}` })).reverse();
+}
+let CLASSES = classesFor(metric);
 function rainClass(p) { return CLASSES.find(c => p >= c.min) || CLASSES[CLASSES.length - 1]; }
 
 // ── Geometry ─────────────────────────────────────────────────────────────────
@@ -326,31 +348,33 @@ function computeDerived() {
     if (nb.length < 2) { r = 10; nb = near(hash, s, 10).filter(o => !(skip && skip.has(o))); }
     return nb.length >= 2 ? { med: median([...nb.map(o => o.p), s.p]), n: nb.length, r } : null;
   };
+  const M = METRICS[metric], k = M.scale, U = M.unit;
   const highs = new Set();
+  for (const s of stations) { s.why = ''; s.suspect = false; s.nbMed = null; }
+  if (!M.check) return;
   for (const s of stations) {
-    s.why = ''; s.suspect = false; s.nbMed = null;
-    if (s.p > 12) {   // beyond anything this region records in a day
+    if (s.p > 12 * k) {   // beyond anything this region records
       highs.add(s); s.suspect = true;
-      s.why = 'Reads more rain than this region records in a day. Gauge error.';
+      s.why = 'Reads more rain than this region records. Gauge error.';
       continue;
     }
     const h0 = hood(s);
     // a wider (10 mi) neighborhood needs a bigger gap, since storm cells can be that small
-    const gap = h0 && h0.r === 3 ? 1 : 2;
+    const gap = (h0 && h0.r === 3 ? 1 : 2) * k;
     if (h0 && s.p > 2.5 * h0.med && s.p - h0.med >= gap) {
       highs.add(s); s.suspect = true; s.nbMed = h0.med;
-      s.why = `Reads far above nearby gauges (median ${h0.med.toFixed(2)} in, ${h0.n} gauges within ${h0.r} mi). Possible gauge problem, such as sprinkler water or a stuck tipping bucket.`;
+      s.why = `Reads far above nearby gauges (median ${h0.med.toFixed(2)} ${U}, ${h0.n} gauges within ${h0.r} mi). Possible gauge problem, such as sprinkler water or a stuck tipping bucket.`;
     }
   }
   for (const s of stations) {
     if (highs.has(s)) continue;
     const h1 = hood(s, highs);
     s.nbMed = h1 ? h1.med : null;
-    if (h1 && s.p < 0.4 * h1.med && h1.med - s.p >= 0.25) {
+    if (h1 && s.p < 0.4 * h1.med && h1.med - s.p >= 0.25 * k) {
       s.suspect = true;
       s.why = s.p === 0
-        ? `Reads 0.00 while nearby gauges got rain (median ${h1.med.toFixed(2)} in, ${h1.n} gauges within ${h1.r} mi). Likely no rain gauge or a failed gauge.`
-        : `Reads far below nearby gauges (median ${h1.med.toFixed(2)} in, ${h1.n} gauges within ${h1.r} mi). Possible gauge problem, such as a clogged funnel.`;
+        ? `Reads 0.00 while nearby gauges show rain (median ${h1.med.toFixed(2)} ${U}, ${h1.n} gauges within ${h1.r} mi). Likely no rain gauge or a failed gauge.`
+        : `Reads far below nearby gauges (median ${h1.med.toFixed(2)} ${U}, ${h1.n} gauges within ${h1.r} mi). Possible gauge problem, such as a clogged funnel.`;
     }
   }
 }
@@ -467,10 +491,10 @@ function render() {
     const style = s.suspect ? '' : `background:${c.bg};color:${c.fg}`;
     const icon = pinStyle === 'dot'
       ? L.divIcon({ className: '', html: `<div class="${cls}" style="${style}"></div>`, iconSize: [14, 14], iconAnchor: [7, 7] })
-      : L.divIcon({ className: '', html: `<div class="${cls}" style="${style}">${s.p.toFixed(2)}</div>`, iconSize: [40, 22], iconAnchor: [20, 11] });
+      : L.divIcon({ className: '', html: `<div class="${cls}" style="${style}">${fmtV(s.p)}</div>`, iconSize: [40, 22], iconAnchor: [20, 11] });
     const m = L.marker([s.lat, s.lon], { icon, rain: s.suspect ? null : s.p, riseOnHover: true });
     m.bindPopup(() => buildPopup(s), { maxWidth: IS_PHONE ? 260 : 300, autoPanPaddingTopLeft: [10, IS_PHONE ? 70 : 10] });
-    if (!IS_PHONE) m.bindTooltip(`${s.name} · ${s.p.toFixed(2)} in`, { direction: 'top', offset: [0, -12] });
+    if (!IS_PHONE) m.bindTooltip(`${s.name} · ${fmtV(s.p)} ${METRICS[metric].unit}`, { direction: 'top', offset: [0, -12] });
     markers.push(m);
     markersById[s.id] = m;
   }
@@ -489,7 +513,9 @@ function buildPopup(s) {
   el.innerHTML = `
     <h3></h3>
     <div class="sub"></div>
-    <div class="big">${s.p.toFixed(2)} <small>in since midnight</small></div>
+    <div class="big">${fmtV(s.p)} <small>${METRICS[metric].title.replace(/ \(.*\)$/, '').replace(/^Rain /, '').toLowerCase()} (${METRICS[metric].unit})</small></div>
+    <div class="vals">${Object.entries(METRICS).filter(([k2]) => s.v[k2] != null).map(([k2, m2]) =>
+      `<div class="${k2 === metric ? 'on' : ''}"><b>${fmtV(s.v[k2])}</b><span>${m2.label}</span></div>`).join('')}</div>
     ${s.why ? `<div class="warn">${s.why}</div>` : ''}
     <div class="row"><span>As of</span><span>${s.time}</span></div>
     <div class="row"><span>From ${CENTER.name}</span><span>${s.dist.toFixed(1)} mi ${s.dist < 0.05 ? '' : s.dir}</span></div>
@@ -514,7 +540,7 @@ function addInfoPanel() {
     const el = L.DomUtil.create('div', 'info-panel');
     el.id = 'info-panel';
     el.innerHTML = `
-      <button class="panel-head" type="button"><h2>Rain Today</h2><span class="summary" id="st-summary">Loading…</span><span class="chev">▾</span></button>
+      <button class="panel-head" type="button"><h2 id="info-title">Rain Today</h2><span class="summary" id="st-summary">Loading…</span><span class="chev">▾</span></button>
       <div class="panel-body">
         <div class="asof" id="asof"></div>
         <div class="stat"><span>Gauges shown</span><span class="val" id="st-n"></span></div>
@@ -539,10 +565,12 @@ function updateStats() {
   const inRadius = stations.filter(s => s.dist <= radius);
   document.getElementById('asof').textContent = `${dataTime} · within ${radius} mi of ${CENTER.name}`;
   document.getElementById('st-n').textContent = vis.length;
-  document.getElementById('st-med').textContent = good.length ? `${median(good).toFixed(2)} in` : '—';
-  document.getElementById('st-rng').textContent = good.length ? `${Math.min(...good).toFixed(2)} – ${Math.max(...good).toFixed(2)} in` : '—';
+  const U = METRICS[metric].unit;
+  document.getElementById('info-title').textContent = metric === 'day' ? 'Rain Today' : `Rain: ${METRICS[metric].label}`;
+  document.getElementById('st-med').textContent = good.length ? `${fmtV(median(good))} ${U}` : '—';
+  document.getElementById('st-rng').textContent = good.length ? `${fmtV(Math.min(...good))} – ${fmtV(Math.max(...good))} ${U}` : '—';
   document.getElementById('st-sus').textContent = `${inRadius.filter(s => s.suspect).length}${suspectFilter === 'exclude' ? ' (hidden)' : ''}`;
-  document.getElementById('st-summary').textContent = good.length ? `${median(good).toFixed(2)} in median · ${vis.length}` : (stations.length ? 'No gauges' : 'Loading…');
+  document.getElementById('st-summary').textContent = good.length ? `${fmtV(median(good))} ${U} median · ${vis.length}` : (stations.length ? 'No gauges' : 'Loading…');
 }
 
 // ── Filter bar ───────────────────────────────────────────────────────────────
@@ -554,6 +582,10 @@ function addFilterBar() {
     el.innerHTML = `
       <button class="panel-head" type="button"><h4>Filters &amp; tools</h4><span class="chev">▾</span></button>
       <div class="panel-body">
+      <div class="filter-row">
+        <span class="toggle-label-text">Show</span>
+        <div class="seg-ctrl">${Object.entries(METRICS).map(([k, m]) => `<button class="seg-btn${k === metric ? ' active' : ''}" data-metric="${k}">${m.label}</button>`).join('')}</div>
+      </div>
       <div class="filter-row">
         <button class="filter-btn active" data-src="all">All</button>
         <button class="filter-btn" data-src="A">Ambient</button>
@@ -593,6 +625,12 @@ function addFilterBar() {
     L.DomEvent.disableClickPropagation(el);
     L.DomEvent.disableScrollPropagation(el);
     makeCollapsible(el, IS_PHONE);
+    el.querySelectorAll('[data-metric]').forEach(b => b.addEventListener('click', () => {
+      metric = b.dataset.metric;
+      CLASSES = classesFor(metric);
+      el.querySelectorAll('[data-metric]').forEach(x => x.classList.toggle('active', x === b));
+      updateLegend(); rebuild();
+    }));
     el.querySelectorAll('[data-src]').forEach(b => b.addEventListener('click', () => {
       srcFilter = b.dataset.src;
       el.querySelectorAll('[data-src]').forEach(x => x.classList.toggle('active', x === b));
@@ -624,21 +662,35 @@ function addFilterBar() {
 }
 
 // ── Legend ───────────────────────────────────────────────────────────────────
+function legendHtml() {
+  const M = METRICS[metric];
+  const offNote = M.off ? '' : '<div class="note">Official gauges don\'t report this value, so only personal stations show.</div>';
+  const chk = M.check
+    ? '<div class="note">Likely erroneous: under 40% of nearby gauges and well below them (including 0.00 where nearby gauges show rain), or over 2.5 times nearby gauges and well above them. Nearby means within 3 mi, or 10 mi where gauges are sparse. Ambient stations registered twice by the same owner are shown once.</div>'
+    : '<div class="note">Year and Total depend on when each gauge was installed or reset, so they aren\'t checked against nearby gauges.</div>';
+  return `<button class="panel-head" type="button"><h4>${M.title}</h4><span class="chev">▾</span></button><div class="panel-body">` +
+    CLASSES.map(c => `<div class="legend-row"><div class="legend-sw" style="background:${c.bg}"></div>${c.label}</div>`).join('') +
+    `<div class="legend-row" style="margin-top:4px"><div class="legend-sw suspect"></div>Likely erroneous reading</div>
+     <div class="legend-row"><div class="legend-sw official"></div>Official (ASOS, RAWS, USCRN, other)</div>${offNote}${chk}</div>`;
+}
+let legendEl;
 function addLegend() {
   const c = L.control({ position: 'bottomright' });
   c.onAdd = () => {
-    const el = L.DomUtil.create('div', 'legend');
-    el.innerHTML = `<button class="panel-head" type="button"><h4>Rain since midnight (in)</h4><span class="chev">▾</span></button><div class="panel-body">` +
-      CLASSES.map(k => `<div class="legend-row"><div class="legend-sw" style="background:${k.bg}"></div>${k.label}</div>`).join('') +
-      `<div class="legend-row" style="margin-top:4px"><div class="legend-sw suspect"></div>Likely erroneous reading</div>
-       <div class="legend-row"><div class="legend-sw official"></div>Official (ASOS, RAWS, USCRN, other)</div>
-       <div class="note">Likely erroneous: under 40% of nearby gauges and at least 0.25 in lower (including 0.00 where it rained nearby), or over 2.5 times nearby gauges and at least 1 in higher (2 in where gauges are sparse), or over 12 in. Nearby means within 3 mi, or 10 mi where gauges are sparse. Ambient stations registered twice by the same owner are shown once.</div></div>`;
-    L.DomEvent.disableClickPropagation(el);
-    L.DomEvent.disableScrollPropagation(el);
-    makeCollapsible(el, IS_PHONE);
-    return el;
+    legendEl = L.DomUtil.create('div', 'legend');
+    legendEl.innerHTML = legendHtml();
+    L.DomEvent.disableClickPropagation(legendEl);
+    L.DomEvent.disableScrollPropagation(legendEl);
+    makeCollapsible(legendEl, IS_PHONE);
+    return legendEl;
   };
   c.addTo(leafletMap);
+}
+function updateLegend() {
+  const collapsed = legendEl.classList.contains('collapsed');
+  legendEl.innerHTML = legendHtml();
+  legendEl.classList.remove('collapsed');
+  makeCollapsible(legendEl, collapsed);
 }
 
 // ── Draw box / polygon ───────────────────────────────────────────────────────
@@ -816,14 +868,14 @@ function buildSelectionPanel() {
     const r = document.createElement('div');
     r.className = 'r' + (s.suspect ? ' sus' : '');
     const n = document.createElement('span'); n.textContent = s.name + (s.suspect ? ' (likely erroneous)' : '');
-    const v = document.createElement('b'); v.textContent = s.p.toFixed(2);
+    const v = document.createElement('b'); v.textContent = fmtV(s.p);
     r.append(n, v);
     r.addEventListener('click', () => { leafletMap.setView([s.lat, s.lon], Math.max(leafletMap.getZoom(), 12)); markersById[s.id]?.openPopup(); });
     list.appendChild(r);
   }
   panel.querySelector('#sel-copy').addEventListener('click', e => {
-    const head = ['Station','Network','Area','Dist (mi)','Dir','Rain (in)','As of','Likely erroneous','Lat','Lon'];
-    const rows = sel.map(s => [s.name, s.src === 'A' ? 'Ambient' : s.net, s.area, s.dist.toFixed(1), s.dir, s.p.toFixed(2), s.time, s.suspect ? 'yes' : '', s.lat, s.lon]);
+    const head = ['Station','Network','Area','Dist (mi)','Dir',`${METRICS[metric].label} (${METRICS[metric].unit})`,'As of','Likely erroneous','Lat','Lon'];
+    const rows = sel.map(s => [s.name, s.src === 'A' ? 'Ambient' : s.net, s.area, s.dist.toFixed(1), s.dir, fmtV(s.p), s.time, s.suspect ? 'yes' : '', s.lat, s.lon]);
     const tsv = [head, ...rows].map(r => r.join('\t')).join('\n');
     const btn = e.currentTarget;
     navigator.clipboard.writeText(tsv).then(() => { btn.textContent = 'Copied'; setTimeout(() => btn.textContent = 'Copy table (paste into Excel)', 1500); })
@@ -853,7 +905,7 @@ function addSearchBar() {
     matches.forEach(s => {
       const item = document.createElement('div'); item.className = 'search-result-item';
       const n = document.createElement('span'); n.textContent = s.name + (s.area ? ` · ${s.area}` : '');
-      const c = document.createElement('span'); c.className = 'count'; c.textContent = `${s.p.toFixed(2)} in`;
+      const c = document.createElement('span'); c.className = 'count'; c.textContent = `${fmtV(s.p)} ${METRICS[metric].unit}`;
       item.append(n, c);
       item.addEventListener('mousedown', e => { e.preventDefault(); pick(s); });
       results.appendChild(item);
@@ -928,7 +980,8 @@ async function loadCell(key) {
       if (miles(CENTER.lat, CENTER.lon, lat, lon) > MAX_RADIUS) continue;
       ambient.set(x._id, { src: 'A', net: 'Ambient', cell: key,
         name: ((x.public && x.public.name) || x.info.name || 'Ambient station').trim(),
-        area: (x.info.coords.location || '').trim(), lat, lon, p: +(+d.dailyrainin).toFixed(2),
+        area: (x.info.coords.location || '').trim(), lat, lon,
+        v: Object.fromEntries(Object.entries(METRICS).map(([k, m]) => [k, d[m.amb] == null ? null : +(+d[m.amb]).toFixed(2)])),
         time: fmtTime(d.dateutc), slug: x.public?.slug });
     }
     c.t = now; c.err = false;
@@ -991,7 +1044,8 @@ async function loadOfficial() {
     const net = n.endsWith('_ASOS') ? 'NWS ASOS' : n === 'USCRN' ? 'NOAA USCRN' : isRaws ? 'RAWS' : 'Remote gauge';
     let name = titleCase(r.name);
     if (n.endsWith('_ASOS')) name += ` (${/^[A-Z]{3}$/.test(r.station) ? 'K' + r.station : r.station})`;
-    const st = { src: 'O', net, name, area: n === 'USCRN' ? '' : n.slice(0, 2), lat: r.lat, lon: r.lon, p: +(+r.pday).toFixed(2),
+    const st = { src: 'O', net, name, area: n === 'USCRN' ? '' : n.slice(0, 2), lat: r.lat, lon: r.lon,
+      v: { rate: r.phour == null ? null : +(+r.phour).toFixed(2), day: +(+r.pday).toFixed(2) },
       time: r.utc_valid ? fmtTime(Date.parse(r.utc_valid)) : (r.local_valid || '').slice(11, 16), iem: { net: n, id: r.station } };
     kept.push(st);
     const k = hkey(Math.floor(st.lat / HASH), Math.floor(st.lon / HASH));
@@ -1006,14 +1060,14 @@ function rebuild() {
   const hash = new Map();
   for (const s of ambient.values()) {
     // one owner sometimes registers the same station twice
-    const twin = near(hash, s, 0.05).find(o => Math.abs(o.p - s.p) < 0.01);
+    const twin = near(hash, s, 0.05).find(o => Math.abs(o.v.day - s.v.day) < 0.01);
     if (twin) { if (!twin.name.includes(s.name)) twin.name += ' / ' + s.name; continue; }
     const c = { ...s };
     amb.push(c);
     const k = hkey(Math.floor(c.lat / HASH), Math.floor(c.lon / HASH));
     (hash.get(k) || hash.set(k, []).get(k)).push(c);
   }
-  stations = [...amb, ...official].map((s, i) => ({ ...s, id: i }));
+  stations = [...amb, ...official].filter(s => s.v[metric] != null).map((s, i) => ({ ...s, p: s.v[metric], id: i }));
   computeDerived(); render();
 }
 

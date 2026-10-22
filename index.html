@@ -9,6 +9,8 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="https://unpkg.com/d3-array@3.2.4/dist/d3-array.min.js"></script>
+<script src="https://unpkg.com/d3-contour@4.0.2/dist/d3-contour.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{height:100%}
@@ -267,7 +269,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.28';
+const APP_VERSION = '1.29';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -418,6 +420,9 @@ let activeStation = null;       // search pick
 let activeBBox = null, drawMode = false, drawRect = null, drawStart = null;
 let polyMode = false, polyDrawing = false, activePoly = null, polyVertices = [], polyPreviewLayer = null, polyLayer = null;
 const markersById = {};
+let contourMode = 'off';        // 'off' | 'lines' | 'filled'
+let contourLayer = null;
+const CONTOUR_MASK_MI = 10;     // leave the map blank where no gauge is this close
 
 function visible(s, ignoreRegion) {
   if (s.dist > radius + 1e-9) return false;
@@ -434,6 +439,11 @@ function visible(s, ignoreRegion) {
 // ── Map ──────────────────────────────────────────────────────────────────────
 function initMap() {
   leafletMap = L.map('map', { zoomControl: true }).setView([CENTER.lat, CENTER.lon], 10);
+  leafletMap.createPane('contourFill').style.zIndex = 350;
+  leafletMap.getPane('contourFill').style.opacity = '0.45';
+  leafletMap.createPane('contourLine').style.zIndex = 360;
+  let ct;
+  leafletMap.on('moveend', () => { clearTimeout(ct); if (contourMode !== 'off') ct = setTimeout(drawContours, 150); });
   const lightBase = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Tiles &copy; Esri', maxZoom: 16 });
   const lightRef = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
@@ -507,6 +517,104 @@ function drawRings() {
   }).addTo(ringLayer);
 }
 
+// ── Contours ─────────────────────────────────────────────────────────────────
+// Estimate rain on a grid over the screen by inverse-distance weighting of the
+// gauges shown (likely-erroneous readings left out), then trace lines at the
+// legend breaks. Grid points with no gauge within CONTOUR_MASK_MI stay blank.
+function drawContours() {
+  if (contourLayer) { leafletMap.removeLayer(contourLayer); contourLayer = null; }
+  if (contourMode === 'off' || !window.d3 || !d3.contours) return;
+  const pts = stations.filter(s => visible(s, true) && !s.suspect && s.p != null);
+  if (pts.length < 3) return;
+  const size = leafletMap.getSize(), STEP = IS_PHONE ? 5 : 6;
+  const W = Math.ceil(size.x / STEP) + 1, H = Math.ceil(size.y / STEP) + 1;
+  const c = leafletMap.getCenter();
+  const pxPerMile = Math.abs(leafletMap.latLngToContainerPoint([c.lat + 1 / 69, c.lng]).y - leafletMap.latLngToContainerPoint(c).y);
+  const maskPx = CONTOUR_MASK_MI * pxPerMile, mask2 = maskPx * maskPx;
+  // project gauges and bucket them so each grid point only looks nearby
+  const B = new Map();
+  for (const s of pts) {
+    const q = leafletMap.latLngToContainerPoint([s.lat, s.lon]);
+    if (q.x < -maskPx || q.y < -maskPx || q.x > size.x + maskPx || q.y > size.y + maskPx) continue;
+    const k = Math.floor(q.x / maskPx) + ',' + Math.floor(q.y / maskPx);
+    (B.get(k) || B.set(k, []).get(k)).push([q.x, q.y, s.p]);
+  }
+  const vals = new Float64Array(W * H);
+  for (let gy = 0; gy < H; gy++) for (let gx = 0; gx < W; gx++) {
+    const x = gx * STEP, y = gy * STEP, bx = Math.floor(x / maskPx), by = Math.floor(y / maskPx);
+    let sw = 0, sv = 0, exact = null;
+    for (let a = -1; a <= 1 && exact === null; a++) for (let b = -1; b <= 1; b++) {
+      const list = B.get((bx + a) + ',' + (by + b));
+      if (!list) continue;
+      for (const [px, py, v] of list) {
+        const d2 = (px - x) ** 2 + (py - y) ** 2;
+        if (d2 > mask2) continue;
+        if (d2 < 0.25) { exact = v; break; }
+        const w = 1 / d2; sw += w; sv += w * v;
+      }
+    }
+    vals[gy * W + gx] = exact !== null ? exact : sw ? sv / sw : -1;
+  }
+  // Lines come from a copy where blank cells take the value of the nearest
+  // estimated cell, then get trimmed to the estimated area, so the edge of the
+  // blank area doesn't draw a stack of false lines.
+  const inside = new Uint8Array(W * H), ext = Float64Array.from(vals), queue = [];
+  for (let i = 0; i < W * H; i++) if (vals[i] >= 0) { inside[i] = 1; queue.push(i); }
+  if (!queue.length) return;
+  const seen = Uint8Array.from(inside);
+  for (let h = 0; h < queue.length; h++) {
+    const i = queue[h], x = i % W, y = (i - x) / W;
+    for (const j of [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, y > 0 ? i - W : -1, y < H - 1 ? i + W : -1])
+      if (j >= 0 && !seen[j]) { seen[j] = 1; ext[j] = ext[i]; queue.push(j); }
+  }
+  // light smoothing (two 3x3 passes) so single gauges don't each draw a small ring
+  for (let pass = 0; pass < 2; pass++) {
+    const src = Float64Array.from(ext);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      let t = 0, n = 0;
+      for (let b = -1; b <= 1; b++) for (let a = -1; a <= 1; a++) {
+        const xx = x + a, yy = y + b;
+        if (xx >= 0 && yy >= 0 && xx < W && yy < H) { t += src[yy * W + xx]; n++; }
+      }
+      ext[y * W + x] = t / n;
+    }
+  }
+  for (let i = 0; i < W * H; i++) vals[i] = inside[i] ? ext[i] : -1;
+  const isIn = (x, y) => {   // contour points sit between grid cells; keep them only where all four are estimated
+    const x0 = Math.floor(x - 0.5), y0 = Math.floor(y - 0.5);
+    for (const [a, b] of [[x0, y0], [x0 + 1, y0], [x0, y0 + 1], [x0 + 1, y0 + 1]])
+      if (a < 0 || b < 0 || a >= W || b >= H || !inside[b * W + a]) return false;
+    return true;
+  };
+  const breaks = METRICS[metric].breaks;
+  const toLL = ([x, y]) => leafletMap.containerPointToLatLng([(x - 0.5) * STEP, (y - 0.5) * STEP]);
+  const filled = contourMode === 'filled';
+  contourLayer = L.layerGroup();
+  if (filled) {
+    for (const band of d3.contours().size([W, H]).thresholds(breaks)(Array.from(vals))) {
+      if (!band.coordinates.length) continue;
+      const gj = { type: 'MultiPolygon', coordinates: band.coordinates.map(poly => poly.map(ring => ring.map(pt => { const ll = toLL(pt); return [ll.lng, ll.lat]; }))) };
+      L.geoJSON(gj, { pane: 'contourFill', interactive: false,
+        style: { stroke: false, fill: true, fillColor: rainClass(band.value).bg, fillOpacity: 1 } }).addTo(contourLayer);
+    }
+  }
+  for (const band of d3.contours().size([W, H]).thresholds(breaks)(Array.from(ext))) {
+    const lines = [];
+    for (const poly of band.coordinates) for (const ring of poly) {
+      let cur = [];
+      for (const pt of ring) {
+        if (isIn(pt[0], pt[1])) cur.push(toLL(pt));
+        else { if (cur.length > 1) lines.push(cur); cur = []; }
+      }
+      if (cur.length > 1) lines.push(cur);
+    }
+    if (!lines.length) continue;
+    L.polyline(lines, { pane: 'contourLine', interactive: false,
+      ...(filled ? { color: 'rgba(15,23,42,.45)', weight: 0.9 } : { color: rainClass(band.value).bg, weight: 2.2, opacity: 0.95 }) }).addTo(contourLayer);
+  }
+  contourLayer.addTo(leafletMap);
+}
+
 function createMarkerLayer() {
   if (markerLayer) leafletMap.removeLayer(markerLayer);
   markerLayer = clusteringEnabled
@@ -547,6 +655,7 @@ function render() {
   if (markerLayer.addLayers) markerLayer.addLayers(markers); else markers.forEach(m => markerLayer.addLayer(m));
   updateStats();
   if (activeBBox || activePoly) buildSelectionPanel();
+  drawContours();
 }
 
 function buildPopup(s) {
@@ -653,6 +762,12 @@ function addFilterBar() {
           <button class="toggle-btn active" id="cluster-btn"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Cluster</span></button>
           <button class="toggle-btn" id="dot-btn"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Dots</span></button>
         </div>
+        <span class="opt-l">Contours</span>
+        <div class="seg-ctrl">
+          <button class="seg-btn active" data-con="off">Off</button>
+          <button class="seg-btn" data-con="lines">Lines</button>
+          <button class="seg-btn" data-con="filled">Filled</button>
+        </div>
         <span class="opt-l">Likely erroneous</span>
         <div class="opt-row">
           <div class="seg-ctrl">
@@ -700,6 +815,11 @@ function addFilterBar() {
       el.querySelectorAll('[data-sus]').forEach(x => x.classList.toggle('active', x === b));
       render();
     }));
+    el.querySelectorAll('[data-con]').forEach(b => b.addEventListener('click', () => {
+      contourMode = b.dataset.con;
+      el.querySelectorAll('[data-con]').forEach(x => x.classList.toggle('active', x === b));
+      drawContours(); updateLegend();
+    }));
     el.querySelector('#cluster-btn').addEventListener('click', e => {
       clusteringEnabled = !clusteringEnabled;
       e.currentTarget.classList.toggle('active', clusteringEnabled);
@@ -727,7 +847,7 @@ function legendHtml() {
     CLASSES.map(c => `<div class="legend-row"><div class="legend-sw" style="background:${c.bg}"></div>${c.label}</div>`).join('') +
     `<div class="legend-row" style="margin-top:4px"><div class="legend-sw suspect"></div>Likely erroneous</div>
      <div class="legend-row"><div class="legend-sw official"></div>NWS etc</div>
-     <div class="legend-row"><div class="legend-sw snotel"></div>SNOTEL</div>${offNote}${chk}</div>`;
+     <div class="legend-row"><div class="legend-sw snotel"></div>SNOTEL</div>${offNote}${chk}${contourMode === 'off' ? '' : `<div class="note">Contours are estimated between gauges, not measured. Blank where no gauge is within ${CONTOUR_MASK_MI} mi; likely-erroneous readings are left out.</div>`}</div>`;
 }
 let legendEl;
 function addLegend() {

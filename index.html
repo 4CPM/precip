@@ -274,7 +274,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.17';
+const APP_VERSION = '1.18';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
 // Ambient stations load by map area as people pan and zoom, in cells of
@@ -286,7 +286,8 @@ const CELL_TTL = 15 * 60e3;     // reload a cell's stations when they are older 
 // ── What to show, and its color classes ─────────────────────────────────────
 // Ambient stations report the seven rain values. NWS, RAWS and USCRN gauges report
 // only the past hour (used for Rate) and the day's total. SNOTEL sites give Day,
-// Week, Month and Year from their running precipitation total, plus snow.
+// Week, Month and Year from their running precipitation total.
+// (Snow water equivalent and snow depth are planned for v2.)
 // "check" says whether the likely-erroneous test applies; Year depends
 // on when each gauge was installed or reset, so neighbors can't be compared fairly.
 // "scale" sizes that test's inch thresholds to the value being shown.
@@ -297,8 +298,6 @@ const METRICS = {
   week:  { label: 'Week',  title: 'Rain this week (in)',               unit: 'in',    amb: 'weeklyrainin',              breaks: [0.01, 0.25, 0.50, 1.00, 1.50, 2.00, 2.50, 3.00], scale: 1.5,  check: true },
   month: { label: 'Month', title: 'Rain this month (in)',              unit: 'in',    amb: 'monthlyrainin',             breaks: [0.01, 0.50, 1.00, 1.50, 2.00, 2.50, 3.00, 4.00], scale: 2,    check: true },
   year:  { label: 'Year',  title: 'Rain this year (in)',               unit: 'in',    amb: 'yearlyrainin',              breaks: [0.01, 2, 4, 6, 8, 10, 12, 15],                   scale: 10,   check: false, max: 80 },
-  swe:   { label: 'SWE', title: 'Snow water equivalent (in)',     unit: 'in',                                    breaks: [0.1, 1, 2, 4, 6, 10, 15, 20],                    scale: 1,    check: false, snowOnly: true },
-  snow:  { label: 'Depth', title: 'Snow depth (in)',                unit: 'in',                                    breaks: [1, 6, 12, 18, 24, 36, 48, 72],                   scale: 1,    check: false, snowOnly: true },
 };
 const COLORS = [   // lowest class first
   { bg: '#e5f5e0', fg: '#0f172a' }, { bg: '#a1d99b', fg: '#0f172a' }, { bg: '#31a354', fg: '#fff' }, { bg: '#41b6c4', fg: '#0f172a' },
@@ -307,7 +306,7 @@ const COLORS = [   // lowest class first
 let metric = 'day';
 const fmtV = v => v >= 100 ? v.toFixed(0) : v.toFixed(2);
 function classesFor(m) {
-  const b = METRICS[m].breaks, whole = m === 'year' || m === 'snow';
+  const b = METRICS[m].breaks, whole = m === 'year';
   const lo = v => whole && v >= 1 ? String(v) : v.toFixed(2);
   return b.map((min, i) => ({ min, ...COLORS[i],
     label: i === b.length - 1 ? lo(min) + '+' : `${lo(min)} – ${(b[i + 1] - 0.01).toFixed(2)}` })).reverse();
@@ -647,7 +646,7 @@ function addFilterBar() {
         <div class="seg-ctrl">
           <button class="seg-btn active" data-src="all">All</button>
           <button class="seg-btn" data-src="A">Ambient</button>
-          <button class="seg-btn" data-src="O">Official</button>
+          <button class="seg-btn" data-src="O">NWS etc.</button>
           <button class="seg-btn" data-src="S">SNOTEL</button>
         </div>
         <span class="opt-l">Radius</span>
@@ -729,11 +728,10 @@ function addFilterBar() {
 // ── Legend ───────────────────────────────────────────────────────────────────
 function legendHtml() {
   const M = METRICS[metric];
-  const offNote = M.snowOnly ? '<div class="note">Only SNOTEL sites report snow.</div>'
-    : metric === 'event' ? '<div class="note">Official gauges and SNOTEL sites don\'t report this value, so only personal stations show.</div>'
+  const offNote = metric === 'event' ? '<div class="note">Official gauges and SNOTEL sites don\'t report this value, so only personal stations show.</div>'
     : metric === 'rate' ? '<div class="note">SNOTEL sites don\'t report Rate.</div>'
     : metric === 'year' ? '<div class="note">SNOTEL Year is January 1 to now, worked out from the water-year total.</div>' : '';
-  const chk = M.snowOnly || M.check ? ''
+  const chk = M.check ? ''
     : '<div class="note">Year depends on when each gauge was installed or reset, so it isn\'t checked against nearby gauges. Year readings over 80 in are flagged as impossible here.</div>';
   return `<button class="panel-head" type="button"><h4>${M.title}</h4><span class="chev">▾</span></button><div class="panel-body">` +
     CLASSES.map(c => `<div class="legend-row"><div class="legend-sw" style="background:${c.bg}"></div>${c.label}</div>`).join('') +
@@ -1184,7 +1182,7 @@ async function loadSnotel() {
   const one = async group => {
     const trips = group.map(s => s.stationTriplet);
     const [H, D, M] = await Promise.all([
-      awdb(trips, 'PREC,WTEQ,SNWD', 'HOURLY', hourly0, hourly1),
+      awdb(trips, 'PREC', 'HOURLY', hourly0, hourly1),
       awdb(trips, 'PREC', 'DAILY', daily0, daily1),
       awdb(trips, 'PREC', 'MONTHLY', `${p.y - 1}-12-01`, `${p.y}-${String(p.m).padStart(2, '0')}-01`),
     ]);
@@ -1209,10 +1207,9 @@ async function loadSnotel() {
       const mv = ((M[s.stationTriplet] || {}).PREC || []).filter(x => x.value != null);
       const dec = mv.find(x => x.year === p.y - 1 && x.month === 12);
       const year = dec ? rise([dec.value, ...mv.filter(x => x.year === p.y && x.month < p.m).map(x => x.value), last.value]) : null;
-      const lastOf = code => { const a = (h[code] || []).filter(x => x.value != null); return a.length ? +a[a.length - 1].value : null; };
       out.push({ src: 'S', net: 'SNOTEL', name: `${s.name} SNOTEL`, area: s.stateCode, lat: s.latitude, lon: s.longitude, elev: s.elevation,
         snotel: s.stationId, time: fmtTime(lastMs),
-        v: { day, week: fromDaily(weekStart), month: fromDaily(monthStart), year, swe: lastOf('WTEQ'), snow: lastOf('SNWD') } });
+        v: { day, week: fromDaily(weekStart), month: fromDaily(monthStart), year } });
     }
   };
   // three batches at a time; redraw as each set arrives

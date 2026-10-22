@@ -269,7 +269,7 @@ const METRICS = {
   event: { label: 'Event', title: 'Rain this storm (in)',              unit: 'in',    amb: 'eventrainin',               breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00], scale: 1,    check: true },
   week:  { label: 'Week',  title: 'Rain this week (in)',               unit: 'in',    amb: 'weeklyrainin',              breaks: [0.01, 0.25, 0.50, 1.00, 1.50, 2.00, 2.50, 3.00], scale: 1.5,  check: true },
   month: { label: 'Month', title: 'Rain this month (in)',              unit: 'in',    amb: 'monthlyrainin',             breaks: [0.01, 0.50, 1.00, 1.50, 2.00, 2.50, 3.00, 4.00], scale: 2,    check: true },
-  year:  { label: 'Year',  title: 'Rain this year (in)',               unit: 'in',    amb: 'yearlyrainin',              breaks: [0.01, 2, 4, 6, 8, 10, 12, 15],                   scale: 10,   check: false },
+  year:  { label: 'Year',  title: 'Rain this year (in)',               unit: 'in',    amb: 'yearlyrainin',              breaks: [0.01, 2, 4, 6, 8, 10, 12, 15],                   scale: 10,   check: false, max: 80 },
   total: { label: 'Total', title: 'Total since gauge set up or reset (in)', unit: 'in', amb: 'totalrainin',            breaks: [0.01, 5, 10, 15, 20, 30, 40, 60],                scale: 20,   check: false },
 };
 const COLORS = [   // lowest class first
@@ -351,7 +351,11 @@ function computeDerived() {
   const M = METRICS[metric], k = M.scale, U = M.unit;
   const highs = new Set();
   for (const s of stations) { s.why = ''; s.suspect = false; s.nbMed = null; }
-  if (!M.check) return;
+  if (!M.check) {
+    // Year can't be compared with neighbors, but some totals are impossible for this region.
+    if (M.max) for (const s of stations) if (s.p > M.max) { s.suspect = true; s.why = `Reads over ${M.max} in for the year, more than this region gets. Gauge error.`; }
+    return;
+  }
   for (const s of stations) {
     if (s.p > 12 * k) {   // beyond anything this region records
       highs.add(s); s.suspect = true;
@@ -439,7 +443,7 @@ function initMap() {
   fitRadius();
   const hint = document.createElement('div');
   hint.id = 'zoom-hint';
-  hint.textContent = 'Zoom in to load personal weather stations here. Official gauges show at every zoom.';
+  hint.textContent = 'Zoomed out: showing up to 100 personal stations per 70-mile square. Zoom in to load every station.';
   leafletMap.getContainer().appendChild(hint);
   let t;
   leafletMap.on('moveend', () => { clearTimeout(t); t = setTimeout(() => ensureCells(false), 350); });
@@ -667,7 +671,7 @@ function legendHtml() {
   const offNote = M.off ? '' : '<div class="note">Official gauges don\'t report this value, so only personal stations show.</div>';
   const chk = M.check
     ? '<div class="note">Likely erroneous: under 40% of nearby gauges and well below them (including 0.00 where nearby gauges show rain), or over 2.5 times nearby gauges and well above them. Nearby means within 3 mi, or 10 mi where gauges are sparse. Ambient stations registered twice by the same owner are shown once.</div>'
-    : '<div class="note">Year and Total depend on when each gauge was installed or reset, so they aren\'t checked against nearby gauges.</div>';
+    : '<div class="note">Year and Total depend on when each gauge was installed or reset, so they aren\'t checked against nearby gauges. Year readings over 80 in are flagged as impossible here.</div>';
   return `<button class="panel-head" type="button"><h4>${M.title}</h4><span class="chev">▾</span></button><div class="panel-body">` +
     CLASSES.map(c => `<div class="legend-row"><div class="legend-sw" style="background:${c.bg}"></div>${c.label}</div>`).join('') +
     `<div class="legend-row" style="margin-top:4px"><div class="legend-sw suspect"></div>Likely erroneous reading</div>
@@ -965,13 +969,13 @@ async function fetchBox(w, s, e, n, depth, seen) {
   } else arr.forEach(x => seen.set(x._id, x));
 }
 
-async function loadCell(key) {
+async function loadCell(key, sample) {
   const [i, j] = key.split(',').map(Number);
   const c = cells.get(key) || { t: 0 };
   c.busy = true; cells.set(key, c);
   try {
     const seen = new Map(), now = Date.now();
-    await fetchBox(j * CELL_LON, i * CELL_LAT, (j + 1) * CELL_LON, (i + 1) * CELL_LAT, 0, seen);
+    await fetchBox(j * CELL_LON, i * CELL_LAT, (j + 1) * CELL_LON, (i + 1) * CELL_LAT, sample ? 99 : 0, seen);
     for (const [id, st] of ambient) if (st.cell === key) ambient.delete(id);
     for (const x of seen.values()) {
       const co = x.info?.coords?.geo?.coordinates, d = x.lastData || {};
@@ -984,7 +988,7 @@ async function loadCell(key) {
         v: Object.fromEntries(Object.entries(METRICS).map(([k, m]) => [k, d[m.amb] == null ? null : +(+d[m.amb]).toFixed(2)])),
         time: fmtTime(d.dateutc), slug: x.public?.slug });
     }
-    c.t = now; c.err = false;
+    c.t = now; c.err = false; c.sample = !!sample;
   } catch (e) { c.err = true; }
   c.busy = false;
 }
@@ -997,23 +1001,30 @@ async function ensureCells(force) {
   const j0 = Math.floor(b.getWest() / CELL_LON), j1 = Math.floor(b.getEast() / CELL_LON);
   const inView = [];
   for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) if (cellInRange(i, j)) inView.push(hkey(i, j));
-  if (inView.length > MAX_CELLS) { hint.style.display = 'block'; if (!loading) setStatus(); return; }
-  hint.style.display = 'none';
+  // Zoomed far out, load a sample (up to 100 stations per cell); closer in, load every station.
+  const sample = inView.length > MAX_CELLS;
+  hint.style.display = sample ? 'block' : 'none';
   const now = Date.now();
-  const need = inView.filter(k => { const c = cells.get(k); return !c || (!c.busy && (force || c.err || now - c.t > CELL_TTL)); });
+  const need = inView.filter(k => {
+    const c = cells.get(k);
+    if (!c) return true;
+    if (c.busy) return false;
+    if (!sample && c.sample) return true;           // upgrade a sampled cell to full detail
+    return force || c.err || now - c.t > CELL_TTL;
+  });
   if (!need.length) return;
   const run = ++cellRun;
   const msg = document.getElementById('refresh-msg');
   msg.className = 'refresh-msg';
   let done = 0, failed = 0;
-  // nearest cells first, six at a time
+  // nearest cells first, eight at a time
   const ctr = leafletMap.getCenter();
   need.sort((a, z) => { const [ai, aj] = a.split(',').map(Number), [zi, zj] = z.split(',').map(Number);
     return Math.hypot(ai + .5 - ctr.lat / CELL_LAT, aj + .5 - ctr.lng / CELL_LON) - Math.hypot(zi + .5 - ctr.lat / CELL_LAT, zj + .5 - ctr.lng / CELL_LON); });
-  for (let k = 0; k < need.length; k += 6) {
+  for (let k = 0; k < need.length; k += 8) {
     msg.textContent = `Loading personal stations for this area (${Math.round(100 * k / need.length)}%)…`;
-    await Promise.all(need.slice(k, k + 6).map(async key => { await loadCell(key); done++; if (cells.get(key).err) failed++; }));
-    if (k % 24 === 0 || k + 6 >= need.length) rebuild();
+    await Promise.all(need.slice(k, k + 8).map(async key => { await loadCell(key, sample); done++; if (cells.get(key).err) failed++; }));
+    if (k % 32 === 0 || k + 8 >= need.length) rebuild();
   }
   if (run !== cellRun) return;
   setStatus(failed ? `Some areas did not load (${failed} of ${need.length}). Use Refresh to try again.` : '', !!failed);
@@ -1078,7 +1089,7 @@ function setStatus(extra, isErr) {
   msg.className = 'refresh-msg' + (isErr ? ' err' : '');
   const zoomedOut = document.getElementById('zoom-hint').style.display === 'block';
   msg.textContent = extra || `${a} personal and ${o} official gauges loaded, all live. ` +
-    (zoomedOut ? 'Zoom in to load personal stations for more of the map.' : 'Personal stations load for the area on screen.');
+    (zoomedOut ? 'Zoomed out, so personal stations are a sample; zoom in for all of them.' : 'Personal stations load for the area on screen.');
 }
 
 let loading = false;

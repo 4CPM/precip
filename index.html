@@ -274,7 +274,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.23';
+const APP_VERSION = '1.24';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
 // Ambient stations load by map area as people pan and zoom, in cells of
@@ -343,7 +343,8 @@ let dataTime = 'Loading…';
 //   - over 2.5 times the nearby median AND at least 1 inch more (2 inches when
 //     the comparison has to reach out to 10 miles), or
 //   - more than 12 inches, beyond anything this region records in a day.
-// "Nearby" is gauges within 3 miles; where fewer than 2 are that close, within 10 miles.
+// "Nearby" is gauges within 3 miles; where fewer than 2 are that close, within 10 miles;
+// for high readings only, within 25 miles if still fewer than 2.
 const HASH = 0.07;  // degrees; a 3x3 block of these covers a 3-mile search
 const hkey = (i, j) => i + ',' + j;
 function buildHash(list) {
@@ -370,9 +371,11 @@ function computeDerived() {
   // Compare each gauge with the median of its neighborhood, itself included, so
   // one bad gauge cannot make its good neighbors look wrong. High readings are
   // found first and left out when checking for low ones.
-  const hood = (s, skip) => {
+  const hood = (s, skip, wide) => {
     let r = 3, nb = near(hash, s, 3).filter(o => !(skip && skip.has(o)));
     if (nb.length < 2) { r = 10; nb = near(hash, s, 10).filter(o => !(skip && skip.has(o))); }
+    // isolated gauges: look out to 25 mi, but only when testing for high readings
+    if (nb.length < 2 && wide) { r = 25; nb = near(hash, s, 25).filter(o => !(skip && skip.has(o))); }
     return nb.length >= 2 ? { med: median([...nb.map(o => o.p), s.p]), n: nb.length, r } : null;
   };
   const M = METRICS[metric], k = M.scale, U = M.unit;
@@ -389,9 +392,9 @@ function computeDerived() {
       s.why = 'Reads more rain than this region records. Gauge error.';
       continue;
     }
-    const h0 = hood(s);
-    // a wider (10 mi) neighborhood needs a bigger gap, since storm cells can be that small
-    const gap = (h0 && h0.r === 3 ? 1 : 2) * k;
+    const h0 = hood(s, null, true);
+    // wider neighborhoods need a bigger gap, since storm cells can be that small
+    const gap = (h0 ? (h0.r === 3 ? 1 : h0.r === 10 ? 2 : 3) : 0) * k;
     if (h0 && s.p > 2.5 * h0.med && s.p - h0.med >= gap) {
       highs.add(s); s.suspect = true; s.nbMed = h0.med;
       s.why = `Reads far above nearby gauges (median ${h0.med.toFixed(2)} ${U}, ${h0.n} gauges within ${h0.r} mi). Possible gauge problem, such as sprinkler water or a stuck tipping bucket.`;
@@ -672,7 +675,7 @@ function addFilterBar() {
           </div>
           <button class="info-btn" id="sus-info-btn" type="button" aria-expanded="false" aria-controls="sus-info" title="How readings are flagged">i</button>
         </div>
-        <div class="info-pop" id="sus-info" hidden>A reading is flagged when it is under 40% of nearby gauges and well below them (including 0.00 where nearby gauges show rain), or over 2.5 times nearby gauges and well above them. Nearby means within 3 mi, or 10 mi where gauges are sparse. Ambient stations registered twice by the same owner are shown once.</div>
+        <div class="info-pop" id="sus-info" hidden>A reading is flagged when it is under 40% of nearby gauges and well below them (including 0.00 where nearby gauges show rain), or over 2.5 times nearby gauges and well above them. Nearby means within 3 mi, or 10 mi where gauges are sparse; high readings at isolated gauges are checked against gauges within 25 mi. Ambient stations registered twice by the same owner are shown once.</div>
         <span class="opt-l">Summarize</span>
         <div class="opt-row">
           <button class="draw-btn" id="draw-btn" title="Drag a box to summarize gauges inside it">⬚ Box</button>

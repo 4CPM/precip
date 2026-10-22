@@ -274,7 +274,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.22';
+const APP_VERSION = '1.23';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
 // Ambient stations load by map area as people pan and zoom, in cells of
@@ -414,7 +414,7 @@ function computeDerived() {
 let leafletMap, markerLayer, ringLayer;
 let srcFilter = 'all';          // 'all' | 'A' (Ambient) | 'O' (official) | 'S' (SNOTEL)
 let suspectFilter = 'exclude';  // 'exclude' | 'include' | 'only'
-let radius = 100;               // miles
+let radius = 250;               // miles
 let clusteringEnabled = true;   // on by default: hundreds of gauges at 100 mi
 let pinStyle = 'label';
 let activeStation = null;       // search pick
@@ -490,7 +490,7 @@ function initMap() {
   ringLayer = L.layerGroup().addTo(leafletMap);
   createMarkerLayer();
   render();
-  fitRadius();
+  fitRadius(100);   // opening view frames ~100 mi; data covers the 250 mi radius
   const hint = document.createElement('div');
   hint.id = 'zoom-hint';
   hint.textContent = 'Zoomed out: showing up to 100 personal stations per 70-mile square. Zoom in to load every station.';
@@ -500,8 +500,8 @@ function initMap() {
   loadData();
 }
 
-function fitRadius() {
-  const dLat = radius / 69, dLon = radius / (69 * Math.cos(toRad(CENTER.lat)));
+function fitRadius(r = radius) {
+  const dLat = r / 69, dLon = r / (69 * Math.cos(toRad(CENTER.lat)));
   leafletMap.fitBounds([[CENTER.lat - dLat, CENTER.lon - dLon], [CENTER.lat + dLat, CENTER.lon + dLon]], { padding: [20, 20] });
 }
 
@@ -654,8 +654,8 @@ function addFilterBar() {
           <button class="seg-btn" data-rad="10">10</button>
           <button class="seg-btn" data-rad="25">25</button>
           <button class="seg-btn" data-rad="50">50</button>
-          <button class="seg-btn active" data-rad="100">100</button>
-          <button class="seg-btn" data-rad="250">250</button>
+          <button class="seg-btn" data-rad="100">100</button>
+          <button class="seg-btn active" data-rad="250">250</button>
           <button class="seg-btn" data-rad="500">500 mi</button>
         </div>
         <span class="opt-l">Pins</span>

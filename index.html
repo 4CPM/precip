@@ -88,6 +88,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .info-btn{width:17px;height:17px;border-radius:50%;border:1.5px solid #94a3b8;background:#fff;color:#64748b;font:italic 700 11px Georgia,serif;line-height:1;padding:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
 .info-btn:hover,.info-btn.active{border-color:#0891b2;color:#0891b2;background:#ecfeff}
 .info-btn:focus-visible{outline:2px solid #0891b2;outline-offset:1px}
+.info-btn.gear{font:400 12px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-style:normal}
+.con-grid{display:grid;grid-template-columns:auto auto;gap:5px 8px;align-items:center;justify-content:start}
+.con-desc{margin-top:7px;padding-top:6px;border-top:1px solid rgba(0,0,0,.08)}
+.con-label{display:inline-block;font-size:10px;font-weight:700;color:#0f172a;background:rgba(255,255,255,.85);border-radius:6px;padding:0 3px;font-variant-numeric:tabular-nums;white-space:nowrap;transform:translateY(0)}
 .info-pop{grid-column:1 / -1;font-size:11px;line-height:1.45;color:#475569;background:#f1f5f9;border-radius:6px;padding:7px 9px;max-width:400px}
 .filter-row{display:flex;gap:6px;align-items:center}
 .filter-row+.filter-row{margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,.07);justify-content:center;gap:12px}
@@ -276,7 +280,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.38';
+const APP_VERSION = '1.39';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -377,7 +381,7 @@ function updateScale() {
   }
   BREAKS = b || METRICS[metric].breaks;
   CLASSES = makeClasses(BREAKS, !b);
-  const sig = [metric, BREAKS.join(','), legendRange, legendMethod, legendSteps, legendAdjOpen, contourMode].join('|');
+  const sig = [metric, BREAKS.join(','), legendRange, legendMethod, legendSteps, legendAdjOpen, contourMode, conMethod, conEdge].join('|');
   if (!legendEl) return false;
   if (sig !== legendSig) { legendSig = sig; updateLegend(); return true; }
   const info = legendEl.querySelector('#leg-info');
@@ -602,57 +606,246 @@ function drawRings() {
 }
 
 // ── Contours ─────────────────────────────────────────────────────────────────
-// Estimate rain on a grid over the screen by inverse-distance weighting of the
-// gauges shown (likely-erroneous readings left out), then trace lines at the
-// legend breaks. Grid points with no gauge within CONTOUR_MASK_MI stay blank.
+// Estimate rain on a grid from the gauges shown (likely-erroneous readings left
+// out), then trace the legend brackets. The viewer picks the method, the edge,
+// the grid and labels (Contours ⚙ in Filters & tools):
+//   Distance  – inverse-distance weighting of gauges within CONTOUR_MASK_MI, lightly smoothed (the original)
+//   Smooth    – Gaussian weighting, so each gauge's influence fades gradually over a few miles
+//   Kriging   – ordinary kriging with an exponential variogram fitted to the readings on screen
+//   Elevation – rain fitted against ground elevation (AWS Terrain Tiles) for the gauges on screen,
+//               with what's left over smoothed and added back
+// Edges: Hard (blank past CONTOUR_MASK_MI), Soft (fades out toward it), 3+ gauges (only where at
+// least three gauges are within it). Grid: Screen (follows the screen) or Map (tied to the map).
+let conMethod = 'idw';      // 'idw' | 'smooth' | 'krige' | 'elev'
+let conEdge = 'hard';       // 'hard' | 'soft' | 'three'
+let conGrid = 'screen';     // 'screen' | 'map'
+let conLabels = false;
+let conNote = '';
+const SMOOTH_MI = 3;        // Gaussian width for Smooth and for the Elevation leftovers
+const CON_NAMES = { idw: 'Distance', smooth: 'Smooth', krige: 'Kriging', elev: 'Elevation' };
+const CON_DESC = {
+  idw: 'Distance: each spot is a distance-weighted average of gauges within 10 mi, lightly smoothed. The nearest gauge dominates, so it can look patchy.',
+  smooth: 'Smooth: each gauge\'s influence fades gradually over a few miles (Gaussian weighting). No bullseyes or hard seams.',
+  krige: 'Kriging: gauges are weighted by how much readings on screen actually differ with distance (ordinary kriging). Slower.',
+  elev: 'Elevation: rain is fitted against ground elevation for the gauges on screen, and what is left over is smoothed and added back, so estimates follow the terrain. Elevation from AWS Terrain Tiles.',
+};
+const EDGE_DESC = { hard: 'blank past 10 mi from a gauge', soft: 'fading out toward 10 mi from a gauge', three: 'only where 3 or more gauges are within 10 mi' };
+
+// Terrain (Terrarium PNG tiles: meters = R×256 + G + B/256 − 32768)
+const DEM_URL = (z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
+const demTiles = new Map();
+let demFailed = false;
+const demZoom = () => Math.max(6, Math.min(11, Math.round(leafletMap.getZoom()) - 1));
+function demKeys(bounds, z) {
+  const a = leafletMap.project(bounds.getNorthWest(), z).divideBy(256).floor(), b = leafletMap.project(bounds.getSouthEast(), z).divideBy(256).floor();
+  const out = [];
+  for (let x = a.x; x <= b.x; x++) for (let y = a.y; y <= b.y; y++) out.push(`${z}/${x}/${y}`);
+  return out;
+}
+function loadDemTile(key) {
+  const [z, x, y] = key.split('/').map(Number), t = { state: 'loading' };
+  demTiles.set(key, t);
+  t.p = fetch(DEM_URL(z, x, y)).then(r => { if (!r.ok) throw new Error('terrain HTTP ' + r.status); return r.blob(); })
+    .then(b => createImageBitmap(b)).then(img => {
+      const c = document.createElement('canvas'); c.width = c.height = 256;
+      const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+      t.data = g.getImageData(0, 0, 256, 256).data; t.state = 'ok';
+    }).catch(() => { t.state = 'err'; });
+  return t.p;
+}
+function elevWorld(px, py, z) {   // world pixel at zoom z → meters
+  const tx = Math.floor(px / 256), ty = Math.floor(py / 256), t = demTiles.get(`${z}/${tx}/${ty}`);
+  if (!t || t.state !== 'ok') return null;
+  const i = (Math.min(255, Math.floor(py - ty * 256)) * 256 + Math.min(255, Math.floor(px - tx * 256))) * 4, d = t.data;
+  return d[i] * 256 + d[i + 1] + d[i + 2] / 256 - 32768;
+}
+
+// Exponential variogram fitted to the readings on screen (pairs out to 25 mi).
+function fitVariogram(P, pxPerMile) {
+  const S = P.length > 500 ? P.filter((_, i) => i % Math.ceil(P.length / 500) === 0) : P;
+  const maxLag = 25 * pxPerMile, NB = 10, sum = new Float64Array(NB), cnt = new Float64Array(NB), hs = new Float64Array(NB);
+  for (let i = 0; i < S.length; i++) for (let j = i + 1; j < S.length; j++) {
+    const d = Math.hypot(S[i][0] - S[j][0], S[i][1] - S[j][1]);
+    if (d >= maxLag) continue;
+    const b = Math.floor(d / maxLag * NB);
+    sum[b] += (S[i][2] - S[j][2]) ** 2 / 2; cnt[b]++; hs[b] += d;
+  }
+  const bins = [];
+  for (let b = 0; b < NB; b++) if (cnt[b] >= 5) bins.push([hs[b] / cnt[b], sum[b] / cnt[b], cnt[b]]);
+  if (bins.length < 3) return null;
+  let best = null;
+  for (const am of [2, 3, 4, 6, 8, 10, 13, 16, 20, 25, 32, 40]) {
+    const a = am * pxPerMile;
+    let sw = 0, sf = 0, sg = 0, sff = 0, sfg = 0;
+    for (const [h, g, w] of bins) { const f = 1 - Math.exp(-3 * h / a); sw += w; sf += w * f; sg += w * g; sff += w * f * f; sfg += w * f * g; }
+    const det = sw * sff - sf * sf;
+    let c = det ? (sw * sfg - sf * sg) / det : 0, c0 = (sg - c * sf) / sw;
+    if (c0 < 0) { c0 = 0; c = sff ? sfg / sff : 0; }
+    if (c < 0) { c = 0; c0 = sg / sw; }
+    let sse = 0;
+    for (const [h, g, w] of bins) sse += w * (g - (c0 + c * (1 - Math.exp(-3 * h / a)))) ** 2;
+    if (!best || sse < best.sse) best = { c0, c, a, sse };
+  }
+  return best && best.c0 + best.c > 0 ? best : null;
+}
+function solveLinear(A, b, n) {   // Gaussian elimination with partial pivoting; A is n×n row-major
+  for (let k = 0; k < n; k++) {
+    let p = k, m = Math.abs(A[k * n + k]);
+    for (let i = k + 1; i < n; i++) { const v = Math.abs(A[i * n + k]); if (v > m) { m = v; p = i; } }
+    if (m < 1e-12) return null;
+    if (p !== k) { for (let j = 0; j < n; j++) { const t = A[k * n + j]; A[k * n + j] = A[p * n + j]; A[p * n + j] = t; } const t = b[k]; b[k] = b[p]; b[p] = t; }
+    for (let i = k + 1; i < n; i++) {
+      const f = A[i * n + k] / A[k * n + k];
+      if (!f) continue;
+      for (let j = k; j < n; j++) A[i * n + j] -= f * A[k * n + j];
+      b[i] -= f * b[k];
+    }
+  }
+  for (let i = n - 1; i >= 0; i--) { let s = b[i]; for (let j = i + 1; j < n; j++) s -= A[i * n + j] * b[j]; b[i] = s / A[i * n + i]; }
+  return b;
+}
+
+function updateConNote() {
+  const el = legendEl && legendEl.querySelector('#con-note');
+  if (el) el.textContent = conNote;
+}
+
+let demRun = 0, terrCredited = false;
 function drawContours() {
   if (contourLayer) { leafletMap.removeLayer(contourLayer); contourLayer = null; }
-  if (contourMode === 'off' || !window.d3 || !d3.contours) return;
+  conNote = '';
+  if (contourMode === 'off' || !window.d3 || !d3.contours) return updateConNote();
   const pts = stations.filter(s => visible(s, true) && !s.suspect && s.p != null);
-  if (pts.length < 3) return;
-  const size = leafletMap.getSize(), STEP = IS_PHONE ? 5 : 6;
-  const W = Math.ceil(size.x / STEP) + 1, H = Math.ceil(size.y / STEP) + 1;
+  if (pts.length < 3) return updateConNote();
+  const size = leafletMap.getSize(), STEP = (IS_PHONE ? 5 : 6) * (conMethod === 'krige' ? 1.5 : 1);
+  // Map grid: grid points sit on fixed world-pixel multiples, so panning doesn't move them.
+  let ox = 0, oy = 0;
+  if (conGrid === 'map') {
+    const w0 = leafletMap.containerPointToLayerPoint([0, 0]).add(leafletMap.getPixelOrigin());
+    ox = -(((w0.x % STEP) + STEP) % STEP); oy = -(((w0.y % STEP) + STEP) % STEP);
+  }
+  const W = Math.ceil((size.x - ox) / STEP) + 1, H = Math.ceil((size.y - oy) / STEP) + 1;
   const c = leafletMap.getCenter();
   const pxPerMile = Math.abs(leafletMap.latLngToContainerPoint([c.lat + 1 / 69, c.lng]).y - leafletMap.latLngToContainerPoint(c).y);
   const maskPx = CONTOUR_MASK_MI * pxPerMile, mask2 = maskPx * maskPx;
   // project gauges and bucket them so each grid point only looks nearby
-  const B = new Map();
+  const B = new Map(), P = [];
+  let maxP = 0;
   for (const s of pts) {
     const q = leafletMap.latLngToContainerPoint([s.lat, s.lon]);
     if (q.x < -maskPx || q.y < -maskPx || q.x > size.x + maskPx || q.y > size.y + maskPx) continue;
+    const g = [q.x, q.y, s.p, 0];
+    P.push(g); if (s.p > maxP) maxP = s.p;
     const k = Math.floor(q.x / maskPx) + ',' + Math.floor(q.y / maskPx);
-    (B.get(k) || B.set(k, []).get(k)).push([q.x, q.y, s.p]);
+    (B.get(k) || B.set(k, []).get(k)).push(g);
   }
-  const vals = new Float64Array(W * H);
-  for (let gy = 0; gy < H; gy++) for (let gx = 0; gx < W; gx++) {
-    const x = gx * STEP, y = gy * STEP, bx = Math.floor(x / maskPx), by = Math.floor(y / maskPx);
-    let sw = 0, sv = 0, exact = null;
-    for (let a = -1; a <= 1 && exact === null; a++) for (let b = -1; b <= 1; b++) {
-      const list = B.get((bx + a) + ',' + (by + b));
-      if (!list) continue;
-      for (const [px, py, v] of list) {
-        const d2 = (px - x) ** 2 + (py - y) ** 2;
-        if (d2 > mask2) continue;
-        if (d2 < 0.25) { exact = v; break; }
-        const w = 1 / d2; sw += w; sv += w * v;
+  if (P.length < 3) return updateConNote();
+
+  let method = conMethod;
+  // Kriging needs a variogram; Elevation needs terrain and a usable rain–elevation fit.
+  let vg = null;
+  if (method === 'krige') { vg = fitVariogram(P, pxPerMile); if (!vg) { method = 'smooth'; conNote = 'Too few gauges on screen to fit kriging; showing Smooth.'; } }
+  let dz = null, trend = null, zGrid = null;
+  if (method === 'elev') {
+    const z = demZoom(), scale = 2 ** (z - leafletMap.getZoom());
+    const pad = leafletMap.getBounds().pad(0.15), keys = demKeys(pad, z);
+    const missing = keys.filter(k => !demTiles.has(k));
+    if (keys.length > 120 || demFailed) { method = 'smooth'; conNote = demFailed ? 'Terrain could not be loaded; showing Smooth.' : 'Zoom in to use Elevation; showing Smooth.'; }
+    else if (missing.length || keys.some(k => demTiles.get(k).state === 'loading')) {
+      const run = ++demRun;
+      missing.forEach(loadDemTile);
+      Promise.all(keys.map(k => demTiles.get(k).p)).then(() => {
+        if (keys.every(k => demTiles.get(k).state === 'err')) demFailed = true;
+        if (run === demRun && conMethod === 'elev') drawContours();
+      });
+      method = 'smooth'; conNote = 'Loading terrain…';
+    } else {
+      const origin = leafletMap.getPixelOrigin();
+      const elevAtC = (x, y) => { const w = leafletMap.containerPointToLayerPoint([x, y]).add(origin); return elevWorld(w.x * scale, w.y * scale, z); };
+      for (const g of P) g[3] = elevAtC(g[0], g[1]);
+      const E = P.filter(g => g[3] != null);
+      const n = E.length, mz = E.reduce((a, g) => a + g[3], 0) / (n || 1), mp = E.reduce((a, g) => a + g[2], 0) / (n || 1);
+      let szz = 0, szp = 0;
+      for (const g of E) { szz += (g[3] - mz) ** 2; szp += (g[3] - mz) * (g[2] - mp); }
+      if (n < 8 || Math.sqrt(szz / n) < 150) { method = 'smooth'; conNote = 'Not enough spread in gauge elevations on screen to fit rain to terrain; showing Smooth.'; }
+      else {
+        const b = szp / szz, a = mp - b * mz;
+        trend = zz => a + b * zz;
+        for (const g of P) g[4] = g[3] == null ? 0 : g[2] - trend(g[3]);   // leftover after the elevation fit
+        zGrid = new Float32Array(W * H);
+        for (let gy = 0; gy < H; gy++) for (let gx = 0; gx < W; gx++) { const e = elevAtC(ox + gx * STEP, oy + gy * STEP); zGrid[gy * W + gx] = e == null ? NaN : e; }
+        conNote = `Rain changes about ${fmtV(Math.abs(b) * 304.8)} ${METRICS[metric].unit} per 1,000 ft ${b >= 0 ? 'higher' : 'lower'} for gauges on screen.`;
       }
     }
-    vals[gy * W + gx] = exact !== null ? exact : sw ? sv / sw : -1;
+  }
+  const h2 = 2 * (SMOOTH_MI * pxPerMile) ** 2;
+  const gam = vg ? h => h <= 0 ? 0 : vg.c0 + vg.c * (1 - Math.exp(-3 * h / vg.a)) : null;
+  const vals = new Float64Array(W * H), dmin = new Float64Array(W * H), cnt = new Uint16Array(W * H);
+  const nb = [];
+  const A = new Float64Array(13 * 13), rhs = new Float64Array(13);
+  for (let gy = 0; gy < H; gy++) for (let gx = 0; gx < W; gx++) {
+    const x = ox + gx * STEP, y = oy + gy * STEP, bx = Math.floor(x / maskPx), by = Math.floor(y / maskPx), i = gy * W + gx;
+    nb.length = 0;
+    let dm = Infinity;
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+      const list = B.get((bx + a) + ',' + (by + b));
+      if (!list) continue;
+      for (const g of list) {
+        const d2 = (g[0] - x) ** 2 + (g[1] - y) ** 2;
+        if (d2 > mask2) continue;
+        nb.push([d2, g]); if (d2 < dm) dm = d2;
+      }
+    }
+    cnt[i] = nb.length; dmin[i] = Math.sqrt(dm);
+    if (!nb.length) { vals[i] = -1; continue; }
+    let v;
+    if (method === 'idw') {
+      let sw = 0, sv = 0, exact = null;
+      for (const [d2, g] of nb) { if (d2 < 0.25) { exact = g[2]; break; } const w = 1 / d2; sw += w; sv += w * g[2]; }
+      v = exact !== null ? exact : sv / sw;
+    } else if (method === 'smooth') {
+      let sw = 0, sv = 0;
+      for (const [d2, g] of nb) { const w = Math.exp(-d2 / h2); sw += w; sv += w * g[2]; }
+      v = sw > 1e-300 ? sv / sw : nb.reduce((m, e) => e[0] < m[0] ? e : m)[1][2];
+    } else if (method === 'elev') {
+      let sw = 0, sv = 0;
+      for (const [d2, g] of nb) { const w = Math.exp(-d2 / h2); sw += w; sv += w * g[4]; }
+      const zz = zGrid[i], res = sw > 1e-300 ? sv / sw : 0;
+      v = Number.isNaN(zz) ? null : Math.min(1.25 * maxP, Math.max(0, trend(zz) + res));
+      if (v == null) { let s2 = 0, s1 = 0; for (const [d2, g] of nb) { const w = Math.exp(-d2 / h2); s1 += w; s2 += w * g[2]; } v = s1 > 1e-300 ? s2 / s1 : nb[0][1][2]; }
+    } else {   // ordinary kriging with the nearest 12 gauges
+      if (nb.length > 12) { nb.sort((p, q) => p[0] - q[0]); nb.length = 12; }
+      const n = nb.length;
+      if (n === 1) v = nb[0][1][2];
+      else {
+        const m = n + 1;
+        for (let r = 0; r < n; r++) {
+          const gr = nb[r][1];
+          for (let s = 0; s < n; s++) { const gs = nb[s][1]; A[r * m + s] = gam(Math.hypot(gr[0] - gs[0], gr[1] - gs[1])); }
+          A[r * m + n] = 1; A[n * m + r] = 1; rhs[r] = gam(Math.sqrt(nb[r][0]));
+        }
+        A[n * m + n] = 0; rhs[n] = 1;
+        const lam = solveLinear(A.subarray(0, m * m), rhs.subarray(0, m), m);
+        if (!lam) { let sw = 0, sv = 0; for (const [d2, g] of nb) { const w = 1 / Math.max(d2, 0.25); sw += w; sv += w * g[2]; } v = sv / sw; }
+        else { v = 0; for (let r = 0; r < n; r++) v += lam[r] * nb[r][1][2]; v = Math.min(maxP, Math.max(0, v)); }
+      }
+    }
+    vals[i] = v;
   }
   // Lines come from a copy where blank cells take the value of the nearest
   // estimated cell, then get trimmed to the estimated area, so the edge of the
   // blank area doesn't draw a stack of false lines.
   const inside = new Uint8Array(W * H), ext = Float64Array.from(vals), queue = [];
-  for (let i = 0; i < W * H; i++) if (vals[i] >= 0) { inside[i] = 1; queue.push(i); }
-  if (!queue.length) return;
+  for (let i = 0; i < W * H; i++) if (vals[i] >= 0 && (conEdge !== 'three' || cnt[i] >= 3)) { inside[i] = 1; queue.push(i); }
+  if (!queue.length) return updateConNote();
   const seen = Uint8Array.from(inside);
   for (let h = 0; h < queue.length; h++) {
     const i = queue[h], x = i % W, y = (i - x) / W;
     for (const j of [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, y > 0 ? i - W : -1, y < H - 1 ? i + W : -1])
       if (j >= 0 && !seen[j]) { seen[j] = 1; ext[j] = ext[i]; queue.push(j); }
   }
-  // light smoothing (two 3x3 passes) so single gauges don't each draw a small ring
-  for (let pass = 0; pass < 2; pass++) {
+  // Distance only: light smoothing (two 3x3 passes) so single gauges don't each draw a small ring
+  if (method === 'idw') for (let pass = 0; pass < 2; pass++) {
     const src = Float64Array.from(ext);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       let t = 0, n = 0;
@@ -663,7 +856,6 @@ function drawContours() {
       ext[y * W + x] = t / n;
     }
   }
-  for (let i = 0; i < W * H; i++) vals[i] = inside[i] ? ext[i] : -1;
   const isIn = (x, y) => {   // contour points sit between grid cells; keep them only where all four are estimated
     const x0 = Math.floor(x - 0.5), y0 = Math.floor(y - 0.5);
     for (const [a, b] of [[x0, y0], [x0 + 1, y0], [x0, y0 + 1], [x0 + 1, y0 + 1]])
@@ -671,17 +863,24 @@ function drawContours() {
     return true;
   };
   const breaks = BREAKS;
-  const toLL = ([x, y]) => leafletMap.containerPointToLatLng([(x - 0.5) * STEP, (y - 0.5) * STEP]);
+  const toLL = ([x, y]) => leafletMap.containerPointToLatLng([ox + (x - 0.5) * STEP, oy + (y - 0.5) * STEP]);
   const filled = contourMode === 'filled';
   contourLayer = L.layerGroup();
   if (filled) {
-    for (const band of d3.contours().size([W, H]).thresholds(breaks)(Array.from(vals))) {
-      if (!band.coordinates.length) continue;
-      const gj = { type: 'MultiPolygon', coordinates: band.coordinates.map(poly => poly.map(ring => ring.map(pt => { const ll = toLL(pt); return [ll.lng, ll.lat]; }))) };
-      L.geoJSON(gj, { pane: 'contourFill', interactive: false,
-        style: { stroke: false, fill: true, fillColor: rainClass(band.value).bg, fillOpacity: 1 } }).addTo(contourLayer);
+    // Soft edges: three nested areas drawn over each other, so the color fades toward the edge.
+    const levels = conEdge === 'soft' ? [[1, 0.42], [0.7, 0.42], [0.45, 0.42]] : [[1, 1]];
+    for (const [f, op] of levels) {
+      const lim = f * maskPx, grid = new Float64Array(W * H);
+      for (let i = 0; i < W * H; i++) grid[i] = inside[i] && dmin[i] <= lim ? ext[i] : -1;
+      for (const band of d3.contours().size([W, H]).thresholds(breaks)(Array.from(grid))) {
+        if (!band.coordinates.length) continue;
+        const gj = { type: 'MultiPolygon', coordinates: band.coordinates.map(poly => poly.map(ring => ring.map(pt => { const ll = toLL(pt); return [ll.lng, ll.lat]; }))) };
+        L.geoJSON(gj, { pane: 'contourFill', interactive: false,
+          style: { stroke: false, fill: true, fillColor: rainClass(band.value).bg, fillOpacity: op } }).addTo(contourLayer);
+      }
     }
   }
+  const labels = [];
   for (const band of d3.contours().size([W, H]).thresholds(breaks)(Array.from(ext))) {
     const lines = [];
     for (const poly of band.coordinates) for (const ring of poly) {
@@ -695,8 +894,30 @@ function drawContours() {
     if (!lines.length) continue;
     L.polyline(lines, { pane: 'contourLine', interactive: false,
       ...(filled ? { color: 'rgba(15,23,42,.45)', weight: 0.9 } : { color: rainClass(band.value).bg, weight: 2.2, opacity: 0.95 }) }).addTo(contourLayer);
+    if (conLabels) for (const ln of lines) if (ln.length >= 14) labels.push([ln.length, ln[Math.floor(ln.length / 2)], band.value]);
+  }
+  if (conLabels) {
+    // longest lines first, and no two labels closer than 70 px
+    labels.sort((a, b) => b[0] - a[0]);
+    const placed = [];
+    for (const [, ll, v] of labels) {
+      const q = leafletMap.latLngToContainerPoint(ll);
+      if (q.x < 10 || q.y < 10 || q.x > size.x - 10 || q.y > size.y - 10) continue;
+      if (placed.some(p => Math.hypot(p.x - q.x, p.y - q.y) < 70)) continue;
+      placed.push(q);
+      L.marker(ll, { pane: 'contourLine', interactive: false, keyboard: false,
+        icon: L.divIcon({ className: '', html: `<span class="con-label">${v.toFixed(2)}</span>`, iconSize: [36, 14], iconAnchor: [18, 7] }) }).addTo(contourLayer);
+      if (placed.length >= 60) break;
+    }
   }
   contourLayer.addTo(leafletMap);
+  // credit the terrain source only while Elevation is in use
+  const terr = 'Terrain: AWS Terrain Tiles';
+  if ((method === 'elev') !== terrCredited) {
+    terrCredited = method === 'elev';
+    if (terrCredited) leafletMap.attributionControl.addAttribution(terr); else leafletMap.attributionControl.removeAttribution(terr);
+  }
+  updateConNote();
 }
 
 function createMarkerLayer() {
@@ -850,10 +1071,38 @@ function addFilterBar() {
           <button class="toggle-btn" id="hide-btn" title="Hide pins and clusters, to see contours only"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Hide</span></button>
         </div>
         <span class="opt-l">Contours</span>
-        <div class="seg-ctrl">
-          <button class="seg-btn" data-con="off">Off</button>
-          <button class="seg-btn" data-con="lines">Lines</button>
-          <button class="seg-btn active" data-con="filled">Filled</button>
+        <div class="opt-row">
+          <div class="seg-ctrl">
+            <button class="seg-btn" data-con="off">Off</button>
+            <button class="seg-btn" data-con="lines">Lines</button>
+            <button class="seg-btn active" data-con="filled">Filled</button>
+          </div>
+          <button class="info-btn gear" id="con-set-btn" type="button" aria-expanded="false" aria-controls="con-set" title="Contour settings">⚙</button>
+        </div>
+        <div class="info-pop con-pop" id="con-set" hidden>
+          <div class="con-grid">
+            <span class="opt-l">Method</span>
+            <div class="seg-ctrl">
+              <button class="seg-btn active" data-cm="idw" title="Distance-weighted average (the original)">Distance</button>
+              <button class="seg-btn" data-cm="smooth" title="Gaussian weighting">Smooth</button>
+              <button class="seg-btn" data-cm="krige" title="Ordinary kriging">Kriging</button>
+              <button class="seg-btn" data-cm="elev" title="Fitted to terrain">Elevation</button>
+            </div>
+            <span class="opt-l">Edges</span>
+            <div class="seg-ctrl">
+              <button class="seg-btn active" data-ce="hard" title="Blank past 10 mi from a gauge">Hard</button>
+              <button class="seg-btn" data-ce="soft" title="Fades out toward 10 mi from a gauge">Soft</button>
+              <button class="seg-btn" data-ce="three" title="Only where 3 or more gauges are within 10 mi">3+ gauges</button>
+            </div>
+            <span class="opt-l">Grid</span>
+            <div class="seg-ctrl">
+              <button class="seg-btn active" data-cg="screen" title="Grid follows the screen">Screen</button>
+              <button class="seg-btn" data-cg="map" title="Grid tied to the map, so contours stay put as you pan">Map</button>
+            </div>
+            <span class="opt-l">Labels</span>
+            <div class="opt-row"><button class="toggle-btn" id="con-lab-btn" title="Values on the contour lines"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">On</span></button></div>
+          </div>
+          <div class="con-desc" id="con-desc"></div>
         </div>
         <span class="opt-l">Likely erroneous</span>
         <div class="opt-row">
@@ -901,6 +1150,26 @@ function addFilterBar() {
       el.querySelectorAll('[data-sus]').forEach(x => x.classList.toggle('active', x === b));
       render();
     }));
+    const conDesc = () => { el.querySelector('#con-desc').textContent = CON_DESC[conMethod] + ' Edges: ' + EDGE_DESC[conEdge] + '. Grid: ' + (conGrid === 'map' ? 'tied to the map, so contours stay put as you pan.' : 'follows the screen.'); };
+    conDesc();
+    el.querySelector('#con-set-btn').addEventListener('click', e => {
+      const box = el.querySelector('#con-set'), open = box.hidden;
+      box.hidden = !open; e.currentTarget.setAttribute('aria-expanded', String(open));
+      e.currentTarget.classList.toggle('active', open);
+    });
+    const conSet = (attr, apply) => el.querySelectorAll(`[data-${attr}]`).forEach(b => b.addEventListener('click', () => {
+      apply(b.dataset[attr]);
+      el.querySelectorAll(`[data-${attr}]`).forEach(x => x.classList.toggle('active', x === b));
+      conDesc(); drawContours(); updateLegend();
+    }));
+    conSet('cm', v => conMethod = v);
+    conSet('ce', v => conEdge = v);
+    conSet('cg', v => conGrid = v);
+    el.querySelector('#con-lab-btn').addEventListener('click', e => {
+      conLabels = !conLabels;
+      e.currentTarget.classList.toggle('active', conLabels);
+      drawContours();
+    });
     el.querySelectorAll('[data-con]').forEach(b => b.addEventListener('click', () => {
       contourMode = b.dataset.con;
       el.querySelectorAll('[data-con]').forEach(x => x.classList.toggle('active', x === b));
@@ -939,7 +1208,7 @@ function legendHtml() {
     legendAdjHtml() +
     `<div class="legend-row" style="margin-top:4px"><div class="legend-sw suspect"></div>Likely erroneous</div>
      <div class="legend-row"><div class="legend-sw official"></div>NWS etc</div>
-     <div class="legend-row"><div class="legend-sw snotel"></div>SNOTEL</div>${offNote}${chk}${contourMode === 'off' ? '' : `<div class="note">Contours are estimated between gauges, not measured. Blank where no gauge is within ${CONTOUR_MASK_MI} mi; likely-erroneous readings are left out.</div>`}</div>`;
+     <div class="legend-row"><div class="legend-sw snotel"></div>SNOTEL</div>${offNote}${chk}${contourMode === 'off' ? '' : `<div class="note">Contours (${CON_NAMES[conMethod]}) are estimated between gauges, not measured, ${EDGE_DESC[conEdge]}; likely-erroneous readings are left out. <span id="con-note">${conNote}</span></div>`}</div>`;
 }
 function legendAdjHtml() {
   const seg = (attr, cur, opts, off) => `<div class="seg-ctrl">${opts.map(([v, t, tip]) =>

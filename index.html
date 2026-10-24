@@ -269,7 +269,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.32';
+const APP_VERSION = '1.33';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -291,8 +291,8 @@ const METRICS = {
   rate:  { label: 'Rate',  title: 'Rain in the past hour (in/hr)',     unit: 'in/hr', amb: 'hourlyrainin',  off: 'phour', breaks: [0.01, 0.05, 0.10, 0.20, 0.30, 0.50, 0.75, 1.00], scale: 0.25, check: true },
   day:   { label: 'Day',   title: 'Rain since midnight (in)',          unit: 'in',    amb: 'dailyrainin',   off: 'pday',  breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 1,    check: true },
   event: { label: 'Event', title: 'Rain this storm (in)',              unit: 'in',    amb: 'eventrainin',               breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 1,    check: true },
-  week:  { label: 'Week',  title: 'Rain this week (in)',               unit: 'in',    amb: 'weeklyrainin',              breaks: [0.01, 0.25, 0.50, 1.00, 1.50, 2.00, 2.50, 3.00], scale: 1.5,  check: true },
-  month: { label: 'Month', title: 'Rain this month (in)',              unit: 'in',    amb: 'monthlyrainin',             breaks: [0.01, 0.50, 1.00, 1.50, 2.00, 2.50, 3.00, 4.00], scale: 2,    check: true },
+  week:  { label: 'Week',  title: 'Rain this week (in)',               unit: 'in',    amb: 'weeklyrainin',              breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 1.5,  check: true },
+  month: { label: 'Month', title: 'Rain this month (in)',              unit: 'in',    amb: 'monthlyrainin',             breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 2,    check: true },
   year:  { label: 'Year',  title: 'Rain this year (in)',               unit: 'in',    amb: 'yearlyrainin',              breaks: [0.01, 2, 4, 6, 8, 10, 12, 15],                   scale: 10,   check: false, max: 80 },
 };
 const COLORS = [   // lowest class first

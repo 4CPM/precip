@@ -123,6 +123,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .legend-sw.suspect{background:#e2e8f0;border:1.5px dashed #475569}
 .legend-sw.official{background:#fff;border:2.5px solid #111827}
 .legend-sw.snotel{background:#fff;border:2.5px solid #0c4a6e;border-radius:3px}
+.leg-fit{margin:5px 0 2px;color:#64748b;font-size:11px;max-width:220px;line-height:1.4}
+.leg-adj-btn{border:none;background:none;padding:0;margin-left:2px;color:#0e7490;font:inherit;font-weight:600;cursor:pointer;white-space:nowrap}
+.leg-adj-btn:hover{text-decoration:underline}
+.leg-adj{display:grid;grid-template-columns:auto auto;gap:5px 7px;align-items:center;margin:4px 0 2px;padding:7px 0 3px;border-top:1px solid rgba(0,0,0,.08)}
+.leg-adj[hidden]{display:none}
+.leg-adj .seg-btn:disabled{opacity:.4;cursor:default}
 .legend .note{margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,.08);color:#64748b;font-size:11px;max-width:200px;line-height:1.4}
 
 /* ── Search ─────────────────────────────────────────────── */
@@ -248,6 +254,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   .panel-btn{padding:10px 0;font-size:14px}
   .legend{font-size:12px;padding:9px 12px}
   .legend .note{max-width:none}
+  .leg-fit{max-width:none}
   .leaflet-bottom .leaflet-control{margin-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
   #sel-panel{left:8px;right:8px;width:auto;max-width:none;bottom:calc(8px + env(safe-area-inset-bottom,0px));max-height:42vh;overflow-y:auto;font-size:14px}
   .sel-list{max-height:none}
@@ -269,7 +276,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.36';
+const APP_VERSION = '1.37';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -302,13 +309,81 @@ const COLORS = [   // lowest class first
 ];
 let metric = 'week';
 const fmtV = v => v >= 100 ? v.toFixed(0) : v.toFixed(2);
-function classesFor(m) {
-  const b = METRICS[m].breaks, whole = m === 'year';
+// Build legend classes from a list of lower bounds. The fixed brackets keep their
+// set colors; fitted brackets spread the twelve colors across however many steps there are.
+const r2 = v => Math.round(v * 100) / 100;
+function makeClasses(b, fixed) {
+  const whole = b.length > 1 && b.slice(1).every(v => Number.isInteger(v));
   const lo = v => whole && v >= 1 ? String(v) : v.toFixed(2);
-  return b.map((min, i) => ({ min, ...COLORS[i],
-    label: i === b.length - 1 ? lo(min) + '+' : `${lo(min)} – ${(b[i + 1] - 0.01).toFixed(2)}` })).reverse();
+  const col = i => fixed || b.length >= COLORS.length ? COLORS[i]
+    : COLORS[b.length === 1 ? 0 : Math.round(i * (COLORS.length - 1) / (b.length - 1))];
+  return b.map((min, i) => {
+    const hi = i < b.length - 1 ? r2(b[i + 1] - 0.01) : null;
+    return { min, ...col(i), label: hi == null ? lo(min) + '+' : hi <= min ? lo(min) : `${lo(min)} – ${hi.toFixed(2)}` };
+  }).reverse();
 }
-let CLASSES = classesFor(metric);
+
+// ── Legend brackets ──
+// Fixed: the set brackets in METRICS. Fitted to the readings: from every gauge
+// loaded within the radius (default) or only the gauges on screen, in equal steps
+// (default) or equal counts, with up to 12 steps (default). Likely-erroneous
+// readings are left out so one bad gauge can't stretch the scale.
+let legendRange = 'loaded';     // 'fixed' | 'loaded' | 'screen'
+let legendMethod = 'equal';     // 'equal' | 'count'
+let legendSteps = 12;
+let legendAdjOpen = false;
+let scaleInfo = '', legendSig = '';
+let BREAKS = METRICS[metric].breaks;
+let CLASSES = makeClasses(BREAKS, true);
+// round step sizes: 0.01, 0.02 … 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50, 0.75, 1, 1.5 … 750
+const NICE = [-2, -1, 0, 1, 2].flatMap(e => [1, 1.5, 2, 2.5, 3, 4, 5, 7.5].map(m => +(m * 10 ** e).toPrecision(3))).filter(v => r2(v) === v);
+const niceStep = x => { let s = NICE[0]; for (const n of NICE) if (n <= x + 1e-9) s = n; return s; };
+function fitBreaks(vals, n) {
+  const pos = vals.filter(v => v >= 0.01).sort((a, b) => a - b);
+  if (pos.length < 2) return null;
+  const hi = pos[pos.length - 1];
+  const b = [0.01];
+  if (legendMethod === 'equal') {
+    // round steps (0.10, 0.25, 0.50 …) as close to range / number as possible; the top
+    // step is open-ended (for example 2.75+). Steps above the wettest reading are left off.
+    const step = niceStep(hi / n);
+    const k = Math.min(n, Math.floor(hi / step + 1e-9) + 1);
+    for (let i = 1; b.length < k; i++) { const v = r2(i * step); if (v > b[b.length - 1]) b.push(v); }
+  } else {
+    // each step holds about the same number of gauges
+    for (let i = 1; i < n; i++) {
+      const v = r2(pos[Math.min(pos.length - 1, Math.floor(i * pos.length / n))]);
+      if (v > b[b.length - 1]) b.push(v);
+    }
+  }
+  return b;
+}
+// Recompute the brackets for what's loaded; returns true when they changed.
+function updateScale() {
+  let b = null;
+  scaleInfo = '';
+  if (legendRange !== 'fixed') {
+    const vb = legendRange === 'screen' && leafletMap ? leafletMap.getBounds() : null;
+    const vals = [];
+    for (const s of stations) {
+      if (s.suspect || s.p == null || s.dist > radius + 1e-9 || (srcFilter !== 'all' && s.src !== srcFilter)) continue;
+      if (vb && !vb.contains([s.lat, s.lon])) continue;
+      vals.push(s.p);
+    }
+    b = fitBreaks(vals, legendSteps);
+    const top = vals.reduce((a, v) => v > a ? v : a, 0);
+    scaleInfo = b ? `Brackets fit ${vals.length} gauges ${legendRange === 'screen' ? 'on screen' : 'loaded'}; wettest ${fmtV(top)} ${METRICS[metric].unit}.`
+      : 'Too few readings to fit brackets, so the fixed brackets are shown.';
+  }
+  BREAKS = b || METRICS[metric].breaks;
+  CLASSES = makeClasses(BREAKS, !b);
+  const sig = [metric, BREAKS.join(','), legendRange, legendMethod, legendSteps, legendAdjOpen, contourMode].join('|');
+  if (!legendEl) return false;
+  if (sig !== legendSig) { legendSig = sig; updateLegend(); return true; }
+  const info = legendEl.querySelector('#leg-info');
+  if (info) info.textContent = scaleInfo || 'Fixed brackets, the same every time.';
+  return false;
+}
 function rainClass(p) { return CLASSES.find(c => p >= c.min) || CLASSES[CLASSES.length - 1]; }
 
 // ── Geometry ─────────────────────────────────────────────────────────────────
@@ -505,6 +580,8 @@ function initMap() {
   leafletMap.getContainer().appendChild(hint);
   let t;
   leafletMap.on('moveend', () => { clearTimeout(t); t = setTimeout(() => ensureCells(false), 350); });
+  let st;
+  leafletMap.on('moveend', () => { if (legendRange !== 'screen') return; clearTimeout(st); st = setTimeout(() => { if (updateScale()) render(); }, 200); });
   loadData();
 }
 
@@ -592,7 +669,7 @@ function drawContours() {
       if (a < 0 || b < 0 || a >= W || b >= H || !inside[b * W + a]) return false;
     return true;
   };
-  const breaks = METRICS[metric].breaks;
+  const breaks = BREAKS;
   const toLL = ([x, y]) => leafletMap.containerPointToLatLng([(x - 0.5) * STEP, (y - 0.5) * STEP]);
   const filled = contourMode === 'filled';
   contourLayer = L.layerGroup();
@@ -640,6 +717,7 @@ function createMarkerLayer() {
 }
 
 function render() {
+  updateScale();
   drawRings();
   markerLayer.clearLayers();
   for (const k in markersById) delete markersById[k];
@@ -802,7 +880,6 @@ function addFilterBar() {
     });
     el.querySelectorAll('[data-metric]').forEach(b => b.addEventListener('click', () => {
       metric = b.dataset.metric;
-      CLASSES = classesFor(metric);
       el.querySelectorAll('[data-metric]').forEach(x => x.classList.toggle('active', x === b));
       updateLegend(); rebuild();
     }));
@@ -851,9 +928,22 @@ function legendHtml() {
     : '<div class="note">Year depends on when each gauge was installed or reset, so it isn\'t checked against nearby gauges. Year readings over 80 in are flagged as impossible here.</div>';
   return `<button class="panel-head" type="button"><h4>${M.title}</h4><span class="chev">▾</span></button><div class="panel-body">` +
     CLASSES.map(c => `<div class="legend-row"><div class="legend-sw" style="background:${c.bg}"></div>${c.label}</div>`).join('') +
+    legendAdjHtml() +
     `<div class="legend-row" style="margin-top:4px"><div class="legend-sw suspect"></div>Likely erroneous</div>
      <div class="legend-row"><div class="legend-sw official"></div>NWS etc</div>
      <div class="legend-row"><div class="legend-sw snotel"></div>SNOTEL</div>${offNote}${chk}${contourMode === 'off' ? '' : `<div class="note">Contours are estimated between gauges, not measured. Blank where no gauge is within ${CONTOUR_MASK_MI} mi; likely-erroneous readings are left out.</div>`}</div>`;
+}
+function legendAdjHtml() {
+  const seg = (attr, cur, opts, off) => `<div class="seg-ctrl">${opts.map(([v, t, tip]) =>
+    `<button class="seg-btn${String(v) === String(cur) ? ' active' : ''}" type="button" data-${attr}="${v}"${tip ? ` title="${tip}"` : ''}${off ? ' disabled' : ''}>${t}</button>`).join('')}</div>`;
+  const fixed = legendRange === 'fixed';
+  return `<div class="leg-fit"><span id="leg-info">${scaleInfo || 'Fixed brackets, the same every time.'}</span>
+      <button class="leg-adj-btn" id="leg-adj" type="button" aria-expanded="${legendAdjOpen}">Adjust ${legendAdjOpen ? '▴' : '▾'}</button></div>
+    <div class="leg-adj"${legendAdjOpen ? '' : ' hidden'}>
+      <span class="opt-l">Brackets</span>${seg('lr', legendRange, [['loaded', 'All loaded', 'Fit to every gauge loaded within the radius'], ['screen', 'On screen', 'Fit to the gauges on screen; changes as you pan and zoom'], ['fixed', 'Fixed', 'The set brackets, the same every time']])}
+      <span class="opt-l">Steps</span>${seg('lm', legendMethod, [['equal', 'Equal', 'Equal steps with round edges'], ['count', 'Equal counts', 'Each color holds about the same number of gauges']], fixed)}
+      <span class="opt-l">Number</span>${seg('ln', legendSteps, [[4, '4'], [6, '6'], [8, '8'], [10, '10'], [12, '12']], fixed)}
+    </div>`;
 }
 let legendEl;
 function addLegend() {
@@ -864,6 +954,17 @@ function addLegend() {
     L.DomEvent.disableClickPropagation(legendEl);
     L.DomEvent.disableScrollPropagation(legendEl);
     makeCollapsible(legendEl, IS_PHONE);
+    legendEl.addEventListener('click', e => {
+      const t = e.target.closest('button');
+      if (!t || t.disabled) return;
+      if (t.id === 'leg-adj') legendAdjOpen = !legendAdjOpen;
+      else if (t.dataset.lr) legendRange = t.dataset.lr;
+      else if (t.dataset.lm) legendMethod = t.dataset.lm;
+      else if (t.dataset.ln) legendSteps = +t.dataset.ln;
+      else return;
+      legendSig = '';
+      if (t.id === 'leg-adj') updateScale(); else render();
+    });
     return legendEl;
   };
   c.addTo(leafletMap);

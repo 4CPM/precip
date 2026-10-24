@@ -276,7 +276,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.37';
+const APP_VERSION = '1.38';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -498,6 +498,7 @@ let suspectFilter = 'exclude';  // 'exclude' | 'include' | 'only'
 let radius = 250;               // miles
 let clusteringEnabled = true;   // on by default: hundreds of gauges at 100 mi
 let pinStyle = 'label';
+let pinsHidden = false;          // hide pins and clusters, e.g. to see contours only
 let activeStation = null;       // search pick
 let activeBBox = null, drawMode = false, drawRect = null, drawStart = null;
 let polyMode = false, polyDrawing = false, activePoly = null, polyVertices = [], polyPreviewLayer = null, polyLayer = null;
@@ -721,7 +722,8 @@ function render() {
   drawRings();
   markerLayer.clearLayers();
   for (const k in markersById) delete markersById[k];
-  const list = stations.filter(s => visible(s)).sort((a, b) => a.p - b.p); // wettest on top
+  if (pinsHidden) leafletMap.removeLayer(markerLayer); else if (!leafletMap.hasLayer(markerLayer)) markerLayer.addTo(leafletMap);
+  const list = pinsHidden ? [] : stations.filter(s => visible(s)).sort((a, b) => a.p - b.p); // wettest on top
   const markers = [];
   for (const s of list) {
     const c = rainClass(s.p);
@@ -845,6 +847,7 @@ function addFilterBar() {
         <div class="opt-row">
           <button class="toggle-btn active" id="cluster-btn"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Cluster</span></button>
           <button class="toggle-btn" id="dot-btn"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Dots</span></button>
+          <button class="toggle-btn" id="hide-btn" title="Hide pins and clusters, to see contours only"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Hide</span></button>
         </div>
         <span class="opt-l">Contours</span>
         <div class="seg-ctrl">
@@ -907,6 +910,11 @@ function addFilterBar() {
       clusteringEnabled = !clusteringEnabled;
       e.currentTarget.classList.toggle('active', clusteringEnabled);
       createMarkerLayer(); render();
+    });
+    el.querySelector('#hide-btn').addEventListener('click', e => {
+      pinsHidden = !pinsHidden;
+      e.currentTarget.classList.toggle('active', pinsHidden);
+      render();
     });
     el.querySelector('#dot-btn').addEventListener('click', e => {
       pinStyle = pinStyle === 'label' ? 'dot' : 'label';

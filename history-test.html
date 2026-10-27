@@ -1608,10 +1608,14 @@ async function fetchHist(st, h) {
 }
 let histRun = 0;
 async function ensureHist() {
-  if (!hist) return;
-  const run = ++histRun, h = hist;
+  if (!hist || hist.arch === undefined) return;
+  if (hist.arch && !hist.arch.tail) { histStatus(); return; }
+  const run = ++histRun, h0 = hist, h = hist.arch ? { ...hist.arch.tail, label: hist.label } : hist;
   const b = leafletMap.getBounds().pad(0.05), ctr = leafletMap.getCenter();
-  const todo = [...ambient.values()].filter(s => s.mac && s.key && b.contains([s.lat, s.lon])
+  const pool = hist.arch
+    ? [...hist.arch.sums.keys()].map(mac => { const m = archStations[mac]; return m && { mac, lat: m[0], lon: m[1], key: m[3], tz: m[4] }; }).filter(Boolean)
+    : [...ambient.values()];
+  const todo = pool.filter(s => s.mac && s.key && b.contains([s.lat, s.lon])
       && miles(CENTER.lat, CENTER.lon, s.lat, s.lon) <= radius && (!histCache.has(h.key + '|' + s.mac) || histCache.get(h.key + '|' + s.mac).err))
     .sort((a, z) => (a.lat - ctr.lat) ** 2 + (a.lon - ctr.lng) ** 2 - ((z.lat - ctr.lat) ** 2 + (z.lon - ctr.lng) ** 2))
     .slice(0, HIST_MAX_STATIONS);
@@ -1619,21 +1623,30 @@ async function ensureHist() {
   let done = 0, i = 0, lastDraw = Date.now();
   const msg = document.getElementById('refresh-msg');
   const worker = async () => {
-    while (i < todo.length && run === histRun && hist === h) {
+    while (i < todo.length && run === histRun && hist === h0) {
       const st = todo[i++];
       await fetchHist(st, h); done++;
-      if (done % 10 === 0) { msg.className = 'refresh-msg'; msg.textContent = `Loading history for ${h.label}: ${done} of ${todo.length} stations…`; }
+      if (done % 10 === 0) { msg.className = 'refresh-msg'; msg.textContent = hist.arch ? `Archive loaded; adding ${fmtDay(h.from)}${h.from === h.to ? '' : '–' + fmtDay(h.to)} (not archived yet): ${done} of ${todo.length} stations…` : `Loading history for ${h.label}: ${done} of ${todo.length} stations…`; }
       // redraw at most every 4 seconds while loading; each redraw recomputes every pin and contour
       if (Date.now() - lastDraw > 4000) { lastDraw = Date.now(); rebuild(); msg.textContent = `Loading history for ${h.label}: ${done} of ${todo.length} stations…`; }
     }
   };
   msg.className = 'refresh-msg'; msg.textContent = `Loading history for ${h.label}: 0 of ${todo.length} stations…`;
   await Promise.all(Array.from({ length: HIST_PAR }, worker));
-  if (run !== histRun || hist !== h) return;
+  if (run !== histRun || hist !== h0) return;
   rebuild(); histStatus();
 }
 function histStatus() {
   if (!hist) return;
+  if (hist.arch) {
+    const msg = document.getElementById('refresh-msg'), n = stations.length;
+    const t = hist.arch.tail;
+    msg.className = 'refresh-msg';
+    msg.textContent = `History, ${hist.label}: ${n} personal stations from the nightly archive` +
+      (t ? `, plus ${fmtDay(t.from)}${t.from === t.to ? '' : '–' + fmtDay(t.to)} asked for station by station for the area on screen (not archived until after midnight)` : '') +
+      '. Official gauges and SNOTEL are live-only for now.';
+    return;
+  }
   const vals = [...histCache.entries()].filter(([k]) => k.startsWith(hist.key + '|')).map(([, v]) => v);
   const ok = vals.filter(v => v.total != null).length, err = vals.filter(v => v.err).length, none = vals.filter(v => v.none).length;
   const msg = document.getElementById('refresh-msg');
@@ -1641,6 +1654,48 @@ function histStatus() {
   msg.textContent = `History, ${hist.label}: ${ok} personal stations with readings` + (none ? `, ${none} with none for these dates` : '') + (err ? `, ${err} could not be loaded` : '') +
     '. Pan or zoom to load more. Official gauges and SNOTEL are live-only for now.';
 }
+// Nightly archive: daily totals collected on GitHub's servers into history/
+// (see .github/workflows/history.yml). Days in the archive load from a few
+// files at once; days not yet in it (today, or before the archive began) are
+// asked for station by station as before.
+const ARCH = 'https://raw.githubusercontent.com/4CPM/precip/main/history/';
+let archIndex = null, archIndexAt = 0, archStations = null, archList = [];
+const archMonths = new Map();     // 'YYYY-MM' -> Promise of month file
+const archJSON = name => fetch(ARCH + name + '?t=' + Math.floor(Date.now() / 600e3), { cache: 'no-cache' }).then(r => { if (!r.ok) throw new Error('archive HTTP ' + r.status); return r.json(); });
+async function archFor(h) {
+  try {
+    if (!archIndex || Date.now() - archIndexAt > 600e3) { archIndex = await archJSON('index.json'); archIndexAt = Date.now(); archMonths.clear(); }
+  } catch (e) { return null; }
+  const built = new Set(Object.values(archIndex.months || {}).flat());
+  const days = []; for (let d = h.from; d <= h.to; d = addDays(d, 1)) days.push(d);
+  const inArch = days.filter(d => built.has(d)), missing = days.filter(d => !built.has(d));
+  if (!inArch.length) return null;
+  // the archive is used when the days it lacks are only at the end (today, usually)
+  if (missing.length && missing[0] < inArch[inArch.length - 1]) return null;
+  try {
+    if (!archStations) {   // format 2: list of [device address, lat, lon, name, dashboard address, time zone]; place in list = station number
+      const sj = await archJSON('stations.json');
+      archStations = {}; archList = sj.list || [];
+      for (const r of archList) archStations[r[0]] = [r[1], r[2], r[3], r[4], r[5]];
+    }
+    const months = [...new Set(inArch.map(d => d.slice(0, 7)))];
+    const files = await Promise.all(months.map(m => { if (!archMonths.has(m)) archMonths.set(m, archJSON(m + '.json').catch(e => { archMonths.delete(m); throw e; })); return archMonths.get(m); }));
+    const sums = new Map();
+    for (const mf of files) {
+      // rows: [station number, day 1, day 2, ...] in hundredths of an inch
+      const want = inArch.filter(d => d.startsWith(mf.month)).map(d => [d, +d.slice(8)]);
+      for (const row of mf.rows || []) {
+        const st = archList[row[0]]; if (!st) continue;
+        const mac = st[0];
+        let e = sums.get(mac);
+        for (const [d, i] of want) { const v = row[i]; if (v == null) continue; if (!e) sums.set(mac, e = { total: 0, days: [], have: 0 }); e.total += v / 100; e.days.push([d, v / 100]); e.have++; }
+      }
+    }
+    for (const e of sums.values()) { e.total = +e.total.toFixed(2); e.days.sort((a, b) => a[0] < b[0] ? -1 : 1); }
+    return { sums, inArch, missing, tail: missing.length ? { from: missing[0], to: h.to, key: 'tail_' + missing[0] + '_' + h.to } : null };
+  } catch (e) { return null; }
+}
+
 function setHist(from, to) {
   const days = dayCount(from, to);
   const label = from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`;
@@ -1651,7 +1706,13 @@ function setHist(from, to) {
   metric = 'hist';
   document.querySelectorAll('[data-metric]').forEach(x => x.classList.remove('active'));
   document.querySelectorAll('[data-hist]').forEach(x => x.classList.toggle('active', x.dataset.hist === 'pick'));
-  updateLegend(); rebuild(); ensureHist();
+  const h = hist, msg = document.getElementById('refresh-msg');
+  msg.className = 'refresh-msg'; msg.textContent = `Loading history for ${label}…`;
+  archFor(h).then(a => {
+    if (hist !== h) return;
+    h.arch = a;
+    updateLegend(); rebuild(); ensureHist();
+  });
 }
 function exitHist(toMetric) {
   hist = null; histRun++;
@@ -1879,6 +1940,18 @@ async function loadSnotel() {
 function rebuild() {
   const amb = [];
   const hash = new Map();
+  if (hist && hist.arch) {
+    const live = new Map(); for (const s of ambient.values()) if (s.mac) live.set(s.mac, s);
+    const t = hist.arch.tail;
+    for (const [mac, a] of hist.arch.sums) {
+      const m = archStations[mac]; if (!m) continue;
+      let total = a.total, days = a.days, have = a.have;
+      if (t) { const tc = histCache.get(t.key + '|' + mac); if (tc && tc.total != null) { total = +(total + tc.total).toFixed(2); days = days.concat(tc.days); have += tc.have; } }
+      const L = live.get(mac);
+      amb.push({ src: 'A', net: 'Ambient', name: L ? L.name : m[2], area: L ? L.area : '', lat: m[0], lon: m[1], slug: m[3], mac, key: m[3], tz: m[4],
+        v: { ...(L ? L.v : {}), hist: total }, time: L ? L.time : 'not reporting now', hist: { total, days, have, need: hist.days } });
+    }
+  } else
   for (const s of ambient.values()) {
     // one owner sometimes registers the same station twice
     const twin = near(hash, s, 0.05).find(o => Math.abs(o.v.day - s.v.day) < 0.01);

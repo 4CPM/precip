@@ -4,9 +4,12 @@
 // public Ambient Weather Network station within 500 miles of the Four Corners
 // Monument, asks the public Ambient feed for each station's readings, and works
 // out each day's rain: the end-of-day value of the station's daily rain counter,
-// which resets at the station's local midnight. Results go in history/:
-//   history/stations.json   station list: device address -> [lat, lon, name, dashboard address, time zone]
-//   history/YYYY-MM.json    { month, days: [dates built], data: { device address: [rain in for each day, or null] } }
+// which resets at the station's local midnight. Results go in history/ (format 2):
+//   history/stations.json   { v: 2, list: [[device address, lat, lon, name, dashboard address, time zone], ...] }
+//                           a station's place in the list is its number; stations are only ever added
+//   history/YYYY-MM.json    { v: 2, month, days: [dates built], rows: [[station number, rain for day 1, day 2, ...], ...] }
+//                           rain in hundredths of an inch (37 = 0.37 in), null where the station has no reading
+//   history/index.json      { through, months: { 'YYYY-MM': [dates built] } }
 // The map reads these files instead of asking Ambient station by station.
 //
 // DAYS (environment) = how many days back to rebuild, ending yesterday (Denver).
@@ -162,8 +165,13 @@ async function main() {
   await fs.mkdir(OUT, { recursive: true });
   // station list: keep stations seen before, update the rest
   const sf = path.join(OUT, 'stations.json');
-  const sj = await readJSON(sf, { stations: {} });
-  for (const s of stations) sj.stations[s.mac] = [s.lat, s.lon, s.name, s.key, s.tz];
+  let sj = await readJSON(sf, null);
+  if (!sj || sj.v !== 2) sj = { v: 2, list: [] };
+  const num = new Map(sj.list.map((r, i) => [r[0], i]));
+  for (const s of stations) {
+    const row = [s.mac, s.lat, s.lon, s.name, s.key, s.tz];
+    if (num.has(s.mac)) sj.list[num.get(s.mac)] = row; else { num.set(s.mac, sj.list.length); sj.list.push(row); }
+  }
   sj.updated = new Date().toISOString();
   sj.note = 'Daily rain totals from public Ambient Weather Network stations, collected nightly for the 4 Corners Precip Map. Readings are unofficial and unverified.';
   await fs.writeFile(sf, JSON.stringify(sj));
@@ -173,24 +181,29 @@ async function main() {
   const months = [...new Set(days.map(d => d.slice(0, 7)))];
   for (const m of months) {
     const f = path.join(OUT, m + '.json');
-    const mj = await readJSON(f, { month: m, days: [], data: {} });
+    let mj = await readJSON(f, null);
+    if (!mj || mj.v !== 2) mj = { v: 2, month: m, days: [], rows: [] };
     const all = monthDays(m), idx = new Map(all.map((d, i) => [d, i]));
+    const byNum = new Map(mj.rows.map(r => [r[0], r]));
     const built = new Set(mj.days);
     for (const d of days) if (d.startsWith(m)) built.add(d);
     for (const [mac, dm] of results) {
-      const row = mj.data[mac] || Array(all.length).fill(null);
-      for (const d of days) if (d.startsWith(m)) { const v = dm.get(d); row[idx.get(d)] = v == null ? null : Math.round(v * 100) / 100; }
-      if (row.some(v => v != null)) mj.data[mac] = row; else delete mj.data[mac];
+      const n = num.get(mac);
+      const row = byNum.get(n) || [n, ...Array(all.length).fill(null)];
+      for (const d of days) if (d.startsWith(m)) { const v = dm.get(d); row[1 + idx.get(d)] = v == null ? null : Math.round(v * 100); }
+      if (row.slice(1).some(v => v != null)) byNum.set(n, row); else byNum.delete(n);
     }
+    mj.rows = [...byNum.values()].sort((a, b) => a[0] - b[0]);
     mj.days = [...built].sort();
     mj.updated = new Date().toISOString();
     await fs.writeFile(f, JSON.stringify(mj));
-    log(`Wrote ${f}: ${Object.keys(mj.data).length} stations, ${mj.days.length} days built`);
+    log(`Wrote ${f}: ${mj.rows.length} stations, ${mj.days.length} days built`);
   }
   // index of months available
   const names = (await fs.readdir(OUT)).filter(n => /^\d{4}-\d{2}\.json$/.test(n)).map(n => n.slice(0, 7)).sort();
   const index = { updated: new Date().toISOString(), through: yesterday, months: {} };
-  for (const m of names) { const mj = await readJSON(path.join(OUT, m + '.json'), null); if (mj) index.months[m] = mj.days; }
+  for (const m of names) { const mj = await readJSON(path.join(OUT, m + '.json'), null); if (mj && mj.v === 2) index.months[m] = mj.days; }
+  index.v = 2;
   await fs.writeFile(path.join(OUT, 'index.json'), JSON.stringify(index));
   log('Done.');
 }

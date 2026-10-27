@@ -1073,7 +1073,7 @@ function addFilterBar() {
             <button class="draw-btn" type="button" data-hq="30">Last 30 days</button>
             <button class="filter-btn active" type="button" id="h-go">Show</button>
           </div>
-          <div id="h-msg">Past rain for personal (Ambient) stations, up to a year back. Each day is the station's end-of-day daily total; a period is the sum of its days. Loads station by station for the area on screen.</div>
+          <div id="h-msg">Past rain for personal (Ambient) stations, up to a year back. Each day is the station's end-of-day daily total; a period is the sum of its days. One or two days use 5-minute readings, longer periods hourly. Loads station by station for the area on screen.</div>
         </div>
         <span class="opt-l">Gauges</span>
         <div class="seg-ctrl">
@@ -1575,8 +1575,8 @@ const localDay = (ms, tz) => {
 function histWindows(h) {
   const [y, m, d] = h.from.split('-').map(Number), [y2, m2, d2] = addDays(h.to, 1).split('-').map(Number);
   const start = denverMidnight(y, m, d) - 2 * 3600e3, end = Math.min(Date.now(), denverMidnight(y2, m2, d2) + 2 * 3600e3);
-  // 5-minute readings for short periods (the feed returns at most 2,000 per request), hourly otherwise
-  if (end - start <= 6.5 * 86400e3) return [{ start, end, res: 5 }];
+  // 5-minute readings for one or two days, hourly for longer periods (the feed returns at most 2,000 per request)
+  if (end - start <= 2.25 * 86400e3) return [{ start, end, res: 5 }];
   const out = [];
   for (let s = start; s < end; s += 80 * 86400e3) out.push({ start: s, end: Math.min(end, s + 80 * 86400e3), res: 60 });
   return out;
@@ -1616,13 +1616,15 @@ async function ensureHist() {
     .sort((a, z) => (a.lat - ctr.lat) ** 2 + (a.lon - ctr.lng) ** 2 - ((z.lat - ctr.lat) ** 2 + (z.lon - ctr.lng) ** 2))
     .slice(0, HIST_MAX_STATIONS);
   if (!todo.length) { histStatus(); return; }
-  let done = 0, i = 0;
+  let done = 0, i = 0, lastDraw = Date.now();
   const msg = document.getElementById('refresh-msg');
   const worker = async () => {
     while (i < todo.length && run === histRun && hist === h) {
       const st = todo[i++];
       await fetchHist(st, h); done++;
-      if (done % 20 === 0) { msg.className = 'refresh-msg'; msg.textContent = `Loading history for ${h.label}: ${done} of ${todo.length} stations…`; rebuild(); }
+      if (done % 10 === 0) { msg.className = 'refresh-msg'; msg.textContent = `Loading history for ${h.label}: ${done} of ${todo.length} stations…`; }
+      // redraw at most every 4 seconds while loading; each redraw recomputes every pin and contour
+      if (Date.now() - lastDraw > 4000) { lastDraw = Date.now(); rebuild(); msg.textContent = `Loading history for ${h.label}: ${done} of ${todo.length} stations…`; }
     }
   };
   msg.className = 'refresh-msg'; msg.textContent = `Loading history for ${h.label}: 0 of ${todo.length} stations…`;

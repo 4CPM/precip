@@ -3,8 +3,8 @@
 // Runs on GitHub's servers (see .github/workflows/history.yml). It lists every
 // public Ambient Weather Network station within 500 miles of the Four Corners
 // Monument, asks the public Ambient feed for each station's readings, and works
-// out each day's rain: the end-of-day value of the station's daily rain counter,
-// which resets at the station's local midnight. Results go in history/ (format 2):
+// out each day's rain: the day's highest value of the station's daily rain counter
+// (from the feed's daily summaries), which resets at the station's local midnight. Results go in history/ (format 2):
 //   history/stations.json   { v: 2, list: [[device address, lat, lon, name, dashboard address, time zone], ...] }
 //                           a station's place in the list is its number; stations are only ever added
 //   history/YYYY-MM.json    { v: 2, month, days: [dates built], rows: [[station number, rain for day 1, day 2, ...], ...] }
@@ -110,26 +110,23 @@ async function listStations() {
 }
 
 // ── 2. one station's daily totals ──
-function windows(first, last) {
-  const start = denverMidnight(first) - 3 * 3600e3, end = Math.min(Date.now(), denverMidnight(addDays(last, 1)) + 3 * 3600e3);
-  if (end - start <= 2.5 * 86400e3) return [{ start, end, res: 5 }];
-  const out = [];
-  for (let s = start; s < end; s += 80 * 86400e3) out.push({ start: s, end: Math.min(end, s + 80 * 86400e3), res: 60 });
-  return out;
-}
+// Plain requests only return about the last 8 days, so this asks for the feed's
+// daily summaries (res=1440, stats=summary): one record per day for up to a year,
+// each field given as { h: high, l: low, ... }. The day's rain is the high of the
+// daily rain counter. A record's dateutc is the start of its day; 3 hours are
+// added before reading the local date so time-zone edges can't shift it.
 async function stationDays(st, first, last) {
   const dayMax = new Map();
-  for (const w of windows(first, last)) {
-    const q = new URLSearchParams({ macAddress: st.mac, dataKey: st.key, start: Math.round(w.start), end: Math.round(w.end), limit: 2000, res: w.res });
-    const j = await getJSON(`${BASE}/device-data?${q}`);
-    const arr = Array.isArray(j) ? j : (j.data || []);
-    for (const x of arr) {
-      if (x.dailyrainin == null || x.dateutc == null) continue;
-      const ds = localDay(x.dateutc, st.tz);
-      if (ds < first || ds > last) continue;
-      const v = +x.dailyrainin;
-      if (!(dayMax.get(ds) >= v)) dayMax.set(ds, v);
-    }
+  const start = denverMidnight(first) - 86400e3, end = Math.min(Date.now(), denverMidnight(addDays(last, 1)) + 3 * 3600e3);
+  const q = new URLSearchParams({ macAddress: st.mac, dataKey: st.key, start: Math.round(start), end: Math.round(end), limit: 2000, res: 1440, stats: 'summary' });
+  const j = await getJSON(`${BASE}/device-data?${q}`);
+  const arr = Array.isArray(j) ? j : (j.data || []);
+  for (const x of arr) {
+    const r = x.dailyrainin, v = r && typeof r === 'object' ? r.h : r;
+    if (v == null || x.dateutc == null) continue;
+    const ds = localDay(x.dateutc + 3 * 3600e3, st.tz);
+    if (ds < first || ds > last) continue;
+    if (!(dayMax.get(ds) >= +v)) dayMax.set(ds, +v);
   }
   return dayMax;
 }

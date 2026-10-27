@@ -2,7 +2,7 @@
 // Prints record counts, date ranges and rain fields; writes nothing.
 const BASE = 'https://lightning.ambientweather.net';
 const q = new URLSearchParams({ '$publicBox[0][0]': -107.95, '$publicBox[0][1]': 37.2, '$publicBox[1][0]': -107.75, '$publicBox[1][1]': 37.35, '$limit': 5 });
-const st = ((await (await fetch(`${BASE}/devices?${q}`)).json()).data || []).find(x => x.macAddress && x.info?.slug && x.lastData?.dailyrainin != null);
+const st = ((await (await fetch(`${BASE}/devices?${q}`)).json()).data || []).find(x => (x.info?.name || '').includes('Perins Canyon') && x.macAddress && x.info?.slug);
 console.log('station:', st.info.name);
 const now = Date.now(), day = 86400e3;
 for (const [label, days, res, extra] of [['31 days hourly', 31, 60], ['31 days hourly, limit 800', 31, 60, { limit: 800 }], ['8 days 5-min', 8, 5], ['365 days daily', 365, 1440], ['365 days daily summary', 365, 1440, { stats: 'summary' }], ['90 days 30-min', 90, 30]]) {

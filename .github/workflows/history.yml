@@ -1,0 +1,45 @@
+# Nightly history archive for the 4 Corners Precip Map.
+# Collects daily rain totals for public Ambient Weather Network stations into history/.
+# Runs every night, and can be run by hand from the Actions tab ("Run workflow"):
+# enter 365 in "days" for the one-time backfill of the past year.
+name: Ambient history
+
+on:
+  schedule:
+    - cron: '23 8 * * *'   # 2:23 AM MDT / 1:23 AM MST
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Days back to rebuild, ending yesterday (365 for the one-time backfill)'
+        required: true
+        default: '3'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: history
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Collect daily totals
+        run: node .github/scripts/history.mjs
+        env:
+          DAYS: ${{ github.event.inputs.days || '3' }}
+      - name: Save to the repo
+        run: |
+          git config user.name "4CPM history"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add history
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+          git commit -m "History: daily totals through $(TZ=America/Denver date -d yesterday +%F)"
+          git pull --rebase
+          git push

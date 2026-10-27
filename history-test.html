@@ -1559,7 +1559,7 @@ const titleCase = s => s.toLowerCase().replace(/\b([a-z])/g, c => c.toUpperCase(
 let hist = null;                 // { from:'YYYY-MM-DD', to:'YYYY-MM-DD', key, days, label }
 const histCache = new Map();     // key|mac -> { total, days:[[date, in]], have, need } | { err:true } | { busy:true }
 const HIST_MAX_DAYS = 366;
-const HIST_PAR = 6;              // requests at a time
+const HIST_PAR = 40;             // requests at a time (the feed answers 40-odd at once about as fast as 6)
 const HIST_MAX_STATIONS = 600;   // per pass, nearest the map center first
 const isoDay = ms => new Date(ms).toISOString().slice(0, 10);
 const addDays = (ds, n) => isoDay(Date.parse(ds + 'T12:00:00Z') + n * 86400e3);

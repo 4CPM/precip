@@ -33,8 +33,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .pin.snotel{border-radius:4px;border:2.5px solid #0c4a6e}
 .pin.dot.snotel{width:13px;height:13px;border-radius:2px;transform:rotate(45deg)}
 .pin.dot.suspect{border-width:1.5px}
-.has-play .pin{transition:background-color .35s linear,color .35s linear}
-.leaflet-contourFill-pane,.leaflet-contourFill2-pane,.leaflet-contourLine-pane,.leaflet-contourLine2-pane{transition:opacity .4s linear}
+.has-play .pin{transition:background-color .2s linear,color .2s linear}
 
 /* ── Popup ─────────────────────────────────────────────── */
 .st-popup{min-width:220px;font-size:12px;color:#334155}
@@ -585,12 +584,9 @@ function visible(s, ignoreRegion) {
 // ── Map ──────────────────────────────────────────────────────────────────────
 function initMap() {
   leafletMap = L.map('map', { zoomControl: true }).setView([CENTER.lat, CENTER.lon], 10);
-  // two sets of contour panes, so playback can fade a new field in over the old one
   leafletMap.createPane('contourFill').style.zIndex = 350;
-  leafletMap.createPane('contourFill2').style.zIndex = 351;
+  leafletMap.getPane('contourFill').style.opacity = '0.45';
   leafletMap.createPane('contourLine').style.zIndex = 360;
-  leafletMap.createPane('contourLine2').style.zIndex = 361;
-  setConPanes();
   let ct;
   leafletMap.on('moveend', () => { clearTimeout(ct); if (contourMode !== 'off') ct = setTimeout(drawContours, 150); });
   const lightBase = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
@@ -780,23 +776,15 @@ function updateConNote() {
 }
 
 let demRun = 0, terrCredited = false;
-const CON_PANES = [['contourFill', 'contourLine'], ['contourFill2', 'contourLine2']];
-let conSet = 0, conOld = null, conOldTimer = 0;
-function setConPanes() {   // the current pane set shows; the other is clear
-  CON_PANES.forEach(([f, l], i) => { leafletMap.getPane(f).style.opacity = i === conSet ? '0.45' : '0'; leafletMap.getPane(l).style.opacity = i === conSet ? '1' : '0'; });
-}
+// Which grid points see which gauges depends only on the view, not the readings,
+// so it is worked out once per view and reused frame after frame during playback.
+let conNb = null;   // { sig, start: Int32Array(cells+1), idx: Int32Array, d2: Float32Array } — per cell, nearby gauges nearest first
 function drawContours() {
-  // While playing, the new field is drawn into the other pane set and faded in
-  // over the old one (the panes' opacity transition), so hours don't snap.
-  const fade = !!(play && play.playing && contourLayer);
-  if (conOld) { clearTimeout(conOldTimer); leafletMap.removeLayer(conOld); conOld = null; }
-  if (contourLayer) { if (fade) conOld = contourLayer; else leafletMap.removeLayer(contourLayer); contourLayer = null; }
-  const [FILL_PANE, LINE_PANE] = CON_PANES[fade ? 1 - conSet : conSet];
-  const bail = () => { if (conOld) { leafletMap.removeLayer(conOld); conOld = null; } setConPanes(); return updateConNote(); };
+  if (contourLayer) { leafletMap.removeLayer(contourLayer); contourLayer = null; }
   conNote = '';
-  if (contourMode === 'off' || !window.d3 || !d3.contours) return bail();
+  if (contourMode === 'off' || !window.d3 || !d3.contours) return updateConNote();
   const pts = stations.filter(s => visible(s, true) && !s.suspect && s.p != null);
-  if (pts.length < 3) return bail();
+  if (pts.length < 3) return updateConNote();
   const size = leafletMap.getSize(), STEP = (IS_PHONE ? 5 : 6) * (conMethod === 'krige' ? 1.5 : 1);
   // Map grid: grid points sit on fixed world-pixel multiples, so panning doesn't move them.
   let ox = 0, oy = 0;
@@ -810,16 +798,35 @@ function drawContours() {
   const maskPx = CONTOUR_MASK_MI * pxPerMile, mask2 = maskPx * maskPx;
   // project gauges and bucket them so each grid point only looks nearby
   const B = new Map(), P = [];
-  let maxP = 0;
+  let maxP = 0, sigH = 0;
   for (const s of pts) {
     const q = leafletMap.latLngToContainerPoint([s.lat, s.lon]);
     if (q.x < -maskPx || q.y < -maskPx || q.x > size.x + maskPx || q.y > size.y + maskPx) continue;
-    const g = [q.x, q.y, s.p, 0];
+    const g = [q.x, q.y, s.p, 0, 0, P.length];
     P.push(g); if (s.p > maxP) maxP = s.p;
+    const id = String(s.id); for (let ci = 0; ci < id.length; ci++) sigH = (sigH * 31 + id.charCodeAt(ci)) | 0;
     const k = Math.floor(q.x / maskPx) + ',' + Math.floor(q.y / maskPx);
     (B.get(k) || B.set(k, []).get(k)).push(g);
   }
-  if (P.length < 3) return bail();
+  if (P.length < 3) return updateConNote();
+  const sig = [W, H, ox, oy, STEP, maskPx.toFixed(4), leafletMap.getZoom(), c.lat.toFixed(7), c.lng.toFixed(7), size.x, size.y, P.length, sigH].join('|');
+  if (!conNb || conNb.sig !== sig) {
+    const start = new Int32Array(W * H + 1), idx = [], d2s = [], tmp = [];
+    for (let gy = 0; gy < H; gy++) for (let gx = 0; gx < W; gx++) {
+      const x = ox + gx * STEP, y = oy + gy * STEP, bx = Math.floor(x / maskPx), by = Math.floor(y / maskPx), i = gy * W + gx;
+      tmp.length = 0;
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+        const list = B.get((bx + a) + ',' + (by + b));
+        if (!list) continue;
+        for (const g of list) { const d2 = (g[0] - x) ** 2 + (g[1] - y) ** 2; if (d2 <= mask2) tmp.push([d2, g[5]]); }
+      }
+      tmp.sort((p1, p2) => p1[0] - p2[0]);
+      for (const [d2, j] of tmp) { d2s.push(d2); idx.push(j); }
+      start[i + 1] = idx.length;
+    }
+    conNb = { sig, start, idx: Int32Array.from(idx), d2: Float32Array.from(d2s) };
+  }
+  const nbStart = conNb.start, nbIdx = conNb.idx, nbD2 = conNb.d2;
 
   let method = conMethod;
   // Kriging needs a variogram; Elevation needs terrain and a usable rain–elevation fit.
@@ -861,53 +868,39 @@ function drawContours() {
   const h2 = 2 * (SMOOTH_MI * pxPerMile) ** 2;
   const gam = vg ? h => h <= 0 ? 0 : vg.c0 + vg.c * (1 - Math.exp(-3 * h / vg.a)) : null;
   const vals = new Float64Array(W * H), dmin = new Float64Array(W * H), cnt = new Uint16Array(W * H);
-  const nb = [];
   const A = new Float64Array(13 * 13), rhs = new Float64Array(13);
-  for (let gy = 0; gy < H; gy++) for (let gx = 0; gx < W; gx++) {
-    const x = ox + gx * STEP, y = oy + gy * STEP, bx = Math.floor(x / maskPx), by = Math.floor(y / maskPx), i = gy * W + gx;
-    nb.length = 0;
-    let dm = Infinity;
-    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
-      const list = B.get((bx + a) + ',' + (by + b));
-      if (!list) continue;
-      for (const g of list) {
-        const d2 = (g[0] - x) ** 2 + (g[1] - y) ** 2;
-        if (d2 > mask2) continue;
-        nb.push([d2, g]); if (d2 < dm) dm = d2;
-      }
-    }
-    cnt[i] = nb.length; dmin[i] = Math.sqrt(dm);
-    if (!nb.length) { vals[i] = -1; continue; }
+  for (let i = 0; i < W * H; i++) {
+    const a0 = nbStart[i], a1 = nbStart[i + 1], n = a1 - a0;   // this cell's gauges, nearest first
+    cnt[i] = n; dmin[i] = n ? Math.sqrt(nbD2[a0]) : Infinity;
+    if (!n) { vals[i] = -1; continue; }
     let v;
     if (method === 'idw') {
-      let sw = 0, sv = 0, exact = null;
-      for (const [d2, g] of nb) { if (d2 < 0.25) { exact = g[2]; break; } const w = 1 / d2; sw += w; sv += w * g[2]; }
-      v = exact !== null ? exact : sv / sw;
+      if (nbD2[a0] < 0.25) v = P[nbIdx[a0]][2];
+      else { let sw = 0, sv = 0; for (let q = a0; q < a1; q++) { const w = 1 / nbD2[q]; sw += w; sv += w * P[nbIdx[q]][2]; } v = sv / sw; }
     } else if (method === 'smooth') {
       let sw = 0, sv = 0;
-      for (const [d2, g] of nb) { const w = Math.exp(-d2 / h2); sw += w; sv += w * g[2]; }
-      v = sw > 1e-300 ? sv / sw : nb.reduce((m, e) => e[0] < m[0] ? e : m)[1][2];
+      for (let q = a0; q < a1; q++) { const w = Math.exp(-nbD2[q] / h2); sw += w; sv += w * P[nbIdx[q]][2]; }
+      v = sw > 1e-300 ? sv / sw : P[nbIdx[a0]][2];
     } else if (method === 'elev') {
       let sw = 0, sv = 0;
-      for (const [d2, g] of nb) { const w = Math.exp(-d2 / h2); sw += w; sv += w * g[4]; }
+      for (let q = a0; q < a1; q++) { const w = Math.exp(-nbD2[q] / h2); sw += w; sv += w * P[nbIdx[q]][4]; }
       const zz = zGrid[i], res = sw > 1e-300 ? sv / sw : 0;
       v = Number.isNaN(zz) ? null : Math.min(1.25 * maxP, Math.max(0, trend(zz) + res));
-      if (v == null) { let s2 = 0, s1 = 0; for (const [d2, g] of nb) { const w = Math.exp(-d2 / h2); s1 += w; s2 += w * g[2]; } v = s1 > 1e-300 ? s2 / s1 : nb[0][1][2]; }
+      if (v == null) { let s2 = 0, s1 = 0; for (let q = a0; q < a1; q++) { const w = Math.exp(-nbD2[q] / h2); s1 += w; s2 += w * P[nbIdx[q]][2]; } v = s1 > 1e-300 ? s2 / s1 : P[nbIdx[a0]][2]; }
     } else {   // ordinary kriging with the nearest 12 gauges
-      if (nb.length > 12) { nb.sort((p, q) => p[0] - q[0]); nb.length = 12; }
-      const n = nb.length;
-      if (n === 1) v = nb[0][1][2];
+      const k = Math.min(12, n);
+      if (k === 1) v = P[nbIdx[a0]][2];
       else {
-        const m = n + 1;
-        for (let r = 0; r < n; r++) {
-          const gr = nb[r][1];
-          for (let s = 0; s < n; s++) { const gs = nb[s][1]; A[r * m + s] = gam(Math.hypot(gr[0] - gs[0], gr[1] - gs[1])); }
-          A[r * m + n] = 1; A[n * m + r] = 1; rhs[r] = gam(Math.sqrt(nb[r][0]));
+        const m = k + 1;
+        for (let r = 0; r < k; r++) {
+          const gr = P[nbIdx[a0 + r]];
+          for (let t = 0; t < k; t++) { const gs = P[nbIdx[a0 + t]]; A[r * m + t] = gam(Math.hypot(gr[0] - gs[0], gr[1] - gs[1])); }
+          A[r * m + k] = 1; A[k * m + r] = 1; rhs[r] = gam(Math.sqrt(nbD2[a0 + r]));
         }
-        A[n * m + n] = 0; rhs[n] = 1;
+        A[k * m + k] = 0; rhs[k] = 1;
         const lam = solveLinear(A.subarray(0, m * m), rhs.subarray(0, m), m);
-        if (!lam) { let sw = 0, sv = 0; for (const [d2, g] of nb) { const w = 1 / Math.max(d2, 0.25); sw += w; sv += w * g[2]; } v = sv / sw; }
-        else { v = 0; for (let r = 0; r < n; r++) v += lam[r] * nb[r][1][2]; v = Math.min(maxP, Math.max(0, v)); }
+        if (!lam) { let sw = 0, sv = 0; for (let r = 0; r < k; r++) { const w = 1 / Math.max(nbD2[a0 + r], 0.25); sw += w; sv += w * P[nbIdx[a0 + r]][2]; } v = sv / sw; }
+        else { v = 0; for (let r = 0; r < k; r++) v += lam[r] * P[nbIdx[a0 + r]][2]; v = Math.min(maxP, Math.max(0, v)); }
       }
     }
     vals[i] = v;
@@ -917,7 +910,7 @@ function drawContours() {
   // blank area doesn't draw a stack of false lines.
   const inside = new Uint8Array(W * H), ext = Float64Array.from(vals), queue = [];
   for (let i = 0; i < W * H; i++) if (vals[i] >= 0 && (conEdge !== 'three' || cnt[i] >= 3)) { inside[i] = 1; queue.push(i); }
-  if (!queue.length) return bail();
+  if (!queue.length) return updateConNote();
   const seen = Uint8Array.from(inside);
   for (let h = 0; h < queue.length; h++) {
     const i = queue[h], x = i % W, y = (i - x) / W;
@@ -943,7 +936,11 @@ function drawContours() {
     return true;
   };
   const breaks = BREAKS;
-  const toLL = ([x, y]) => leafletMap.containerPointToLatLng([ox + (x - 0.5) * STEP, oy + (y - 0.5) * STEP]);
+  const w00 = leafletMap.containerPointToLayerPoint([0, 0]).add(leafletMap.getPixelOrigin()), wScale = 256 * Math.pow(2, leafletMap.getZoom());
+  const toLL = ([x, y]) => {   // same as containerPointToLatLng, without building Point and LatLng objects per vertex
+    const wx = w00.x + ox + (x - 0.5) * STEP, wy = w00.y + oy + (y - 0.5) * STEP;
+    return L.latLng((2 * Math.atan(Math.exp((0.5 - wy / wScale) * 2 * Math.PI)) - Math.PI / 2) * 180 / Math.PI, wx / wScale * 360 - 180);
+  };
   const filled = contourMode === 'filled';
   contourLayer = L.layerGroup();
   if (filled) {
@@ -955,7 +952,7 @@ function drawContours() {
       for (const band of d3.contours().size([W, H]).thresholds(breaks)(Array.from(grid))) {
         if (!band.coordinates.length) continue;
         const gj = { type: 'MultiPolygon', coordinates: band.coordinates.map(poly => poly.map(ring => ring.map(pt => { const ll = toLL(pt); return [ll.lng, ll.lat]; }))) };
-        L.geoJSON(gj, { pane: FILL_PANE, interactive: false,
+        L.geoJSON(gj, { pane: 'contourFill', interactive: false,
           style: { stroke: false, fill: true, fillColor: rainClass(band.value).bg, fillOpacity: op } }).addTo(contourLayer);
       }
     }
@@ -972,7 +969,7 @@ function drawContours() {
       if (cur.length > 1) lines.push(cur);
     }
     if (!lines.length) continue;
-    L.polyline(lines, { pane: LINE_PANE, interactive: false,
+    L.polyline(lines, { pane: 'contourLine', interactive: false,
       ...(filled ? { color: 'rgba(15,23,42,.45)', weight: 0.9 } : { color: rainClass(band.value).bg, weight: 2.2, opacity: 0.95 }) }).addTo(contourLayer);
     if (conLabels) for (const ln of lines) if (ln.length >= 14) labels.push([ln.length, ln[Math.floor(ln.length / 2)], band.value]);
   }
@@ -985,18 +982,12 @@ function drawContours() {
       if (q.x < 10 || q.y < 10 || q.x > size.x - 10 || q.y > size.y - 10) continue;
       if (placed.some(p => Math.hypot(p.x - q.x, p.y - q.y) < 70)) continue;
       placed.push(q);
-      L.marker(ll, { pane: LINE_PANE, interactive: false, keyboard: false,
+      L.marker(ll, { pane: 'contourLine', interactive: false, keyboard: false,
         icon: L.divIcon({ className: '', html: `<span class="con-label">${v.toFixed(2)}</span>`, iconSize: [36, 14], iconAnchor: [18, 7] }) }).addTo(contourLayer);
       if (placed.length >= 60) break;
     }
   }
   contourLayer.addTo(leafletMap);
-  if (fade) {
-    conSet = 1 - conSet;
-    const old = conOld;
-    conOldTimer = setTimeout(() => { if (conOld === old) { leafletMap.removeLayer(old); conOld = null; } }, 450);
-  }
-  setConPanes();
   // credit the terrain source only while Elevation is in use
   const terr = 'Terrain: AWS Terrain Tiles';
   if ((method === 'elev') !== terrCredited) {
@@ -2073,7 +2064,11 @@ function exitHist(toMetric) {
 // (from the start of the period to the end of that hour) or the rain in that one
 // hour. Brackets are held for the whole run. Likely-erroneous flags come from the
 // whole-period totals, so a gauge doesn't flicker in and out.
-let play = null;   // { A, end, n, i, mode: 'total' | 'hour', playing, speed, breaks, label, timer }
+let play = null;   // { A, end, n, i, f, mode: 'total' | 'hour', playing, speed, breaks, label, timer, k, j, frameMs }
+// While playing, each hour is reached in several steps (f = part of the way from the
+// previous hour's values to this hour's), as many as a frame's cost allows, so the
+// field moves gradually instead of jumping once an hour.
+const SUB_MAX = 8, SUB_MIN_MS = 90;
 const PLAY_MS = { slow: 1000, normal: 450, fast: 150 };
 function addPlayBar() {
   const el = document.createElement('div');
@@ -2120,7 +2115,7 @@ function playOn() {
   const mode = bar.querySelector('[data-pmode].active')?.dataset.pmode || 'total';
   const speed = bar.querySelector('[data-pspeed].active')?.dataset.pspeed || 'normal';
   // starts on the last hour, which shows the same as the plain view (the whole period)
-  play = { A, end: hist.end, n, i: n - 1, mode, speed, playing: false, label: hist.label };
+  play = { A, end: hist.end, n, i: n - 1, f: 1, j: 0, k: 1, frameMs: 0, mode, speed, playing: false, label: hist.label };
   play.breaks = playBreaks();
   const rg = bar.querySelector('#play-range'); rg.max = n - 1; rg.value = n - 1;
   bar.classList.add('on'); leafletMap.getContainer().classList.add('has-play');
@@ -2136,7 +2131,7 @@ function playOff() {
   for (const s of stations) if (s.hist && s.hist.total != null) { s.p = s.hist.total; s.v.hist = s.hist.total; }
 }
 const frameEnd = i => Math.min(play.A + (i + 1) * 3600e3, play.end);
-function frameValue(s, i) {
+function frameValue(s, i, f = 1) {
   const d = s.hist && s.hist.days; if (!d) return 0;
   // running total by hour, built once per station and reused for every frame
   let pc = s._pc;
@@ -2146,7 +2141,8 @@ function frameValue(s, i) {
     for (let k = 1; k <= play.n; k++) pc[k] += pc[k - 1];
     s._pc = pc; s._pcFor = d; s._pcA = play.A;
   }
-  const v = play.mode === 'total' ? pc[i + 1] : pc[i + 1] - pc[i];
+  const at = j => play.mode === 'total' ? pc[j + 1] : pc[j + 1] - pc[j];
+  const v = f < 1 && i > 0 ? at(i - 1) + (at(i) - at(i - 1)) * f : at(i);
   return +v.toFixed(2);
 }
 // Playback frames recolor the pins already on the map instead of rebuilding them
@@ -2193,7 +2189,8 @@ function playApply() {
   play.label = play.mode === 'total'
     ? (dParts(play.A).d === dParts(e).d ? `${fmtHourMs(play.A)} – ${fmtHourMs(e, false)}` : `${fmtHourMs(play.A)} – ${fmtHourMs(e)}`)
     : `${fmtHourMs(play.A + i * 3600e3)} – ${fmtHourMs(e, false)}`;
-  for (const s of stations) { if (!s.hist) continue; const v = frameValue(s, i); s.p = v; s.v.hist = v; }
+  const f = play.playing ? play.f : 1;
+  for (const s of stations) { if (!s.hist) continue; const v = frameValue(s, i, f); s.p = v; s.v.hist = v; }
   // playing: pins near the screen only, repainted in place; paused or scrubbing: every pin
   if (pinsMode !== (play.playing ? 'vb' : 'full') || !playPaint()) render();
   const bar = document.getElementById('play-bar');
@@ -2202,22 +2199,29 @@ function playApply() {
   bar.querySelector('#play-time').innerHTML = `${pt}<small>${play.mode === 'total' ? 'Rain so far, from ' + fmtHourMs(play.A) : 'Rain in this hour'} · hour ${i + 1} of ${play.n}</small>`;
   const pb = bar.querySelector('#play-btn'); pb.textContent = play.playing ? '❚❚' : '▶'; pb.setAttribute('aria-label', play.playing ? 'Pause' : 'Play');
 }
-function playGo(i) { if (!play) return; play.i = Math.max(0, Math.min(play.n - 1, i)); playApply(); }
+function playGo(i) { if (!play) return; play.i = Math.max(0, Math.min(play.n - 1, i)); play.f = 1; play.j = 0; playApply(); }
 function playStart() {
   if (!play) return;
   if (play.i >= play.n - 1) play.i = -1;     // at the end: start over
-  play.playing = true;
+  play.playing = true; play.j = 0;
   const tick = () => {
     if (!play || !play.playing) return;
-    const t = performance.now();
-    play.i++;
-    if (play.i >= play.n - 1) { play.i = play.n - 1; play.playing = false; playApply(); return; }
+    const t = performance.now(), H = PLAY_MS[play.speed];
+    if (play.j === 0) {   // on to the next hour
+      if (play.i >= play.n - 1) { play.playing = false; play.f = 1; playApply(); return; }
+      play.i++;
+      play.k = play.i === 0 ? 1 : Math.max(1, Math.min(SUB_MAX, Math.floor(H / Math.max(SUB_MIN_MS, (play.frameMs || 150) * 1.25))));
+    }
+    play.j++; play.f = play.j / play.k;
     playApply();
-    play.timer = setTimeout(tick, Math.max(30, PLAY_MS[play.speed] - (performance.now() - t)));
+    const dt = performance.now() - t;
+    play.frameMs = play.frameMs ? play.frameMs * 0.7 + dt * 0.3 : dt;
+    if (play.j >= play.k) play.j = 0;
+    play.timer = setTimeout(tick, Math.max(16, H / play.k - dt));
   };
   tick();
 }
-function playPause() { if (!play) return; clearTimeout(play.timer); if (play.playing) { play.playing = false; playApply(); } }
+function playPause() { if (!play) return; clearTimeout(play.timer); if (play.playing) { play.playing = false; play.f = 1; play.j = 0; playApply(); } }
 
 // Ambient public network ----------------------------------------------------
 const cells = new Map();        // "i,j" -> { t: last load time, busy }

@@ -90,6 +90,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .info-btn:focus-visible{outline:2px solid #0891b2;outline-offset:1px}
 .hist-row{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-bottom:6px}
 .hist-row label{display:flex;align-items:center;gap:4px;font-weight:600;color:#475569}
+.hist-row select{font:inherit;font-size:12px;padding:2px 4px;border:1px solid rgba(0,0,0,.2);border-radius:5px;background:#fff;color:#1e293b}
 .hist-row input[type=date]{font:inherit;font-size:12px;padding:2px 4px;border:1px solid rgba(0,0,0,.2);border-radius:5px;background:#fff;color:#1e293b}
 .hist-days{margin:4px 0 6px;max-height:160px;overflow-y:auto;border-top:1px solid #f1f5f9}
 .hist-gap{font-size:11px;color:#92400e;margin:3px 0}
@@ -287,7 +288,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.40 history test';
+const APP_VERSION = '1.40 history test (hourly)';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -989,7 +990,7 @@ function buildPopup(s) {
     <div class="vals">${Object.entries(METRICS).filter(([k2]) => s.v[k2] != null).map(([k2, m2]) =>
       `<div class="${k2 === metric ? 'on' : ''}"><b>${fmtV(s.v[k2])}</b><span>${m2.label}</span></div>`).join('')}</div>
     ${s.why ? `<div class="warn">${s.why}</div>` : ''}
-    ${metric === 'hist' && s.hist ? `<div class="hist-days">${s.hist.have < s.hist.need ? `<div class="hist-gap">Readings on ${s.hist.have} of ${s.hist.need} days.</div>` : ''}${s.hist.days.slice(-31).map(([d, v]) => `<div class="row"><span>${fmtDay(d)}</span><span>${fmtV(v)} in</span></div>`).join('')}${s.hist.days.length > 31 ? `<div class="hist-gap">Last 31 days shown.</div>` : ''}</div>` : ''}
+    ${metric === 'hist' && s.hist ? `<div class="hist-days">${hist.mode === 'h' ? histHoursHtml(s.hist) : `${s.hist.have < s.hist.need ? `<div class="hist-gap">Readings on ${s.hist.have} of ${s.hist.need} days.</div>` : ''}${s.hist.days.slice(-31).map(([d, v]) => `<div class="row"><span>${fmtDay(d)}</span><span>${fmtV(v)} in</span></div>`).join('')}${s.hist.days.length > 31 ? `<div class="hist-gap">Last 31 days shown.</div>` : ''}`}</div>` : ''}
     <div class="row"><span>${metric === 'hist' ? 'Live reading as of' : 'As of'}</span><span>${s.time}</span></div>
     <div class="row"><span>From ${CENTER.name}</span><span>${s.dist.toFixed(1)} mi ${s.dist < 0.05 ? '' : s.dir}</span></div>
     ${s.elev ? `<div class="row"><span>Elevation</span><span>${s.elev.toLocaleString()} ft</span></div>` : ''}
@@ -1066,12 +1067,27 @@ function addFilterBar() {
           <button class="seg-btn" data-hist="pick">Past dates</button>
         </div>
         <div class="info-pop" id="hist-pop" hidden>
+          <div class="hist-row"><div class="seg-ctrl"><button class="seg-btn active" type="button" data-hmode="d">Whole days</button><button class="seg-btn" type="button" data-hmode="h">Hours</button></div></div>
+          <div id="h-days">
           <div class="hist-row"><label>From <input type="date" id="h-from"></label><label>To <input type="date" id="h-to"></label></div>
           <div class="hist-row">
             <button class="draw-btn" type="button" data-hq="1">Yesterday</button>
             <button class="draw-btn" type="button" data-hq="7">Last 7 days</button>
             <button class="draw-btn" type="button" data-hq="30">Last 30 days</button>
             <button class="filter-btn active" type="button" id="h-go">Show</button>
+          </div>
+          </div>
+          <div id="h-hours" hidden>
+          <div class="hist-row"><label>From <input type="date" id="hh-fd"> <select id="hh-fh" aria-label="From hour"></select></label></div>
+          <div class="hist-row"><label>To <input type="date" id="hh-td"> <select id="hh-th" aria-label="To hour"></select></label></div>
+          <div class="hist-row">
+            <button class="draw-btn" type="button" data-hh="3">Last 3 hours</button>
+            <button class="draw-btn" type="button" data-hh="6">Last 6 hours</button>
+            <button class="draw-btn" type="button" data-hh="12">Last 12 hours</button>
+            <button class="draw-btn" type="button" data-hh="24">Last 24 hours</button>
+            <button class="draw-btn" type="button" data-hh="48">Last 48 hours</button>
+            <button class="filter-btn active" type="button" id="hh-go">Show</button>
+          </div>
           </div>
           <div id="h-msg">Past rain for personal (Ambient) stations, up to a year back. Each day is the station's end-of-day daily total; a period is the sum of its days. One or two days use 5-minute readings, longer periods hourly. Loads station by station for the area on screen.</div>
         </div>
@@ -1182,6 +1198,34 @@ function addFilterBar() {
       hf.value = a; ht.value = z;
       setHist(a, z);
     });
+    // hours
+    const HMSG_D = hm.textContent, HMSG_H = 'Hourly rain for personal (Ambient) stations, back to Oct 19, 2026, when the hourly archive began. Times are Mountain Time. Hours before today come from the nightly hourly archive; today\'s hours are read live, station by station, for the area on screen.';
+    const fd = el.querySelector('#hh-fd'), fh = el.querySelector('#hh-fh'), td = el.querySelector('#hh-td'), th = el.querySelector('#hh-th');
+    for (const sel of [fh, th]) sel.innerHTML = Array.from({ length: 24 }, (_, i) => `<option value="${i}">${hourLbl(i)}</option>`).join('');
+    for (const inp of [fd, td]) { inp.max = today; inp.min = HR_FIRST_DAY; }
+    const setHourInputs = (a, z) => { const pa = dParts(a), pz = dParts(z); fd.value = dayStr(pa); fh.value = pa.h; td.value = dayStr(pz); th.value = pz.h; };
+    { const n = Date.now(); setHourInputs(n - 6 * 3600e3, n); }
+    el.querySelectorAll('[data-hmode]').forEach(b => b.addEventListener('click', () => {
+      const h = b.dataset.hmode === 'h';
+      el.querySelectorAll('[data-hmode]').forEach(x => x.classList.toggle('active', x === b));
+      el.querySelector('#h-days').hidden = h; el.querySelector('#h-hours').hidden = !h;
+      hm.textContent = h ? HMSG_H : HMSG_D;
+    }));
+    el.querySelectorAll('[data-hh]').forEach(b => b.addEventListener('click', () => {
+      const n = +b.dataset.hh, z = Date.now(), a = z - n * 3600e3;
+      setHourInputs(a, z);
+      setHourHist(Math.max(a, hrFirstMs()), z, `Last ${n} hours`);
+    }));
+    el.querySelector('#hh-go').addEventListener('click', () => {
+      if (!fd.value || !td.value) { hm.textContent = 'Pick both dates.'; return; }
+      let a = localHourMs(TZ, fd.value, +fh.value), z = localHourMs(TZ, td.value, +th.value);
+      if (a > z) [a, z] = [z, a];
+      if (z > Date.now()) z = Date.now();
+      if (a < hrFirstMs()) a = hrFirstMs();
+      if (z - a < 3600e3) { hm.textContent = 'Pick at least one hour.'; return; }
+      hm.textContent = HMSG_H;
+      setHourHist(a, z);
+    });
     el.querySelectorAll('[data-src]').forEach(b => b.addEventListener('click', () => {
       srcFilter = b.dataset.src;
       el.querySelectorAll('[data-src]').forEach(x => x.classList.toggle('active', x === b));
@@ -1245,7 +1289,8 @@ function addFilterBar() {
 // ── Legend ───────────────────────────────────────────────────────────────────
 function legendHtml() {
   const M = METRICS[metric];
-  const offNote = metric === 'hist' ? '<div class="note">History shows personal (Ambient) stations only for now. Each day is the station\'s end-of-day daily total.</div>'
+  const offNote = metric === 'hist' && hist && hist.mode === 'h' ? '<div class="note">History shows personal (Ambient) stations only for now. Hours are the station\'s 5-minute readings added up by hour.</div>'
+    : metric === 'hist' ? '<div class="note">History shows personal (Ambient) stations only for now. Each day is the station\'s end-of-day daily total.</div>'
     : metric === 'event' ? '<div class="note">Official gauges and SNOTEL sites don\'t report this value, so only personal stations show.</div>'
     : metric === 'rate' ? '<div class="note">SNOTEL sites don\'t report Rate.</div>'
     : metric === 'year' ? '<div class="note">SNOTEL Year is January 1 to now, worked out from the water-year total.</div>' : '';
@@ -1625,8 +1670,8 @@ async function ensureHist() {
   const worker = async () => {
     while (i < todo.length && run === histRun && hist === h0) {
       const st = todo[i++];
-      await fetchHist(st, h); done++;
-      if (done % 10 === 0) { msg.className = 'refresh-msg'; msg.textContent = hist.arch ? `Archive loaded; adding ${fmtDay(h.from)}${h.from === h.to ? '' : '–' + fmtDay(h.to)} (not archived yet): ${done} of ${todo.length} stations…` : `Loading history for ${h.label}: ${done} of ${todo.length} stations…`; }
+      await (h.mode === 'h' ? fetchHourTail(st, h) : fetchHist(st, h)); done++;
+      if (done % 10 === 0) { msg.className = 'refresh-msg'; msg.textContent = hist.arch ? `Archive loaded; adding ${tailLbl(h)} (not archived yet): ${done} of ${todo.length} stations…` : `Loading history for ${h.label}: ${done} of ${todo.length} stations…`; }
       // redraw at most every 4 seconds while loading; each redraw recomputes every pin and contour
       if (Date.now() - lastDraw > 4000) { lastDraw = Date.now(); rebuild(); msg.textContent = `Loading history for ${h.label}: ${done} of ${todo.length} stations…`; }
     }
@@ -1642,8 +1687,8 @@ function histStatus() {
     const msg = document.getElementById('refresh-msg'), n = stations.length;
     const t = hist.arch.tail;
     msg.className = 'refresh-msg';
-    msg.textContent = `History, ${hist.label}: ${n} personal stations from the nightly archive` +
-      (t ? `, plus ${fmtDay(t.from)}${t.from === t.to ? '' : '–' + fmtDay(t.to)} asked for station by station for the area on screen (not archived until after midnight)` : '') +
+    msg.textContent = `History, ${hist.label}: ${n} personal stations from the nightly ${hist.mode === 'h' ? 'hourly ' : ''}archive` +
+      (t ? `, plus ${tailLbl(t)} asked for station by station for the area on screen (not archived until after midnight)` : '') +
       '. Official gauges and SNOTEL are live-only for now.';
     return;
   }
@@ -1696,6 +1741,141 @@ async function archFor(h) {
   } catch (e) { return null; }
 }
 
+// Hourly history (test): history/hourly/YYYY-MM-DD.json holds each station's
+// rain by hour of its local day (see .github/scripts/hourly.mjs). Hours before
+// today come from there; hours since the last saved day are worked out live,
+// station by station, from the 5-minute readings (rises of the daily counter).
+const HR_FIRST_DAY = '2026-10-19';
+let hrIndex = null, hrIndexAt = 0, hrTzfix = {};
+const hrFiles = new Map();        // day -> Promise of hourly file
+const hrStarts = new Map();       // zone|day -> [ms each of its 24 hours starts]
+const zFmt = new Map();
+function zParts(ms, tz) {
+  let f = zFmt.get(tz);
+  if (!f) { try { f = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }); } catch (e) { f = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }); } zFmt.set(tz, f); }
+  const o = {}; for (const p of f.formatToParts(ms)) o[p.type] = p.value; return o;
+}
+function localHourMs(tz, day, h) {   // ms when hour h of that date starts in zone tz
+  const [y, m, d] = day.split('-').map(Number), guess = Date.UTC(y, m - 1, d, h);
+  let t = guess;
+  for (let i = 0; i < 2; i++) { const o = zParts(t, tz); t -= Date.UTC(+o.year, +o.month - 1, +o.day, +o.hour % 24, +o.minute) - guess; }
+  return t;
+}
+function hourStarts(tz, day) {
+  const k = tz + '|' + day; let a = hrStarts.get(k);
+  if (!a) { a = Array.from({ length: 24 }, (_, h) => localHourMs(tz, day, h)); hrStarts.set(k, a); }
+  return a;
+}
+const hrFirstMs = () => localHourMs(TZ, HR_FIRST_DAY, 0);
+const hourLbl = h => h === 0 ? '12 AM' : h < 12 ? h + ' AM' : h === 12 ? '12 PM' : (h - 12) + ' PM';
+const dayStr = p => `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`;
+function fmtHourMs(ms, withDay = true) {
+  const p = dParts(ms), mi = Math.floor(ms / 60e3) % 60;
+  const t = mi ? `${p.h % 12 || 12}:${String(mi).padStart(2, '0')} ${p.h < 12 ? 'AM' : 'PM'}` : hourLbl(p.h);
+  return withDay ? `${fmtDay(dayStr(p))}, ${t}` : t;
+}
+const tailLbl = h => h.mode === 'h' ? `${fmtHourMs(h.start)} to ${h.end >= Date.now() - 60e3 ? 'now' : fmtHourMs(h.end)}` : `${fmtDay(h.from)}${h.from === h.to ? '' : '–' + fmtDay(h.to)}`;
+function histHoursHtml(e) {
+  const rainy = e.days.filter(([, v]) => v >= 0.005);
+  return (e.have < e.need ? `<div class="hist-gap">Readings for ${e.have} of ${e.need} hours.</div>` : '') +
+    (rainy.length ? rainy.slice(-31).map(([t, v]) => `<div class="row"><span>${fmtHourMs(t)}</span><span>${fmtV(v)} in</span></div>`).join('') + `<div class="hist-gap">${rainy.length > 31 ? 'Last 31 hours with rain shown.' : 'Hours with no rain not listed.'}</div>`
+      : '<div class="hist-gap">No rain in any hour.</div>');
+}
+async function archHourFor(h) {
+  try {
+    if (!hrIndex || Date.now() - hrIndexAt > 600e3) {
+      [hrIndex, hrTzfix] = await Promise.all([archJSON('hourly/index.json'), archJSON('hourly/tzfix.json').catch(() => ({}))]);
+      hrIndexAt = Date.now(); hrFiles.clear();
+    }
+  } catch (e) { return null; }
+  const days = (hrIndex.days || []).filter(d => d >= HR_FIRST_DAY).sort();
+  if (!days.length) return null;
+  const archEnd = localHourMs(TZ, addDays(days[days.length - 1], 1), 0), aEnd = Math.min(h.end, archEnd);
+  if (aEnd <= h.start) return null;           // nothing archived in the range: all live
+  const tail = h.end > archEnd ? { mode: 'h', start: archEnd, end: h.end, key: 'htail_' + archEnd + '_' + h.end } : null;
+  try {
+    if (!archStations) {
+      const sj = await archJSON('stations.json');
+      archStations = {}; archList = sj.list || [];
+      for (const r of archList) archStations[r[0]] = [r[1], r[2], r[3], r[4], r[5]];
+    }
+    const d0 = addDays(dayStr(dParts(h.start)), -1), d1 = addDays(dayStr(dParts(aEnd - 1)), 1);
+    const want = days.filter(d => d >= d0 && d <= d1);
+    const files = await Promise.all(want.map(d => { if (!hrFiles.has(d)) hrFiles.set(d, archJSON('hourly/' + d + '.json').catch(e => { hrFiles.delete(d); throw e; })); return hrFiles.get(d); }));
+    const lo = h.start - 1800e3, needH = Math.round((aEnd - h.start) / 3600e3);
+    const sums = new Map();
+    for (const f of files) {
+      if (!f || f.v !== 2) continue;
+      // rows: [station number, rain in hour 0 ... hour 23 of the station's local day, peak rate], hundredths of an inch
+      for (const row of f.rows || []) {
+        const st = archList[row[0]]; if (!st) continue;
+        const hs = hourStarts(hrTzfix[row[0]] || st[5] || TZ, f.date);
+        if (hs[23] < lo || hs[0] >= aEnd) continue;
+        let e = sums.get(st[0]);
+        for (let i = 0; i < 24; i++) {
+          const t = hs[i], v = row[1 + i];
+          if (t < lo || t >= aEnd || v == null) continue;
+          if (!e) sums.set(st[0], e = { total: 0, days: [], have: 0, need: needH });
+          e.have++; e.total += v / 100; if (v > 0) e.days.push([t, v / 100]);
+        }
+      }
+    }
+    for (const e of sums.values()) { e.total = +e.total.toFixed(2); e.have = Math.min(e.have, e.need); e.days.sort((a, b) => a[0] - b[0]); }
+    return { sums, tail };
+  } catch (e) { return null; }
+}
+// rain between two moments from a station's 5-minute readings
+async function fetchHourTail(st, h) {
+  const k = h.key + '|' + st.mac;
+  histCache.set(k, { busy: true });
+  try {
+    const rs = [];
+    for (let s = h.start - 20 * 60e3; s < h.end; s += 6.5 * 86400e3) {
+      const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 25000);
+      const r = await fetch('https://lightning.ambientweather.net/device-data?' + new URLSearchParams({
+        macAddress: st.mac, dataKey: st.key, start: Math.round(s), end: Math.round(Math.min(h.end, s + 6.5 * 86400e3)), limit: 2000, res: 5 }), { signal: ctl.signal });
+      clearTimeout(timer);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json(), arr = Array.isArray(j) ? j : (j.data || []);
+      for (const x of arr) if (x.dailyrainin != null && x.dateutc != null) rs.push([+x.dateutc, +x.dailyrainin]);
+    }
+    rs.sort((a, b) => a[0] - b[0]);
+    if (!rs.length || rs[rs.length - 1][0] < h.start) { histCache.set(k, { none: true }); return; }
+    const byHour = new Map(); let total = 0;
+    for (let i = 1; i < rs.length; i++) {
+      const [t0, v0] = rs[i - 1], [t1, v1] = rs[i]; if (t1 <= t0) continue;
+      let rise = v1 >= v0 ? v1 - v0 : v1;            // a drop: the counter reset at the station's midnight
+      const a = Math.max(t0, h.start), b = Math.min(t1, h.end);
+      if (b <= a || rise <= 0) continue;
+      rise *= (b - a) / (t1 - t0);
+      total += rise;
+      const hk = Math.floor((b - 1) / 3600e3) * 3600e3; byHour.set(hk, (byHour.get(hk) || 0) + rise);
+    }
+    const need = Math.max(1, Math.round((h.end - h.start) / 3600e3));
+    const covered = Math.min(rs[rs.length - 1][0], h.end) - Math.max(rs[0][0], h.start);
+    histCache.set(k, { total: +total.toFixed(2), days: [...byHour.entries()].sort((a, b) => a[0] - b[0]).map(([t, v]) => [t, +v.toFixed(2)]),
+      have: Math.min(need, Math.max(0, Math.round(covered / 3600e3))), need });
+  } catch (e) { histCache.set(k, { err: true }); }
+}
+function setHourHist(start, end, label) {
+  const hrs = (end - start) / 3600e3;
+  label = label || (dayStr(dParts(start)) === dayStr(dParts(end)) ? `${fmtHourMs(start)} – ${fmtHourMs(end, false)}` : `${fmtHourMs(start)} – ${fmtHourMs(end)}`);
+  hist = { mode: 'h', start, end, days: hrs / 24, label, key: 'h_' + start + '_' + end };
+  METRICS.hist.label = 'Period';
+  METRICS.hist.title = `Rain ${label} (in)`;
+  METRICS.hist.scale = hrs <= 24 ? 1 : hrs <= 168 ? 1.5 : 2;
+  metric = 'hist';
+  document.querySelectorAll('[data-metric]').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('[data-hist]').forEach(x => x.classList.toggle('active', x.dataset.hist === 'pick'));
+  const h = hist, msg = document.getElementById('refresh-msg');
+  msg.className = 'refresh-msg'; msg.textContent = `Loading history for ${label}…`;
+  archHourFor(h).then(a => {
+    if (hist !== h) return;
+    h.arch = a;
+    updateLegend(); rebuild(); ensureHist();
+  });
+}
+
 function setHist(from, to) {
   const days = dayCount(from, to);
   const label = from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`;
@@ -1708,7 +1888,7 @@ function setHist(from, to) {
   document.querySelectorAll('[data-hist]').forEach(x => x.classList.toggle('active', x.dataset.hist === 'pick'));
   const h = hist, msg = document.getElementById('refresh-msg');
   msg.className = 'refresh-msg'; msg.textContent = `Loading history for ${label}…`;
-  archFor(h).then(a => {
+  (h.mode === 'h' ? archHourFor(h) : archFor(h)).then(a => {
     if (hist !== h) return;
     h.arch = a;
     updateLegend(); rebuild(); ensureHist();
@@ -1945,11 +2125,11 @@ function rebuild() {
     const t = hist.arch.tail;
     for (const [mac, a] of hist.arch.sums) {
       const m = archStations[mac]; if (!m) continue;
-      let total = a.total, days = a.days, have = a.have;
-      if (t) { const tc = histCache.get(t.key + '|' + mac); if (tc && tc.total != null) { total = +(total + tc.total).toFixed(2); days = days.concat(tc.days); have += tc.have; } }
+      let total = a.total, days = a.days, have = a.have, need = a.need ?? hist.days;
+      if (t) { const tc = histCache.get(t.key + '|' + mac); if (tc && tc.total != null) { total = +(total + tc.total).toFixed(2); days = days.concat(tc.days); have += tc.have; if (hist.mode === 'h') need += tc.need; } }
       const L = live.get(mac);
       amb.push({ src: 'A', net: 'Ambient', name: L ? L.name : m[2], area: L ? L.area : '', lat: m[0], lon: m[1], slug: m[3], mac, key: m[3], tz: m[4],
-        v: { ...(L ? L.v : {}), hist: total }, time: L ? L.time : 'not reporting now', hist: { total, days, have, need: hist.days } });
+        v: { ...(L ? L.v : {}), hist: total }, time: L ? L.time : 'not reporting now', hist: { total, days, have, need } });
     }
   } else
   for (const s of ambient.values()) {

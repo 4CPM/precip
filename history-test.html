@@ -315,7 +315,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.40 history test (hourly)';
+const APP_VERSION = '1.45 test';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -335,10 +335,10 @@ const CELL_TTL = 15 * 60e3;     // reload a cell's stations when they are older 
 // "scale" sizes that test's inch thresholds to the value being shown.
 const METRICS = {
   rate:  { label: 'Rate',  title: 'Rain in the past hour (in/hr)',     unit: 'in/hr', amb: 'hourlyrainin',  off: 'phour', breaks: [0.01, 0.05, 0.10, 0.20, 0.30, 0.50, 0.75, 1.00], scale: 0.25, check: true },
-  day:   { label: 'Day',   title: 'Rain since midnight (in)',          unit: 'in',    amb: 'dailyrainin',   off: 'pday',  breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 1,    check: true },
+  day:   { label: 'Today', title: 'Rain since midnight (in)',          unit: 'in',    amb: 'dailyrainin',   off: 'pday',  breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 1,    check: true },
   event: { label: 'Event', title: 'Rain this storm (in)',              unit: 'in',    amb: 'eventrainin',               breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 1,    check: true },
-  week:  { label: 'Week',  title: 'Rain this week (in)',               unit: 'in',    amb: 'weeklyrainin',              breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 1.5,  check: true },
-  month: { label: 'Month', title: 'Rain this month (in)',              unit: 'in',    amb: 'monthlyrainin',             breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 2,    check: true },
+  week:  { label: 'This week',  title: 'Rain this week (in)',               unit: 'in',    amb: 'weeklyrainin',              breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 1.5,  check: true },
+  month: { label: 'This month', title: 'Rain this month (in)',              unit: 'in',    amb: 'monthlyrainin',             breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 2,    check: true },
   hist:  { label: 'Period', title: 'Rain for the dates picked (in)',    unit: 'in',                                              breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 1.5,  check: true },
   year:  { label: 'Year',  title: 'Rain this year (in)',               unit: 'in',    amb: 'yearlyrainin',              breaks: [0.01, 2, 4, 6, 8, 10, 12, 15],                   scale: 10,   check: false, max: 80 },
 };
@@ -347,7 +347,7 @@ const COLORS = [   // lowest class first
   { bg: '#2c7fb8', fg: '#fff' },    { bg: '#253494', fg: '#fff' },    { bg: '#7a0177', fg: '#fff' }, { bg: '#c51b8a', fg: '#fff' },
   { bg: '#e31a1c', fg: '#fff' },    { bg: '#a50f15', fg: '#fff' },    { bg: '#f16913', fg: '#fff' }, { bg: '#1f1f1f', fg: '#fff' },
 ];
-let metric = 'week';
+let metric = 'day';
 const fmtV = v => v >= 100 ? v.toFixed(0) : v.toFixed(2);
 // Build legend classes from a list of lower bounds. The fixed brackets keep their
 // set colors; fitted brackets spread the twelve colors across however many steps there are.
@@ -381,7 +381,7 @@ function makeClasses(b, fixed) {
 // readings are left out so one bad gauge can't stretch the scale.
 let legendRange = 'loaded';     // 'fixed' | 'loaded' | 'screen'
 let legendMethod = 'equal';     // 'equal' | 'count'
-let legendSteps = 12;
+let legendSteps = 16;
 const LEG_MIN = 4, LEG_MAX = 30;
 let legendAdjOpen = false;
 let scaleInfo = '', legendSig = '';
@@ -567,7 +567,10 @@ let polyMode = false, polyDrawing = false, activePoly = null, polyVertices = [],
 const markersById = {};
 let contourMode = 'filled';        // 'off' | 'lines' | 'filled'
 let contourLayer = null;
-const CONTOUR_MASK_MI = 10;     // leave the map blank where no gauge is this close
+let conReachMi = 10;            // contours reach this far from each gauge; the map is blank beyond it (typed in Contours ⚙)
+const REACH_MIN = 1, REACH_MAX = 100;
+const fmtReach = () => String(conReachMi);
+const conText = t => t.replace(/\{R\}/g, fmtReach());   // '{R}' in the contour texts is the reach in miles
 
 function visible(s, ignoreRegion) {
   if (s.dist > radius + 1e-9) return false;
@@ -674,12 +677,12 @@ function drawRings() {
 // Estimate rain on a grid from the gauges shown (likely-erroneous readings left
 // out), then trace the legend brackets. The viewer picks the method, the edge,
 // the grid and labels (Contours ⚙ in Filters & tools):
-//   Distance  – inverse-distance weighting of gauges within CONTOUR_MASK_MI, lightly smoothed (the original)
+//   Distance  – inverse-distance weighting of gauges within the reach (conReachMi, 10 mi unless changed), lightly smoothed (the original)
 //   Smooth    – Gaussian weighting, so each gauge's influence fades gradually over a few miles
 //   Kriging   – ordinary kriging with an exponential variogram fitted to the readings on screen
 //   Elevation – rain fitted against ground elevation (AWS Terrain Tiles) for the gauges on screen,
 //               with what's left over smoothed and added back
-// Edges: Hard (blank past CONTOUR_MASK_MI), Soft (fades out toward it), 3+ gauges (only where at
+// Edges: Hard (blank past the reach), Soft (fades out toward it), 3+ gauges (only where at
 // least three gauges are within it). Grid: Screen (follows the screen) or Map (tied to the map).
 let conMethod = 'idw';      // 'idw' | 'smooth' | 'krige' | 'elev'
 let conEdge = 'hard';       // 'hard' | 'soft' | 'three'
@@ -689,12 +692,12 @@ let conNote = '';
 const SMOOTH_MI = 3;        // Gaussian width for Smooth and for the Elevation leftovers
 const CON_NAMES = { idw: 'Distance', smooth: 'Smooth', krige: 'Kriging', elev: 'Elevation' };
 const CON_DESC = {
-  idw: 'Distance: each spot is a distance-weighted average of gauges within 10 mi, lightly smoothed. The nearest gauge dominates, so it can look patchy.',
+  idw: 'Distance: each spot is a distance-weighted average of gauges within {R} mi, lightly smoothed. The nearest gauge dominates, so it can look patchy.',
   smooth: 'Smooth: each gauge\'s influence fades gradually over a few miles (Gaussian weighting). No bullseyes or hard seams.',
   krige: 'Kriging: gauges are weighted by how much readings on screen actually differ with distance (ordinary kriging). Slower.',
   elev: 'Elevation: rain is fitted against ground elevation for the gauges on screen, and what is left over is smoothed and added back, so estimates follow the terrain. Elevation from AWS Terrain Tiles.',
 };
-const EDGE_DESC = { hard: 'blank past 10 mi from a gauge', soft: 'fading out toward 10 mi from a gauge', three: 'only where 3 or more gauges are within 10 mi' };
+const EDGE_DESC = { hard: 'blank past {R} mi from a gauge', soft: 'fading out toward {R} mi from a gauge', three: 'only where 3 or more gauges are within {R} mi' };
 
 // Terrain (Terrarium PNG tiles: meters = R×256 + G + B/256 − 32768)
 const DEM_URL = (z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
@@ -795,9 +798,9 @@ function drawContours() {
   const W = Math.ceil((size.x - ox) / STEP) + 1, H = Math.ceil((size.y - oy) / STEP) + 1;
   const c = leafletMap.getCenter();
   const pxPerMile = Math.abs(leafletMap.latLngToContainerPoint([c.lat + 1 / 69, c.lng]).y - leafletMap.latLngToContainerPoint(c).y);
-  const maskPx = CONTOUR_MASK_MI * pxPerMile, mask2 = maskPx * maskPx;
-  // project gauges and bucket them so each grid point only looks nearby
-  const B = new Map(), P = [];
+  const maskPx = conReachMi * pxPerMile, mask2 = maskPx * maskPx;
+  // project the gauges within reach of the screen
+  const P = [];
   let maxP = 0, sigH = 0;
   for (const s of pts) {
     const q = leafletMap.latLngToContainerPoint([s.lat, s.lon]);
@@ -805,28 +808,72 @@ function drawContours() {
     const g = [q.x, q.y, s.p, 0, 0, P.length];
     P.push(g); if (s.p > maxP) maxP = s.p;
     const id = String(s.id); for (let ci = 0; ci < id.length; ci++) sigH = (sigH * 31 + id.charCodeAt(ci)) | 0;
-    const k = Math.floor(q.x / maskPx) + ',' + Math.floor(q.y / maskPx);
-    (B.get(k) || B.set(k, []).get(k)).push(g);
   }
   if (P.length < 3) return updateConNote();
   const sig = [W, H, ox, oy, STEP, maskPx.toFixed(4), leafletMap.getZoom(), c.lat.toFixed(7), c.lng.toFixed(7), size.x, size.y, P.length, sigH].join('|');
   if (!conNb || conNb.sig !== sig) {
-    const start = new Int32Array(W * H + 1), idx = [], d2s = [], tmp = [];
-    for (let gy = 0; gy < H; gy++) for (let gx = 0; gx < W; gx++) {
-      const x = ox + gx * STEP, y = oy + gy * STEP, bx = Math.floor(x / maskPx), by = Math.floor(y / maskPx), i = gy * W + gx;
-      tmp.length = 0;
-      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
-        const list = B.get((bx + a) + ',' + (by + b));
-        if (!list) continue;
-        for (const g of list) { const d2 = (g[0] - x) ** 2 + (g[1] - y) ** 2; if (d2 <= mask2) tmp.push([d2, g[5]]); }
-      }
-      tmp.sort((p1, p2) => p1[0] - p2[0]);
-      for (const [d2, j] of tmp) { d2s.push(d2); idx.push(j); }
-      start[i + 1] = idx.length;
+    // Each cell keeps its nearest NB_MAX gauges within reach, nearest first. Gauges sit in a
+    // bucket grid; a cell searches outward ring by ring and stops once no unseen bucket can
+    // hold a nearer gauge than its NB_MAX-th, so a long reach over a dense area stays quick.
+    // More than NB_MAX within reach happens only over city centers or at a long reach, where
+    // the farther gauges weigh little. The count is exact up to NB_MAX (it is only tested ≥ 3).
+    const NB_MAX = 128, hd2 = new Float64Array(NB_MAX), hix = new Int32Array(NB_MAX);   // a max-heap of the nearest so far
+    // Bucket size: where the reach holds fewer than NB_MAX gauges, one bucket per reach (a 3×3 block
+    // covers the circle); where it holds more, buckets a fifth of the typical distance to the NB_MAX-th gauge.
+    const density = P.length / ((size.x + 2 * maskPx) * (size.y + 2 * maskPx)), dNB = Math.sqrt(NB_MAX / (Math.PI * Math.max(density, 1e-12)));
+    const bs = dNB >= maskPx ? maskPx * 1.01 : Math.max(2 * STEP, Math.min(maskPx * 1.01, dNB / 5)), minX = -maskPx - STEP - 1, minY = -maskPx - STEP - 1;
+    const cols = Math.ceil((size.x + 2 * (maskPx + STEP + 1)) / bs) + 1, rows = Math.ceil((size.y + 2 * (maskPx + STEP + 1)) / bs) + 1;
+    const bk = new Array(cols * rows).fill(null);
+    for (const g of P) {
+      const bxi = Math.min(cols - 1, Math.max(0, Math.floor((g[0] - minX) / bs))), byi = Math.min(rows - 1, Math.max(0, Math.floor((g[1] - minY) / bs)));
+      (bk[byi * cols + bxi] || (bk[byi * cols + bxi] = [])).push(g);
     }
-    conNb = { sig, start, idx: Int32Array.from(idx), d2: Float32Array.from(d2s) };
+    const R = Math.ceil(maskPx / bs) + 1;
+    const start = new Int32Array(W * H + 1), count = new Int32Array(W * H), idx = new Int32Array(W * H * NB_MAX), d2s = new Float32Array(W * H * NB_MAX);
+    let used = 0;
+    for (let gy = 0; gy < H; gy++) for (let gx = 0; gx < W; gx++) {
+      const x = ox + gx * STEP, y = oy + gy * STEP, i = gy * W + gx;
+      const cx = Math.min(cols - 1, Math.max(0, Math.floor((x - minX) / bs))), cy = Math.min(rows - 1, Math.max(0, Math.floor((y - minY) / bs)));
+      let bn = 0, total = 0;
+      for (let r = 0; r <= R; r++) {
+        const near = (r - 1) * bs;   // no gauge in this ring or beyond is closer than this
+        if (near > maskPx || (bn === NB_MAX && near * near >= hd2[0])) break;
+        for (let byi = cy - r; byi <= cy + r; byi++) {
+          if (byi < 0 || byi >= rows) continue;
+          const edge = byi === cy - r || byi === cy + r, stepX = edge ? 1 : 2 * r || 1;
+          for (let bxi = cx - r; bxi <= cx + r; bxi += stepX) {
+            if (bxi < 0 || bxi >= cols) continue;
+            const list = bk[byi * cols + bxi];
+            if (!list) continue;
+            for (const g of list) {
+              const d2 = (g[0] - x) ** 2 + (g[1] - y) ** 2;
+              if (d2 > mask2) continue;
+              total++;
+              if (bn < NB_MAX) {             // add, sifting up
+                let q = bn++;
+                while (q > 0) { const pq = (q - 1) >> 1; if (hd2[pq] >= d2) break; hd2[q] = hd2[pq]; hix[q] = hix[pq]; q = pq; }
+                hd2[q] = d2; hix[q] = g[5];
+              } else if (d2 < hd2[0]) {      // nearer than the farthest kept: replace it, sifting down
+                let q = 0;
+                for (;;) { let ch = 2 * q + 1; if (ch >= NB_MAX) break; if (ch + 1 < NB_MAX && hd2[ch + 1] > hd2[ch]) ch++; if (hd2[ch] <= d2) break; hd2[q] = hd2[ch]; hix[q] = hix[ch]; q = ch; }
+                hd2[q] = d2; hix[q] = g[5];
+              }
+            }
+          }
+        }
+      }
+      for (let end = bn - 1; end > 0; end--) {   // heap sort: nearest first
+        const d = hd2[end], ix = hix[end]; hd2[end] = hd2[0]; hix[end] = hix[0];
+        let q = 0;
+        for (;;) { let ch = 2 * q + 1; if (ch >= end) break; if (ch + 1 < end && hd2[ch + 1] > hd2[ch]) ch++; if (hd2[ch] <= d) break; hd2[q] = hd2[ch]; hix[q] = hix[ch]; q = ch; }
+        hd2[q] = d; hix[q] = ix;
+      }
+      for (let q = 0; q < bn; q++) { d2s[used] = hd2[q]; idx[used++] = hix[q]; }
+      count[i] = total; start[i + 1] = used;
+    }
+    conNb = { sig, start, count, idx: idx.slice(0, used), d2: d2s.slice(0, used) };
   }
-  const nbStart = conNb.start, nbIdx = conNb.idx, nbD2 = conNb.d2;
+  const nbStart = conNb.start, nbIdx = conNb.idx, nbD2 = conNb.d2, nbCount = conNb.count;
 
   let method = conMethod;
   // Kriging needs a variogram; Elevation needs terrain and a usable rain–elevation fit.
@@ -867,11 +914,11 @@ function drawContours() {
   }
   const h2 = 2 * (SMOOTH_MI * pxPerMile) ** 2;
   const gam = vg ? h => h <= 0 ? 0 : vg.c0 + vg.c * (1 - Math.exp(-3 * h / vg.a)) : null;
-  const vals = new Float64Array(W * H), dmin = new Float64Array(W * H), cnt = new Uint16Array(W * H);
+  const vals = new Float64Array(W * H), dmin = new Float64Array(W * H), cnt = nbCount;
   const A = new Float64Array(13 * 13), rhs = new Float64Array(13);
   for (let i = 0; i < W * H; i++) {
     const a0 = nbStart[i], a1 = nbStart[i + 1], n = a1 - a0;   // this cell's gauges, nearest first
-    cnt[i] = n; dmin[i] = n ? Math.sqrt(nbD2[a0]) : Infinity;
+    dmin[i] = n ? Math.sqrt(nbD2[a0]) : Infinity;
     if (!n) { vals[i] = -1; continue; }
     let v;
     if (method === 'idw') {
@@ -1130,11 +1177,12 @@ function addFilterBar() {
       <button class="panel-head" type="button"><h4>Filters &amp; tools</h4><span class="chev">▾</span></button>
       <div class="panel-body opt-grid">
         <span class="opt-l">Show</span>
-        <div class="seg-ctrl wrap">${Object.entries(METRICS).filter(([k]) => k !== 'hist').map(([k, m]) => `<button class="seg-btn${k === metric ? ' active' : ''}" data-metric="${k}">${m.label}</button>`).join('')}</div>
-        <span class="opt-l">History</span>
-        <div class="seg-ctrl">
-          <button class="seg-btn active" data-hist="live">Live</button>
-          <button class="seg-btn" data-hist="pick">Past dates</button>
+        <div class="seg-ctrl wrap">
+          <button class="seg-btn" data-win="day" title="The last 24 hours">Day</button>
+          <button class="seg-btn" data-win="week" title="The last 7 days">Week</button>
+          <button class="seg-btn" data-win="month" title="The last 30 days">Month</button>
+          ${['year', 'event', 'rate'].map(k => `<button class="seg-btn${k === metric ? ' active' : ''}" data-metric="${k}" title="${METRICS[k].title.replace(/ \(.*\)$/, '')}, as the gauges report it now">${METRICS[k].label}</button>`).join('')}
+          <button class="seg-btn" data-hist="pick" title="Any dates or hours">Past dates</button>
         </div>
         <div class="info-pop" id="hist-pop" hidden>
           <div class="hist-row"><div class="seg-ctrl"><button class="seg-btn active" type="button" data-hmode="d">Whole days</button><button class="seg-btn" type="button" data-hmode="h">Hours</button></div></div>
@@ -1205,6 +1253,8 @@ function addFilterBar() {
               <button class="seg-btn" data-ce="soft" title="Fades out toward 10 mi from a gauge">Soft</button>
               <button class="seg-btn" data-ce="three" title="Only where 3 or more gauges are within 10 mi">3+ gauges</button>
             </div>
+            <span class="opt-l">Reach</span>
+            <span class="leg-num-wrap"><input type="number" class="leg-num" id="con-reach" min="${REACH_MIN}" max="${REACH_MAX}" step="0.5" inputmode="decimal" value="${conReachMi}" aria-label="Reach in miles" title="Contours reach this far from each gauge; the map is blank beyond it"> mi from each gauge, ${REACH_MIN}–${REACH_MAX}</span>
             <span class="opt-l">Grid</span>
             <div class="seg-ctrl">
               <button class="seg-btn active" data-cg="screen" title="Grid follows the screen">Screen</button>
@@ -1242,18 +1292,20 @@ function addFilterBar() {
       e.currentTarget.classList.toggle('active', open);
     });
     el.querySelectorAll('[data-metric]').forEach(b => b.addEventListener('click', () => {
+      el.querySelector('#hist-pop').hidden = true;
       if (hist) { exitHist(b.dataset.metric); return; }
       metric = b.dataset.metric;
-      el.querySelectorAll('[data-metric]').forEach(x => x.classList.toggle('active', x === b));
+      markShow();
       updateLegend(); rebuild();
     }));
+    // Day, Week, Month: the last 24 hours, 7 days, 30 days, ending now
+    el.querySelectorAll('[data-win]').forEach(b => b.addEventListener('click', () => { el.querySelector('#hist-pop').hidden = true; showWindow(b.dataset.win); }));
     const hf = el.querySelector('#h-from'), ht = el.querySelector('#h-to'), hm = el.querySelector('#h-msg');
     const today = todayDenver(), minDay = addDays(today, -(HIST_MAX_DAYS - 1));
     for (const inp of [hf, ht]) { inp.max = today; inp.min = minDay; }
     hf.value = ht.value = addDays(today, -1);
     el.querySelectorAll('[data-hist]').forEach(b => b.addEventListener('click', () => {
-      if (b.dataset.hist === 'live') { if (hist) exitHist(); else el.querySelector('#hist-pop').hidden = true; return; }
-      el.querySelector('#hist-pop').hidden = false;
+      const pop = el.querySelector('#hist-pop'); pop.hidden = !pop.hidden;
     }));
     el.querySelectorAll('[data-hq]').forEach(b => b.addEventListener('click', () => {
       const n = +b.dataset.hq, t = todayDenver();
@@ -1311,8 +1363,24 @@ function addFilterBar() {
       el.querySelectorAll('[data-sus]').forEach(x => x.classList.toggle('active', x === b));
       render();
     }));
-    const conDesc = () => { el.querySelector('#con-desc').textContent = CON_DESC[conMethod] + ' Edges: ' + EDGE_DESC[conEdge] + '. Grid: ' + (conGrid === 'map' ? 'tied to the map, so contours stay put as you pan.' : 'follows the screen.'); };
+    const conDesc = () => { el.querySelector('#con-desc').textContent = conText(CON_DESC[conMethod] + ' Edges: ' + EDGE_DESC[conEdge]) + '. Grid: ' + (conGrid === 'map' ? 'tied to the map, so contours stay put as you pan.' : 'follows the screen.'); };
     conDesc();
+    // reach: typed in miles, held to 1–30
+    const reachInp = el.querySelector('#con-reach');
+    const reachTitles = () => {
+      el.querySelector('[data-ce="hard"]').title = conText('Blank past {R} mi from a gauge');
+      el.querySelector('[data-ce="soft"]').title = conText('Fades out toward {R} mi from a gauge');
+      el.querySelector('[data-ce="three"]').title = conText('Only where 3 or more gauges are within {R} mi');
+    };
+    reachInp.addEventListener('change', () => {
+      let r = +reachInp.value;
+      if (!Number.isFinite(r)) r = conReachMi;
+      r = Math.round(Math.max(REACH_MIN, Math.min(REACH_MAX, r)) * 10) / 10;
+      reachInp.value = r;
+      if (r === conReachMi) return;
+      conReachMi = r; reachTitles(); conDesc(); drawContours(); updateLegend();
+    });
+    reachInp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); reachInp.blur(); } });
     el.querySelector('#con-set-btn').addEventListener('click', e => {
       const box = el.querySelector('#con-set'), open = box.hidden;
       box.hidden = !open; e.currentTarget.setAttribute('aria-expanded', String(open));
@@ -1371,7 +1439,7 @@ function legendHtml() {
     legendAdjHtml() +
     `<div class="legend-row" style="margin-top:4px"><div class="legend-sw suspect"></div>Likely erroneous</div>
      <div class="legend-row"><div class="legend-sw official"></div>NWS etc</div>
-     <div class="legend-row"><div class="legend-sw snotel"></div>SNOTEL</div>${offNote}${chk}${contourMode === 'off' ? '' : `<div class="note">Contours (${CON_NAMES[conMethod]}) are estimated between gauges, not measured, ${EDGE_DESC[conEdge]}; likely-erroneous readings are left out. <span id="con-note">${conNote}</span></div>`}</div>`;
+     <div class="legend-row"><div class="legend-sw snotel"></div>SNOTEL</div>${offNote}${chk}${contourMode === 'off' ? '' : `<div class="note">Contours (${CON_NAMES[conMethod]}) are estimated between gauges, not measured, ${conText(EDGE_DESC[conEdge])}; likely-erroneous readings are left out. <span id="con-note">${conNote}</span></div>`}</div>`;
 }
 function legendAdjHtml() {
   const seg = (attr, cur, opts, off) => `<div class="seg-ctrl">${opts.map(([v, t, tip]) =>
@@ -1757,7 +1825,7 @@ async function fetchHist(st, h) {
 let histRun = 0;
 async function ensureHist() {
   if (!hist || hist.arch === undefined) return;
-  if (hist.arch && !hist.arch.tail) { histStatus(); return; }
+  if (hist.arch && (!hist.arch.tail || tailLive(hist))) { histStatus(); return; }
   const run = ++histRun, h0 = hist, h = hist.arch ? { ...hist.arch.tail, label: hist.label } : hist;
   const b = leafletMap.getBounds().pad(0.05), ctr = leafletMap.getCenter();
   const pool = hist.arch
@@ -1791,7 +1859,7 @@ function histStatus() {
     const t = hist.arch.tail;
     msg.className = 'refresh-msg';
     msg.textContent = `History, ${hist.label}: ${n} personal stations from the nightly ${hist.mode === 'h' ? 'hourly ' : ''}archive` +
-      (t ? `, plus ${tailLbl(t)} asked for station by station for the area on screen (not archived until after midnight)` : '') +
+      (t ? (tailLive(hist) ? ", plus today so far from each station's live reading" : `, plus ${tailLbl(t)} asked for station by station for the area on screen (not archived until after midnight)`) : '') +
       '. Official gauges and SNOTEL are live-only for now.';
     return;
   }
@@ -1849,6 +1917,7 @@ async function archFor(h) {
 // today come from there; hours since the last saved day are worked out live,
 // station by station, from the 5-minute readings (rises of the daily counter).
 const HR_FIRST_DAY = '2026-10-19';
+const DEFAULT_PERIOD = { from: '2026-10-21T00', to: '2026-10-25T23' };   // opening view when the address names no period: the October 21–25 storm, hour by hour (Mountain Time)
 let hrIndex = null, hrIndexAt = 0, hrTzfix = {};
 const hrFiles = new Map();        // day -> Promise of hourly file
 const hrStarts = new Map();       // zone|day -> [ms each of its 24 hours starts]
@@ -1877,6 +1946,9 @@ function fmtHourMs(ms, withDay = true) {
   const t = mi ? `${p.h % 12 || 12}:${String(mi).padStart(2, '0')} ${p.h < 12 ? 'AM' : 'PM'}` : hourLbl(p.h);
   return withDay ? `${fmtDay(dayStr(p))}, ${t}` : t;
 }
+// Whole days ending today: the only day the archive lacks is today, and every station's live reading already
+// carries today's total since its midnight, so that is used instead of asking station by station.
+const tailLive = h => !!(h && h.arch && h.arch.tail && h.mode !== 'h' && h.arch.tail.from === h.arch.tail.to && h.arch.tail.to === todayDenver());
 const tailLbl = h => h.mode === 'h' ? `${fmtHourMs(h.start)} to ${h.end >= Date.now() - 60e3 ? 'now' : fmtHourMs(h.end)}` : `${fmtDay(h.from)}${h.from === h.to ? '' : '–' + fmtDay(h.to)}`;
 function histHoursHtml(e) {
   const rainy = e.days.filter(([, v]) => v >= 0.005);
@@ -1960,19 +2032,42 @@ async function fetchHourTail(st, h) {
       have: Math.min(need, Math.max(0, Math.round(covered / 3600e3))), need });
   } catch (e) { histCache.set(k, { err: true }); }
 }
-function setHourHist(start, end, label) {
+// Which Show button is lit: a window (Day/Week/Month), Past dates for any other period, or the live metric.
+function markShow() {
+  const w = hist ? (hist.preset || 'pick') : null;
+  document.querySelectorAll('[data-metric]').forEach(x => x.classList.toggle('active', !hist && x.dataset.metric === metric));
+  document.querySelectorAll('[data-win]').forEach(x => x.classList.toggle('active', x.dataset.win === w));
+  document.querySelectorAll('[data-hist]').forEach(x => x.classList.toggle('active', w === 'pick'));
+}
+const histTitle = label => /^Last /.test(label) ? `Rain in the ${label.toLowerCase()} (in)` : `Rain ${label} (in)`;
+// Day = the last 24 hours (hourly archive plus today's readings); Week and Month = the last 7 or 30 days ending today
+function showWindow(w) {
+  const $ = id => document.getElementById(id);
+  if (w === 'day') {
+    const z = Date.now(), a = Math.max(z - 24 * 3600e3, hrFirstMs());
+    const b = document.querySelector('[data-hmode="h"]'); if (b) b.click();
+    const pa = dParts(a), pz = dParts(z);
+    if ($('hh-fd')) { $('hh-fd').value = dayStr(pa); $('hh-fh').value = pa.h; $('hh-td').value = dayStr(pz); $('hh-th').value = pz.h; }
+    setHourHist(a, z, 'Last 24 hours', 'day');
+  } else {
+    const n = w === 'week' ? 7 : 30, t = todayDenver(), a = addDays(t, -(n - 1));
+    const b = document.querySelector('[data-hmode="d"]'); if (b) b.click();
+    if ($('h-from')) { $('h-from').value = a; $('h-to').value = t; }
+    setHist(a, t, `Last ${n} days`, w);
+  }
+}
+function setHourHist(start, end, label, preset) {
   playOff();
   const hrs = (end - start) / 3600e3;
   label = label || (dayStr(dParts(start)) === dayStr(dParts(end)) ? `${fmtHourMs(start)} – ${fmtHourMs(end, false)}` : `${fmtHourMs(start)} – ${fmtHourMs(end)}`);
-  hist = { mode: 'h', start, end, days: hrs / 24, label, key: 'h_' + start + '_' + end };
+  hist = { mode: 'h', start, end, days: hrs / 24, label, key: 'h_' + start + '_' + end, preset: preset || null };
   { const m = /^Last (\d+) hours$/.exec(label); hist.lastN = m ? +m[1] : 0; }
   histToUrl();
   METRICS.hist.label = 'Period';
-  METRICS.hist.title = `Rain ${label} (in)`;
+  METRICS.hist.title = histTitle(label);
   METRICS.hist.scale = hrs <= 24 ? 1 : hrs <= 168 ? 1.5 : 2;
   metric = 'hist';
-  document.querySelectorAll('[data-metric]').forEach(x => x.classList.remove('active'));
-  document.querySelectorAll('[data-hist]').forEach(x => x.classList.toggle('active', x.dataset.hist === 'pick'));
+  markShow();
   const h = hist, msg = document.getElementById('refresh-msg');
   msg.className = 'refresh-msg'; msg.textContent = `Loading history for ${label}…`;
   archHourFor(h).then(a => {
@@ -1983,24 +2078,24 @@ function setHourHist(start, end, label) {
   });
 }
 
-function setHist(from, to) {
+function setHist(from, to, label, preset) {
   playOff();
   const days = dayCount(from, to);
-  const label = from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`;
-  hist = { from, to, days, label, key: from + '_' + to };
+  label = label || (from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`);
+  hist = { from, to, days, label, key: from + '_' + to, preset: preset || null };
   histToUrl();
   METRICS.hist.label = 'Period';
-  METRICS.hist.title = `Rain ${label} (in)`;
+  METRICS.hist.title = histTitle(label);
   METRICS.hist.scale = days <= 1 ? 1 : days <= 7 ? 1.5 : days <= 31 ? 2 : 4;
   metric = 'hist';
-  document.querySelectorAll('[data-metric]').forEach(x => x.classList.remove('active'));
-  document.querySelectorAll('[data-hist]').forEach(x => x.classList.toggle('active', x.dataset.hist === 'pick'));
+  markShow();
   const h = hist, msg = document.getElementById('refresh-msg');
   msg.className = 'refresh-msg'; msg.textContent = `Loading history for ${label}…`;
   (h.mode === 'h' ? archHourFor(h) : archFor(h)).then(a => {
     if (hist !== h) return;
     h.arch = a;
     updateLegend(); rebuild(); ensureHist();
+    playOn();
   });
 }
 // Keep the chosen period in the address so a refresh reopens it:
@@ -2008,9 +2103,10 @@ function setHist(from, to) {
 function histToUrl() {
   try {
     const p = new URLSearchParams(location.search);
-    p.delete('from'); p.delete('to'); p.delete('last');
+    p.delete('from'); p.delete('to'); p.delete('last'); p.delete('days');
     if (hist) {
-      if (hist.lastN) p.set('last', hist.lastN);
+      if (hist.preset === 'week' || hist.preset === 'month') p.set('days', hist.preset === 'week' ? 7 : 30);
+      else if (hist.lastN) p.set('last', hist.lastN);
       else if (hist.mode === 'h') {
         const f = ms => { const q = dParts(Math.ceil(ms / 3600e3) * 3600e3); return dayStr(q) + 'T' + String(q.h).padStart(2, '0'); };
         p.set('from', f(hist.start)); p.set('to', f(hist.end));
@@ -2022,16 +2118,23 @@ function histToUrl() {
 }
 function histFromUrl() {
   try {
-    const p = new URLSearchParams(location.search), last = +p.get('last'), from = p.get('from') || '', to = p.get('to') || from;
+    const p = new URLSearchParams(location.search), last = +p.get('last'), nd = +p.get('days');
+    let from = p.get('from') || '', to = p.get('to') || from;
+    if (!last && !nd && !from && !to) { from = DEFAULT_PERIOD.from; to = DEFAULT_PERIOD.to; }
     const HR = /^\d{4}-\d\d-\d\dT\d\d$/, DY = /^\d{4}-\d\d-\d\d$/, $ = id => document.getElementById(id);
     const hourUi = (a, z) => {
       const b = document.querySelector('[data-hmode="h"]'); if (b) b.click();
       const pa = dParts(a), pz = dParts(z);
       if ($('hh-fd')) { $('hh-fd').value = dayStr(pa); $('hh-fh').value = pa.h; $('hh-td').value = dayStr(pz); $('hh-th').value = pz.h; }
     };
-    if (last > 0) {
+    if (nd > 0) {
+      const n = Math.min(Math.round(nd), HIST_MAX_DAYS), t = todayDenver(), a = addDays(t, -(n - 1));
+      const b = document.querySelector('[data-hmode="d"]'); if (b) b.click();
+      if ($('h-from')) { $('h-from').value = a; $('h-to').value = t; }
+      setHist(a, t, `Last ${n} days`, n === 7 ? 'week' : n === 30 ? 'month' : null);
+    } else if (last > 0) {
       const z = Date.now(), a = Math.max(z - last * 3600e3, hrFirstMs());
-      hourUi(a, z); setHourHist(a, z, `Last ${last} hours`);
+      hourUi(a, z); setHourHist(a, z, `Last ${last} hours`, last === 24 ? 'day' : null);
     } else if (HR.test(from) && HR.test(to)) {
       let a = localHourMs(TZ, from.slice(0, 10), +from.slice(11)), z = localHourMs(TZ, to.slice(0, 10), +to.slice(11));
       if (a > z) [a, z] = [z, a];
@@ -2052,19 +2155,18 @@ function exitHist(toMetric) {
   playOff();
   hist = null; histRun++;
   histToUrl();
-  metric = toMetric || 'week';
-  document.querySelectorAll('[data-metric]').forEach(x => x.classList.toggle('active', x.dataset.metric === metric));
-  document.querySelectorAll('[data-hist]').forEach(x => x.classList.toggle('active', x.dataset.hist === 'live'));
+  metric = toMetric || 'year';
+  markShow();
   const pop = document.getElementById('hist-pop'); if (pop) pop.hidden = true;
   updateLegend(); rebuild(); setStatus();
 }
 
-// ── Playback (hourly history) ──
-// Steps through the period hour by hour: each frame shows either the rain so far
-// (from the start of the period to the end of that hour) or the rain in that one
-// hour. Brackets are held for the whole run. Likely-erroneous flags come from the
-// whole-period totals, so a gauge doesn't flicker in and out.
-let play = null;   // { A, end, n, i, f, mode: 'total' | 'hour', playing, speed, breaks, label, timer, k, j, frameMs }
+// ── Playback (past dates) ──
+// Steps through the period hour by hour (Hours) or day by day (Whole days): each frame
+// shows either the rain so far (from the start of the period to the end of that step)
+// or the rain in that one step. Brackets are held for the whole run. Likely-erroneous
+// flags come from the whole-period totals, so a gauge doesn't flicker in and out.
+let play = null;   // { unit: 'h' | 'd', A, end, n, dayIx, i, f, mode: 'total' | 'hour' (= each step), playing, speed, breaks, label, timer, k, j, frameMs }
 // While playing, each hour is reached in several steps (f = part of the way from the
 // previous hour's values to this hour's), as many as a frame's cost allows, so the
 // field moves gradually instead of jumping once an hour.
@@ -2109,14 +2211,20 @@ function addPlayBar() {
   leafletMap.on('moveend', () => { if (play && play.playing) render(); });
 }
 function playOn() {
-  if (!hist || hist.mode !== 'h') return;
-  const A = Math.floor(hist.start / 3600e3) * 3600e3, n = Math.max(1, Math.ceil((hist.end - A) / 3600e3));
+  if (!hist) return;
   const bar = document.getElementById('play-bar');
   const mode = bar.querySelector('[data-pmode].active')?.dataset.pmode || 'total';
   const speed = bar.querySelector('[data-pspeed].active')?.dataset.pspeed || 'normal';
-  // starts on the last hour, which shows the same as the plain view (the whole period)
-  play = { A, end: hist.end, n, i: n - 1, f: 1, j: 0, k: 1, frameMs: 0, mode, speed, playing: false, label: hist.label };
+  // Hours step by the hour from the first whole hour; whole days step by the day (A is the first day, dayIx maps a day to its step).
+  let unit, A, n, end = null, dayIx = null;
+  if (hist.mode === 'h') { unit = 'h'; A = Math.floor(hist.start / 3600e3) * 3600e3; n = Math.max(1, Math.ceil((hist.end - A) / 3600e3)); end = hist.end; }
+  else { unit = 'd'; A = hist.from; n = Math.max(1, dayCount(hist.from, hist.to)); dayIx = new Map(); for (let i = 0; i < n; i++) dayIx.set(addDays(A, i), i); }
+  // starts on the last step, which shows the same as the plain view (the whole period)
+  play = { unit, A, end, n, dayIx, i: n - 1, f: 1, j: 0, k: 1, frameMs: 0, mode, speed, playing: false, label: hist.label };
   play.breaks = playBreaks();
+  bar.querySelector('[data-pmode="hour"]').textContent = unit === 'd' ? 'Each day' : 'Each hour';
+  bar.querySelectorAll('[data-step]').forEach(b => b.setAttribute('aria-label', (+b.dataset.step < 0 ? 'Back one ' : 'Forward one ') + (unit === 'd' ? 'day' : 'hour')));
+  bar.querySelector('#play-range').setAttribute('aria-label', unit === 'd' ? 'Day' : 'Hour');
   const rg = bar.querySelector('#play-range'); rg.max = n - 1; rg.value = n - 1;
   bar.classList.add('on'); leafletMap.getContainer().classList.add('has-play');
   legendSig = ''; playApply();
@@ -2133,11 +2241,12 @@ function playOff() {
 const frameEnd = i => Math.min(play.A + (i + 1) * 3600e3, play.end);
 function frameValue(s, i, f = 1) {
   const d = s.hist && s.hist.days; if (!d) return 0;
-  // running total by hour, built once per station and reused for every frame
+  // running total by step (hour or day), built once per station and reused for every frame
   let pc = s._pc;
   if (!pc || s._pcFor !== d || s._pcA !== play.A || pc.length !== play.n + 1) {
     pc = new Float32Array(play.n + 1);
-    for (const [t, x] of d) { const k = Math.max(0, Math.min(play.n - 1, Math.floor((t - play.A) / 3600e3))); pc[k + 1] += x; }
+    if (play.unit === 'h') for (const [t, x] of d) { const k = Math.max(0, Math.min(play.n - 1, Math.floor((t - play.A) / 3600e3))); pc[k + 1] += x; }
+    else for (const [t, x] of d) { const k = play.dayIx.get(t); if (k != null) pc[k + 1] += x; }
     for (let k = 1; k <= play.n; k++) pc[k] += pc[k - 1];
     s._pc = pc; s._pcFor = d; s._pcA = play.A;
   }
@@ -2172,11 +2281,11 @@ function playBreaks() {
   for (const s of stations) {
     if (s.suspect || !s.hist || s.dist > radius + 1e-9) continue;
     if (play.mode === 'total') vals.push(s.hist.total);
-    else { const h = new Map(); for (const [t, x] of s.hist.days) { const k = Math.floor(t / 3600e3); h.set(k, (h.get(k) || 0) + x); } for (const x of h.values()) if (x >= 0.01) vals.push(x); }
+    else { const h = new Map(); for (const [t, x] of s.hist.days) { const k = play.unit === 'h' ? Math.floor(t / 3600e3) : t; h.set(k, (h.get(k) || 0) + x); } for (const x of h.values()) if (x >= 0.01) vals.push(x); }
   }
   if (play.mode === 'hour') {
-    // single hours: steps up to the wettest 1% of rainy station-hours, so a few
-    // outsized hours don't wash every other hour into the lowest color
+    // single hours or days: steps up to the wettest 1% of rainy station-steps, so a few
+    // outsized ones don't wash every other step into the lowest color
     if (vals.length < 2) return METRICS.hist.breaks;
     vals.sort((a, b) => a - b);
     return fitBreaks([0.01, vals[Math.floor(vals.length * 0.99)]], legendSteps) || METRICS.hist.breaks;
@@ -2185,18 +2294,28 @@ function playBreaks() {
 }
 function playApply() {
   if (!play) return;
-  const i = play.i, e = frameEnd(i);
-  play.label = play.mode === 'total'
-    ? (dParts(play.A).d === dParts(e).d ? `${fmtHourMs(play.A)} – ${fmtHourMs(e, false)}` : `${fmtHourMs(play.A)} – ${fmtHourMs(e)}`)
-    : `${fmtHourMs(play.A + i * 3600e3)} – ${fmtHourMs(e, false)}`;
+  const i = play.i;
+  let pt, sub;
+  if (play.unit === 'h') {
+    const e = frameEnd(i);
+    play.label = play.mode === 'total'
+      ? (dParts(play.A).d === dParts(e).d ? `${fmtHourMs(play.A)} – ${fmtHourMs(e, false)}` : `${fmtHourMs(play.A)} – ${fmtHourMs(e)}`)
+      : `${fmtHourMs(play.A + i * 3600e3)} – ${fmtHourMs(e, false)}`;
+    pt = play.mode === 'total' ? fmtHourMs(e) : `${fmtHourMs(play.A + i * 3600e3)} – ${fmtHourMs(e, false)}`;
+    sub = `${play.mode === 'total' ? 'Rain so far, from ' + fmtHourMs(play.A) : 'Rain in this hour'} · hour ${i + 1} of ${play.n}`;
+  } else {
+    const day = addDays(play.A, i);
+    play.label = play.mode === 'total' ? (i === 0 ? fmtDay(day) : `${fmtDay(play.A)} – ${fmtDay(day)}`) : fmtDay(day);
+    pt = fmtDay(day);
+    sub = `${play.mode === 'total' ? 'Rain so far, from ' + fmtDay(play.A) : 'Rain on this day'} · day ${i + 1} of ${play.n}`;
+  }
   const f = play.playing ? play.f : 1;
   for (const s of stations) { if (!s.hist) continue; const v = frameValue(s, i, f); s.p = v; s.v.hist = v; }
   // playing: pins near the screen only, repainted in place; paused or scrubbing: every pin
   if (pinsMode !== (play.playing ? 'vb' : 'full') || !playPaint()) render();
   const bar = document.getElementById('play-bar');
   bar.querySelector('#play-range').value = i;
-  const pt = play.mode === 'total' ? fmtHourMs(e) : `${fmtHourMs(play.A + i * 3600e3)} – ${fmtHourMs(e, false)}`;
-  bar.querySelector('#play-time').innerHTML = `${pt}<small>${play.mode === 'total' ? 'Rain so far, from ' + fmtHourMs(play.A) : 'Rain in this hour'} · hour ${i + 1} of ${play.n}</small>`;
+  bar.querySelector('#play-time').innerHTML = `${pt}<small>${sub}</small>`;
   const pb = bar.querySelector('#play-btn'); pb.textContent = play.playing ? '❚❚' : '▶'; pb.setAttribute('aria-label', play.playing ? 'Pause' : 'Play');
 }
 function playGo(i) { if (!play) return; play.i = Math.max(0, Math.min(play.n - 1, i)); play.f = 1; play.j = 0; playApply(); }
@@ -2442,12 +2561,16 @@ function rebuild() {
   const hash = new Map();
   if (hist && hist.arch) {
     const live = new Map(); for (const s of ambient.values()) if (s.mac) live.set(s.mac, s);
-    const t = hist.arch.tail;
+    const t = hist.arch.tail, liveT = tailLive(hist);
     for (const [mac, a] of hist.arch.sums) {
       const m = archStations[mac]; if (!m) continue;
       let total = a.total, days = a.days, have = a.have, need = a.need ?? hist.days;
-      if (t) { const tc = histCache.get(t.key + '|' + mac); if (tc && tc.total != null) { total = +(total + tc.total).toFixed(2); days = days.concat(tc.days); have += tc.have; if (hist.mode === 'h') need += tc.need; } }
       const L = live.get(mac);
+      if (t) {
+        const tc = histCache.get(t.key + '|' + mac);
+        if (tc && tc.total != null) { total = +(total + tc.total).toFixed(2); days = days.concat(tc.days); have += tc.have; if (hist.mode === 'h') need += tc.need; }
+        else if (liveT && L && L.v.day != null) { total = +(total + L.v.day).toFixed(2); days = days.concat([[t.to, L.v.day]]); have += 1; }
+      }
       amb.push({ src: 'A', net: 'Ambient', name: L ? L.name : m[2], area: L ? L.area : '', lat: m[0], lon: m[1], slug: m[3], mac, key: m[3], tz: m[4],
         v: { ...(L ? L.v : {}), hist: total }, time: L ? L.time : 'not reporting now', hist: { total, days, have, need } });
     }

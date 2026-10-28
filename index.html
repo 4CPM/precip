@@ -315,7 +315,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.45';
+const APP_VERSION = '1.46';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -335,10 +335,10 @@ const CELL_TTL = 15 * 60e3;     // reload a cell's stations when they are older 
 // "scale" sizes that test's inch thresholds to the value being shown.
 const METRICS = {
   rate:  { label: 'Rate',  title: 'Rain in the past hour (in/hr)',     unit: 'in/hr', amb: 'hourlyrainin',  off: 'phour', breaks: [0.01, 0.05, 0.10, 0.20, 0.30, 0.50, 0.75, 1.00], scale: 0.25, check: true },
-  day:   { label: 'Day',   title: 'Rain since midnight (in)',          unit: 'in',    amb: 'dailyrainin',   off: 'pday',  breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 1,    check: true },
+  day:   { label: 'Today', title: 'Rain since midnight (in)',          unit: 'in',    amb: 'dailyrainin',   off: 'pday',  breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 1,    check: true },
   event: { label: 'Event', title: 'Rain this storm (in)',              unit: 'in',    amb: 'eventrainin',               breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 1,    check: true },
-  week:  { label: 'Week',  title: 'Rain this week (in)',               unit: 'in',    amb: 'weeklyrainin',              breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 1.5,  check: true },
-  month: { label: 'Month', title: 'Rain this month (in)',              unit: 'in',    amb: 'monthlyrainin',             breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 2,    check: true },
+  week:  { label: 'This week',  title: 'Rain this week (in)',               unit: 'in',    amb: 'weeklyrainin',              breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 1.5,  check: true },
+  month: { label: 'This month', title: 'Rain this month (in)',              unit: 'in',    amb: 'monthlyrainin',             breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 2,    check: true },
   hist:  { label: 'Period', title: 'Rain for the dates picked (in)',    unit: 'in',                                              breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 1.5,  check: true },
   year:  { label: 'Year',  title: 'Rain this year (in)',               unit: 'in',    amb: 'yearlyrainin',              breaks: [0.01, 2, 4, 6, 8, 10, 12, 15],                   scale: 10,   check: false, max: 80 },
 };
@@ -347,7 +347,7 @@ const COLORS = [   // lowest class first
   { bg: '#2c7fb8', fg: '#fff' },    { bg: '#253494', fg: '#fff' },    { bg: '#7a0177', fg: '#fff' }, { bg: '#c51b8a', fg: '#fff' },
   { bg: '#e31a1c', fg: '#fff' },    { bg: '#a50f15', fg: '#fff' },    { bg: '#f16913', fg: '#fff' }, { bg: '#1f1f1f', fg: '#fff' },
 ];
-let metric = 'week';
+let metric = 'day';
 const fmtV = v => v >= 100 ? v.toFixed(0) : v.toFixed(2);
 // Build legend classes from a list of lower bounds. The fixed brackets keep their
 // set colors; fitted brackets spread the twelve colors across however many steps there are.
@@ -567,7 +567,7 @@ let polyMode = false, polyDrawing = false, activePoly = null, polyVertices = [],
 const markersById = {};
 let contourMode = 'filled';        // 'off' | 'lines' | 'filled'
 let contourLayer = null;
-let conReachMi = 10;            // contours reach this far from each gauge; the map is blank beyond it (typed in Contours ⚙)
+let conReachMi = 13;            // contours reach this far from each gauge; the map is blank beyond it (typed in Contours ⚙)
 const REACH_MIN = 1, REACH_MAX = 100;
 const fmtReach = () => String(conReachMi);
 const conText = t => t.replace(/\{R\}/g, fmtReach());   // '{R}' in the contour texts is the reach in miles
@@ -677,7 +677,7 @@ function drawRings() {
 // Estimate rain on a grid from the gauges shown (likely-erroneous readings left
 // out), then trace the legend brackets. The viewer picks the method, the edge,
 // the grid and labels (Contours ⚙ in Filters & tools):
-//   Distance  – inverse-distance weighting of gauges within the reach (conReachMi, 10 mi unless changed), lightly smoothed (the original)
+//   Distance  – inverse-distance weighting of gauges within the reach (conReachMi, 13 mi unless changed), lightly smoothed (the original)
 //   Smooth    – Gaussian weighting, so each gauge's influence fades gradually over a few miles
 //   Kriging   – ordinary kriging with an exponential variogram fitted to the readings on screen
 //   Elevation – rain fitted against ground elevation (AWS Terrain Tiles) for the gauges on screen,
@@ -1177,11 +1177,12 @@ function addFilterBar() {
       <button class="panel-head" type="button"><h4>Filters &amp; tools</h4><span class="chev">▾</span></button>
       <div class="panel-body opt-grid">
         <span class="opt-l">Show</span>
-        <div class="seg-ctrl wrap">${Object.entries(METRICS).filter(([k]) => k !== 'hist').map(([k, m]) => `<button class="seg-btn${k === metric ? ' active' : ''}" data-metric="${k}">${m.label}</button>`).join('')}</div>
-        <span class="opt-l">History</span>
-        <div class="seg-ctrl">
-          <button class="seg-btn active" data-hist="live">Live</button>
-          <button class="seg-btn" data-hist="pick">Past dates</button>
+        <div class="seg-ctrl wrap">
+          <button class="seg-btn" data-win="day" title="The last 24 hours">24hr</button>
+          <button class="seg-btn" data-win="week" title="The last 7 days">7 days</button>
+          <button class="seg-btn" data-win="month" title="The last 30 days">30 days</button>
+          ${['year', 'rate'].map(k => `<button class="seg-btn${k === metric ? ' active' : ''}" data-metric="${k}" title="${METRICS[k].title.replace(/ \(.*\)$/, '')}, as the gauges report it now">${METRICS[k].label}</button>`).join('')}
+          <button class="seg-btn" data-hist="pick" title="Any dates or hours">Past dates</button>
         </div>
         <div class="info-pop" id="hist-pop" hidden>
           <div class="hist-row"><div class="seg-ctrl"><button class="seg-btn active" type="button" data-hmode="d">Whole days</button><button class="seg-btn" type="button" data-hmode="h">Hours</button></div></div>
@@ -1291,18 +1292,20 @@ function addFilterBar() {
       e.currentTarget.classList.toggle('active', open);
     });
     el.querySelectorAll('[data-metric]').forEach(b => b.addEventListener('click', () => {
+      el.querySelector('#hist-pop').hidden = true;
       if (hist) { exitHist(b.dataset.metric); return; }
       metric = b.dataset.metric;
-      el.querySelectorAll('[data-metric]').forEach(x => x.classList.toggle('active', x === b));
+      markShow();
       updateLegend(); rebuild();
     }));
+    // Day, Week, Month: the last 24 hours, 7 days, 30 days, ending now
+    el.querySelectorAll('[data-win]').forEach(b => b.addEventListener('click', () => { el.querySelector('#hist-pop').hidden = true; showWindow(b.dataset.win); }));
     const hf = el.querySelector('#h-from'), ht = el.querySelector('#h-to'), hm = el.querySelector('#h-msg');
     const today = todayDenver(), minDay = addDays(today, -(HIST_MAX_DAYS - 1));
     for (const inp of [hf, ht]) { inp.max = today; inp.min = minDay; }
     hf.value = ht.value = addDays(today, -1);
     el.querySelectorAll('[data-hist]').forEach(b => b.addEventListener('click', () => {
-      if (b.dataset.hist === 'live') { if (hist) exitHist(); else el.querySelector('#hist-pop').hidden = true; return; }
-      el.querySelector('#hist-pop').hidden = false;
+      const pop = el.querySelector('#hist-pop'); pop.hidden = !pop.hidden;
     }));
     el.querySelectorAll('[data-hq]').forEach(b => b.addEventListener('click', () => {
       const n = +b.dataset.hq, t = todayDenver();
@@ -1822,7 +1825,7 @@ async function fetchHist(st, h) {
 let histRun = 0;
 async function ensureHist() {
   if (!hist || hist.arch === undefined) return;
-  if (hist.arch && !hist.arch.tail) { histStatus(); return; }
+  if (hist.arch && (!hist.arch.tail || tailLive(hist))) { histStatus(); return; }
   const run = ++histRun, h0 = hist, h = hist.arch ? { ...hist.arch.tail, label: hist.label } : hist;
   const b = leafletMap.getBounds().pad(0.05), ctr = leafletMap.getCenter();
   const pool = hist.arch
@@ -1839,6 +1842,7 @@ async function ensureHist() {
     while (i < todo.length && run === histRun && hist === h0) {
       const st = todo[i++];
       await (h.mode === 'h' ? fetchHourTail(st, h) : fetchHist(st, h)); done++;
+      if (run !== histRun || hist !== h0) break;
       if (done % 10 === 0) { msg.className = 'refresh-msg'; msg.textContent = hist.arch ? `Archive loaded; adding ${tailLbl(h)} (not archived yet): ${done} of ${todo.length} stations…` : `Loading history for ${h.label}: ${done} of ${todo.length} stations…`; }
       // redraw at most every 4 seconds while loading; each redraw recomputes every pin and contour
       if (Date.now() - lastDraw > 4000) { lastDraw = Date.now(); rebuild(); msg.textContent = `Loading history for ${h.label}: ${done} of ${todo.length} stations…`; }
@@ -1856,7 +1860,7 @@ function histStatus() {
     const t = hist.arch.tail;
     msg.className = 'refresh-msg';
     msg.textContent = `History, ${hist.label}: ${n} personal stations from the nightly ${hist.mode === 'h' ? 'hourly ' : ''}archive` +
-      (t ? `, plus ${tailLbl(t)} asked for station by station for the area on screen (not archived until after midnight)` : '') +
+      (t ? (tailLive(hist) ? ", plus today so far from each station's live reading" : `, plus ${tailLbl(t)} asked for station by station for the area on screen (not archived until after midnight)`) : '') +
       '. Official gauges and SNOTEL are live-only for now.';
     return;
   }
@@ -1943,6 +1947,9 @@ function fmtHourMs(ms, withDay = true) {
   const t = mi ? `${p.h % 12 || 12}:${String(mi).padStart(2, '0')} ${p.h < 12 ? 'AM' : 'PM'}` : hourLbl(p.h);
   return withDay ? `${fmtDay(dayStr(p))}, ${t}` : t;
 }
+// Whole days ending today: the only day the archive lacks is today, and every station's live reading already
+// carries today's total since its midnight, so that is used instead of asking station by station.
+const tailLive = h => !!(h && h.arch && h.arch.tail && h.mode !== 'h' && h.arch.tail.from === h.arch.tail.to && h.arch.tail.to === todayDenver());
 const tailLbl = h => h.mode === 'h' ? `${fmtHourMs(h.start)} to ${h.end >= Date.now() - 60e3 ? 'now' : fmtHourMs(h.end)}` : `${fmtDay(h.from)}${h.from === h.to ? '' : '–' + fmtDay(h.to)}`;
 function histHoursHtml(e) {
   const rainy = e.days.filter(([, v]) => v >= 0.005);
@@ -2026,19 +2033,42 @@ async function fetchHourTail(st, h) {
       have: Math.min(need, Math.max(0, Math.round(covered / 3600e3))), need });
   } catch (e) { histCache.set(k, { err: true }); }
 }
-function setHourHist(start, end, label) {
+// Which Show button is lit: a window (Day/Week/Month), Past dates for any other period, or the live metric.
+function markShow() {
+  const w = hist ? (hist.preset || 'pick') : null;
+  document.querySelectorAll('[data-metric]').forEach(x => x.classList.toggle('active', !hist && x.dataset.metric === metric));
+  document.querySelectorAll('[data-win]').forEach(x => x.classList.toggle('active', x.dataset.win === w));
+  document.querySelectorAll('[data-hist]').forEach(x => x.classList.toggle('active', w === 'pick'));
+}
+const histTitle = label => /^Last /.test(label) ? `Rain in the ${label.toLowerCase()} (in)` : `Rain ${label} (in)`;
+// Day = the last 24 hours (hourly archive plus today's readings); Week and Month = the last 7 or 30 days ending today
+function showWindow(w) {
+  const $ = id => document.getElementById(id);
+  if (w === 'day') {
+    const z = Date.now(), a = Math.max(z - 24 * 3600e3, hrFirstMs());
+    const b = document.querySelector('[data-hmode="h"]'); if (b) b.click();
+    const pa = dParts(a), pz = dParts(z);
+    if ($('hh-fd')) { $('hh-fd').value = dayStr(pa); $('hh-fh').value = pa.h; $('hh-td').value = dayStr(pz); $('hh-th').value = pz.h; }
+    setHourHist(a, z, 'Last 24 hours', 'day');
+  } else {
+    const n = w === 'week' ? 7 : 30, t = todayDenver(), a = addDays(t, -(n - 1));
+    const b = document.querySelector('[data-hmode="d"]'); if (b) b.click();
+    if ($('h-from')) { $('h-from').value = a; $('h-to').value = t; }
+    setHist(a, t, `Last ${n} days`, w);
+  }
+}
+function setHourHist(start, end, label, preset) {
   playOff();
   const hrs = (end - start) / 3600e3;
   label = label || (dayStr(dParts(start)) === dayStr(dParts(end)) ? `${fmtHourMs(start)} – ${fmtHourMs(end, false)}` : `${fmtHourMs(start)} – ${fmtHourMs(end)}`);
-  hist = { mode: 'h', start, end, days: hrs / 24, label, key: 'h_' + start + '_' + end };
+  hist = { mode: 'h', start, end, days: hrs / 24, label, key: 'h_' + start + '_' + end, preset: preset || null };
   { const m = /^Last (\d+) hours$/.exec(label); hist.lastN = m ? +m[1] : 0; }
   histToUrl();
   METRICS.hist.label = 'Period';
-  METRICS.hist.title = `Rain ${label} (in)`;
+  METRICS.hist.title = histTitle(label);
   METRICS.hist.scale = hrs <= 24 ? 1 : hrs <= 168 ? 1.5 : 2;
   metric = 'hist';
-  document.querySelectorAll('[data-metric]').forEach(x => x.classList.remove('active'));
-  document.querySelectorAll('[data-hist]').forEach(x => x.classList.toggle('active', x.dataset.hist === 'pick'));
+  markShow();
   const h = hist, msg = document.getElementById('refresh-msg');
   msg.className = 'refresh-msg'; msg.textContent = `Loading history for ${label}…`;
   archHourFor(h).then(a => {
@@ -2049,18 +2079,17 @@ function setHourHist(start, end, label) {
   });
 }
 
-function setHist(from, to) {
+function setHist(from, to, label, preset) {
   playOff();
   const days = dayCount(from, to);
-  const label = from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`;
-  hist = { from, to, days, label, key: from + '_' + to };
+  label = label || (from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`);
+  hist = { from, to, days, label, key: from + '_' + to, preset: preset || null };
   histToUrl();
   METRICS.hist.label = 'Period';
-  METRICS.hist.title = `Rain ${label} (in)`;
+  METRICS.hist.title = histTitle(label);
   METRICS.hist.scale = days <= 1 ? 1 : days <= 7 ? 1.5 : days <= 31 ? 2 : 4;
   metric = 'hist';
-  document.querySelectorAll('[data-metric]').forEach(x => x.classList.remove('active'));
-  document.querySelectorAll('[data-hist]').forEach(x => x.classList.toggle('active', x.dataset.hist === 'pick'));
+  markShow();
   const h = hist, msg = document.getElementById('refresh-msg');
   msg.className = 'refresh-msg'; msg.textContent = `Loading history for ${label}…`;
   (h.mode === 'h' ? archHourFor(h) : archFor(h)).then(a => {
@@ -2075,9 +2104,10 @@ function setHist(from, to) {
 function histToUrl() {
   try {
     const p = new URLSearchParams(location.search);
-    p.delete('from'); p.delete('to'); p.delete('last');
+    p.delete('from'); p.delete('to'); p.delete('last'); p.delete('days');
     if (hist) {
-      if (hist.lastN) p.set('last', hist.lastN);
+      if (hist.preset === 'week' || hist.preset === 'month') p.set('days', hist.preset === 'week' ? 7 : 30);
+      else if (hist.lastN) p.set('last', hist.lastN);
       else if (hist.mode === 'h') {
         const f = ms => { const q = dParts(Math.ceil(ms / 3600e3) * 3600e3); return dayStr(q) + 'T' + String(q.h).padStart(2, '0'); };
         p.set('from', f(hist.start)); p.set('to', f(hist.end));
@@ -2089,18 +2119,23 @@ function histToUrl() {
 }
 function histFromUrl() {
   try {
-    const p = new URLSearchParams(location.search), last = +p.get('last');
+    const p = new URLSearchParams(location.search), last = +p.get('last'), nd = +p.get('days');
     let from = p.get('from') || '', to = p.get('to') || from;
-    if (!last && !from && !to) { from = DEFAULT_PERIOD.from; to = DEFAULT_PERIOD.to; }
+    if (!last && !nd && !from && !to) { from = DEFAULT_PERIOD.from; to = DEFAULT_PERIOD.to; }
     const HR = /^\d{4}-\d\d-\d\dT\d\d$/, DY = /^\d{4}-\d\d-\d\d$/, $ = id => document.getElementById(id);
     const hourUi = (a, z) => {
       const b = document.querySelector('[data-hmode="h"]'); if (b) b.click();
       const pa = dParts(a), pz = dParts(z);
       if ($('hh-fd')) { $('hh-fd').value = dayStr(pa); $('hh-fh').value = pa.h; $('hh-td').value = dayStr(pz); $('hh-th').value = pz.h; }
     };
-    if (last > 0) {
+    if (nd > 0) {
+      const n = Math.min(Math.round(nd), HIST_MAX_DAYS), t = todayDenver(), a = addDays(t, -(n - 1));
+      const b = document.querySelector('[data-hmode="d"]'); if (b) b.click();
+      if ($('h-from')) { $('h-from').value = a; $('h-to').value = t; }
+      setHist(a, t, `Last ${n} days`, n === 7 ? 'week' : n === 30 ? 'month' : null);
+    } else if (last > 0) {
       const z = Date.now(), a = Math.max(z - last * 3600e3, hrFirstMs());
-      hourUi(a, z); setHourHist(a, z, `Last ${last} hours`);
+      hourUi(a, z); setHourHist(a, z, `Last ${last} hours`, last === 24 ? 'day' : null);
     } else if (HR.test(from) && HR.test(to)) {
       let a = localHourMs(TZ, from.slice(0, 10), +from.slice(11)), z = localHourMs(TZ, to.slice(0, 10), +to.slice(11));
       if (a > z) [a, z] = [z, a];
@@ -2121,9 +2156,8 @@ function exitHist(toMetric) {
   playOff();
   hist = null; histRun++;
   histToUrl();
-  metric = toMetric || 'week';
-  document.querySelectorAll('[data-metric]').forEach(x => x.classList.toggle('active', x.dataset.metric === metric));
-  document.querySelectorAll('[data-hist]').forEach(x => x.classList.toggle('active', x.dataset.hist === 'live'));
+  metric = toMetric || 'year';
+  markShow();
   const pop = document.getElementById('hist-pop'); if (pop) pop.hidden = true;
   updateLegend(); rebuild(); setStatus();
 }
@@ -2528,12 +2562,16 @@ function rebuild() {
   const hash = new Map();
   if (hist && hist.arch) {
     const live = new Map(); for (const s of ambient.values()) if (s.mac) live.set(s.mac, s);
-    const t = hist.arch.tail;
+    const t = hist.arch.tail, liveT = tailLive(hist);
     for (const [mac, a] of hist.arch.sums) {
       const m = archStations[mac]; if (!m) continue;
       let total = a.total, days = a.days, have = a.have, need = a.need ?? hist.days;
-      if (t) { const tc = histCache.get(t.key + '|' + mac); if (tc && tc.total != null) { total = +(total + tc.total).toFixed(2); days = days.concat(tc.days); have += tc.have; if (hist.mode === 'h') need += tc.need; } }
       const L = live.get(mac);
+      if (t) {
+        const tc = histCache.get(t.key + '|' + mac);
+        if (tc && tc.total != null) { total = +(total + tc.total).toFixed(2); days = days.concat(tc.days); have += tc.have; if (hist.mode === 'h') need += tc.need; }
+        else if (liveT && L && L.v.day != null) { total = +(total + L.v.day).toFixed(2); days = days.concat([[t.to, L.v.day]]); have += 1; }
+      }
       amb.push({ src: 'A', net: 'Ambient', name: L ? L.name : m[2], area: L ? L.area : '', lat: m[0], lon: m[1], slug: m[3], mac, key: m[3], tz: m[4],
         v: { ...(L ? L.v : {}), hist: total }, time: L ? L.time : 'not reporting now', hist: { total, days, have, need } });
     }

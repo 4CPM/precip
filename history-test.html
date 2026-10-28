@@ -234,6 +234,22 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   padding:8px 14px;border-radius:16px;box-shadow:0 4px 16px rgba(0,0,0,.3);max-width:min(420px,calc(100vw - 40px));
 }
 
+/* ── Playback bar (hourly history) ─────────────────────── */
+#play-bar{position:absolute;left:50%;transform:translateX(-50%);bottom:30px;z-index:1000;display:none;
+  width:min(560px,calc(100vw - 620px));min-width:380px;background:rgba(255,255,255,.96);color:#1e293b;border-radius:10px;
+  box-shadow:0 4px 18px rgba(0,0,0,.22);padding:8px 12px 9px;font-size:12px;backdrop-filter:blur(8px)}
+#play-bar.on{display:block}
+#play-bar .pb-top{display:flex;align-items:center;gap:10px}
+#play-btn{width:34px;height:34px;border-radius:50%;border:none;background:#0e7490;color:#fff;font-size:14px;line-height:1;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+#play-btn:hover{background:#155e75}
+#play-btn:focus-visible,#play-range:focus-visible{outline:2px solid #0891b2;outline-offset:2px}
+#play-time{font-weight:700;font-size:13px;font-variant-numeric:tabular-nums;flex:1;min-width:0}
+#play-time small{display:block;font-weight:600;font-size:11px;color:#64748b}
+#play-range{width:100%;margin:7px 0 3px;accent-color:#0e7490;cursor:pointer}
+#play-bar .pb-row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;color:#64748b;font-size:11px}
+#play-bar .step-btn{border:1px solid rgba(0,0,0,.15);background:#fff;border-radius:5px;padding:2px 7px;font:inherit;font-weight:700;color:#475569;cursor:pointer}
+#play-bar .step-btn:hover{background:#f1f5f9}
+
 /* ── Credit line ────────────────────────────────────────── */
 .leaflet-control-attribution{white-space:normal;max-width:calc(100vw - 20px);line-height:1.35;font-size:11px;text-align:right}
 .leaflet-control-attribution .cr{white-space:nowrap}
@@ -275,6 +291,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   .sel-copy{padding:10px 0;font-size:14px}
   #draw-hint{top:calc(62px + env(safe-area-inset-top,0px))}
   #zoom-hint{bottom:calc(78px + env(safe-area-inset-bottom,0px))}
+  #play-bar{left:8px;right:8px;transform:none;width:auto;min-width:0;bottom:calc(26px + env(safe-area-inset-bottom,0px))}
+  .has-play .leaflet-bottom.leaflet-right .leaflet-control.legend{margin-bottom:calc(132px + env(safe-area-inset-bottom,0px))}
+  #play-btn{width:40px;height:40px}
+  #play-bar .step-btn{padding:6px 10px}
   .leaflet-control-attribution{font-size:9.5px;max-width:calc(100vw - 70px)}
   .leaflet-control-attribution .cr-d{white-space:normal}
   .leaflet-popup-content{margin:12px 14px}
@@ -377,6 +397,16 @@ function fitBreaks(vals, n) {
 function updateScale() {
   let b = null;
   scaleInfo = '';
+  if (play) {   // playback: brackets held for the whole run so colors can be compared frame to frame
+    BREAKS = play.breaks; CLASSES = makeClasses(BREAKS, false);
+    scaleInfo = play.mode === 'total' ? 'Brackets fit the totals for the whole period, held while playing.' : 'Brackets fit single hours, up to the wettest 1% of rainy hours in the period, held while playing.';
+    const sig = ['play', play.mode, BREAKS.join(','), legendAdjOpen, contourMode, conMethod, conEdge].join('|');
+    if (!legendEl) return false;
+    if (sig !== legendSig) { legendSig = sig; updateLegend(); }
+    const h4 = legendEl.querySelector('.panel-head h4'); if (h4) h4.textContent = `Rain ${play.label} (in)`;
+    const info = legendEl.querySelector('#leg-info'); if (info) info.textContent = scaleInfo;
+    return false;
+  }
   if (legendRange !== 'fixed') {
     const vb = legendRange === 'screen' && leafletMap ? leafletMap.getBounds() : null;
     const vals = [];
@@ -599,6 +629,7 @@ function initMap() {
   hint.id = 'zoom-hint';
   hint.textContent = 'Zoomed out: showing up to 100 personal stations per 70-mile square. Zoom in to load every station.';
   leafletMap.getContainer().appendChild(hint);
+  addPlayBar();
   let t;
   leafletMap.on('moveend', () => { clearTimeout(t); t = setTimeout(() => ensureCells(false).then(() => { if (hist) ensureHist(); }), 350); });
   let st;
@@ -960,7 +991,8 @@ function render() {
   markerLayer.clearLayers();
   for (const k in markersById) delete markersById[k];
   if (pinsHidden) leafletMap.removeLayer(markerLayer); else if (!leafletMap.hasLayer(markerLayer)) markerLayer.addTo(leafletMap);
-  const list = pinsHidden ? [] : stations.filter(s => visible(s)).sort((a, b) => a.p - b.p); // wettest on top
+  const vb = play && play.playing ? leafletMap.getBounds().pad(0.25) : null;   // while playing, pins near the screen only (faster frames)
+  const list = pinsHidden ? [] : stations.filter(s => visible(s) && (!vb || vb.contains([s.lat, s.lon]))).sort((a, b) => a.p - b.p); // wettest on top
   const markers = [];
   for (const s of list) {
     const c = rainClass(s.p);
@@ -992,7 +1024,7 @@ function buildPopup(s) {
   el.innerHTML = `
     <h3></h3>
     <div class="sub"></div>
-    <div class="big">${fmtV(s.p)} <small>${metric === 'hist' && hist ? hist.label : METRICS[metric].title.replace(/ \(.*\)$/, '').replace(/^Rain /, '').toLowerCase()} (${METRICS[metric].unit})</small></div>
+    <div class="big">${fmtV(s.p)} <small>${metric === 'hist' && hist ? (play ? play.label : hist.label) : METRICS[metric].title.replace(/ \(.*\)$/, '').replace(/^Rain /, '').toLowerCase()} (${METRICS[metric].unit})</small></div>
     <div class="vals">${Object.entries(METRICS).filter(([k2]) => s.v[k2] != null).map(([k2, m2]) =>
       `<div class="${k2 === metric ? 'on' : ''}"><b>${fmtV(s.v[k2])}</b><span>${m2.label}</span></div>`).join('')}</div>
     ${s.why ? `<div class="warn">${s.why}</div>` : ''}
@@ -1049,7 +1081,7 @@ function updateStats() {
   document.getElementById('asof').textContent = `${dataTime} · within ${radius} mi of ${CENTER.name}`;
   document.getElementById('st-n').textContent = vis.length;
   const U = METRICS[metric].unit;
-  document.getElementById('info-title').textContent = metric === 'day' ? 'Rain Today' : metric === 'hist' && hist ? `Rain: ${hist.label}` : `Rain: ${METRICS[metric].label}`;
+  document.getElementById('info-title').textContent = metric === 'day' ? 'Rain Today' : metric === 'hist' && hist ? `Rain: ${play ? play.label : hist.label}` : `Rain: ${METRICS[metric].label}`;
   document.getElementById('st-med').textContent = good.length ? `${fmtV(median(good))} ${U}` : '—';
   document.getElementById('st-rng').textContent = good.length ? `${fmtV(Math.min(...good))} – ${fmtV(Math.max(...good))} ${U}` : '—';
   document.getElementById('st-sus').textContent = `${inRadius.filter(s => s.suspect).length}${suspectFilter === 'exclude' ? ' (hidden)' : ''}`;
@@ -1883,6 +1915,7 @@ async function fetchHourTail(st, h) {
   } catch (e) { histCache.set(k, { err: true }); }
 }
 function setHourHist(start, end, label) {
+  playOff();
   const hrs = (end - start) / 3600e3;
   label = label || (dayStr(dParts(start)) === dayStr(dParts(end)) ? `${fmtHourMs(start)} – ${fmtHourMs(end, false)}` : `${fmtHourMs(start)} – ${fmtHourMs(end)}`);
   hist = { mode: 'h', start, end, days: hrs / 24, label, key: 'h_' + start + '_' + end };
@@ -1898,10 +1931,12 @@ function setHourHist(start, end, label) {
     if (hist !== h) return;
     h.arch = a;
     updateLegend(); rebuild(); ensureHist();
+    playOn();
   });
 }
 
 function setHist(from, to) {
+  playOff();
   const days = dayCount(from, to);
   const label = from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`;
   hist = { from, to, days, label, key: from + '_' + to };
@@ -1920,6 +1955,7 @@ function setHist(from, to) {
   });
 }
 function exitHist(toMetric) {
+  playOff();
   hist = null; histRun++;
   metric = toMetric || 'week';
   document.querySelectorAll('[data-metric]').forEach(x => x.classList.toggle('active', x.dataset.metric === metric));
@@ -1927,6 +1963,128 @@ function exitHist(toMetric) {
   const pop = document.getElementById('hist-pop'); if (pop) pop.hidden = true;
   updateLegend(); rebuild(); setStatus();
 }
+
+// ── Playback (hourly history) ──
+// Steps through the period hour by hour: each frame shows either the rain so far
+// (from the start of the period to the end of that hour) or the rain in that one
+// hour. Brackets are held for the whole run. Likely-erroneous flags come from the
+// whole-period totals, so a gauge doesn't flicker in and out.
+let play = null;   // { A, end, n, i, mode: 'total' | 'hour', playing, speed, breaks, label, timer }
+const PLAY_MS = { slow: 1000, normal: 450, fast: 150 };
+function addPlayBar() {
+  const el = document.createElement('div');
+  el.id = 'play-bar';
+  el.innerHTML = `
+    <div class="pb-top">
+      <button id="play-btn" type="button" aria-label="Play">▶</button>
+      <div id="play-time"></div>
+      <button class="step-btn" type="button" data-step="-1" aria-label="Back one hour">‹</button>
+      <button class="step-btn" type="button" data-step="1" aria-label="Forward one hour">›</button>
+    </div>
+    <input type="range" id="play-range" min="0" max="0" value="0" step="1" aria-label="Hour">
+    <div class="pb-row">
+      <div class="seg-ctrl"><button class="seg-btn active" type="button" data-pmode="total">Total so far</button><button class="seg-btn" type="button" data-pmode="hour">Each hour</button></div>
+      <div class="seg-ctrl"><button class="seg-btn" type="button" data-pspeed="slow">Slow</button><button class="seg-btn active" type="button" data-pspeed="normal">Normal</button><button class="seg-btn" type="button" data-pspeed="fast">Fast</button></div>
+    </div>`;
+  L.DomEvent.disableClickPropagation(el);
+  L.DomEvent.disableScrollPropagation(el);
+  leafletMap.getContainer().appendChild(el);
+  el.querySelector('#play-btn').addEventListener('click', () => { if (!play) return; play.playing ? playPause() : playStart(); });
+  el.querySelectorAll('[data-step]').forEach(b => b.addEventListener('click', () => { if (!play) return; playPause(); playGo(play.i + +b.dataset.step); }));
+  const rg = el.querySelector('#play-range');
+  rg.addEventListener('input', () => { if (!play) return; if (play.playing) playPause(); playGo(+rg.value); });
+  el.querySelectorAll('[data-pmode]').forEach(b => b.addEventListener('click', () => {
+    if (!play) return;
+    el.querySelectorAll('[data-pmode]').forEach(x => x.classList.toggle('active', x === b));
+    play.mode = b.dataset.pmode; play.breaks = playBreaks(); legendSig = ''; playApply();
+  }));
+  el.querySelectorAll('[data-pspeed]').forEach(b => b.addEventListener('click', () => {
+    el.querySelectorAll('[data-pspeed]').forEach(x => x.classList.toggle('active', x === b));
+    if (play) play.speed = b.dataset.pspeed;
+  }));
+  document.addEventListener('keydown', e => {
+    if (!play || e.target.closest('input,select,textarea')) return;
+    if (e.key === ' ') { e.preventDefault(); play.playing ? playPause() : playStart(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); playPause(); playGo(play.i + (e.key === 'ArrowRight' ? 1 : -1)); }
+  });
+  leafletMap.on('moveend', () => { if (play && play.playing) render(); });
+}
+function playOn() {
+  if (!hist || hist.mode !== 'h') return;
+  const A = Math.floor(hist.start / 3600e3) * 3600e3, n = Math.max(1, Math.ceil((hist.end - A) / 3600e3));
+  const bar = document.getElementById('play-bar');
+  const mode = bar.querySelector('[data-pmode].active')?.dataset.pmode || 'total';
+  const speed = bar.querySelector('[data-pspeed].active')?.dataset.pspeed || 'normal';
+  // starts on the last hour, which shows the same as the plain view (the whole period)
+  play = { A, end: hist.end, n, i: n - 1, mode, speed, playing: false, label: hist.label };
+  play.breaks = playBreaks();
+  const rg = bar.querySelector('#play-range'); rg.max = n - 1; rg.value = n - 1;
+  bar.classList.add('on'); leafletMap.getContainer().classList.add('has-play');
+  legendSig = ''; playApply();
+  setTimeout(fitPanels, 0);
+}
+function playOff() {
+  if (!play) return;
+  clearTimeout(play.timer); play = null;
+  const bar = document.getElementById('play-bar'); if (bar) bar.classList.remove('on');
+  leafletMap.getContainer().classList.remove('has-play');
+  legendSig = '';
+  for (const s of stations) if (s.hist && s.hist.total != null) { s.p = s.hist.total; s.v.hist = s.hist.total; }
+}
+const frameEnd = i => Math.min(play.A + (i + 1) * 3600e3, play.end);
+function frameValue(s, i) {
+  const d = s.hist && s.hist.days; if (!d) return 0;
+  let v = 0;
+  if (play.mode === 'total') { const e = frameEnd(i); for (const [t, x] of d) if (t < e) v += x; }
+  else { const a = play.A + i * 3600e3, b = a + 3600e3; for (const [t, x] of d) if (t >= a && t < b) v += x; }
+  return +v.toFixed(2);
+}
+function playBreaks() {
+  const vals = [];
+  for (const s of stations) {
+    if (s.suspect || !s.hist || s.dist > radius + 1e-9) continue;
+    if (play.mode === 'total') vals.push(s.hist.total);
+    else { const h = new Map(); for (const [t, x] of s.hist.days) { const k = Math.floor(t / 3600e3); h.set(k, (h.get(k) || 0) + x); } for (const x of h.values()) if (x >= 0.01) vals.push(x); }
+  }
+  if (play.mode === 'hour') {
+    // single hours: steps up to the wettest 1% of rainy station-hours, so a few
+    // outsized hours don't wash every other hour into the lowest color
+    if (vals.length < 2) return METRICS.hist.breaks;
+    vals.sort((a, b) => a - b);
+    return fitBreaks([0.01, vals[Math.floor(vals.length * 0.99)]], legendSteps) || METRICS.hist.breaks;
+  }
+  return fitBreaks(vals, legendSteps) || METRICS.hist.breaks;
+}
+function playApply() {
+  if (!play) return;
+  const i = play.i, e = frameEnd(i);
+  play.label = play.mode === 'total'
+    ? (dParts(play.A).d === dParts(e).d ? `${fmtHourMs(play.A)} – ${fmtHourMs(e, false)}` : `${fmtHourMs(play.A)} – ${fmtHourMs(e)}`)
+    : `${fmtHourMs(play.A + i * 3600e3)} – ${fmtHourMs(e, false)}`;
+  for (const s of stations) { if (!s.hist) continue; const v = frameValue(s, i); s.p = v; s.v.hist = v; }
+  render();
+  const bar = document.getElementById('play-bar');
+  bar.querySelector('#play-range').value = i;
+  const pt = play.mode === 'total' ? fmtHourMs(e) : `${fmtHourMs(play.A + i * 3600e3)} – ${fmtHourMs(e, false)}`;
+  bar.querySelector('#play-time').innerHTML = `${pt}<small>${play.mode === 'total' ? 'Rain so far, from ' + fmtHourMs(play.A) : 'Rain in this hour'} · hour ${i + 1} of ${play.n}</small>`;
+  const pb = bar.querySelector('#play-btn'); pb.textContent = play.playing ? '❚❚' : '▶'; pb.setAttribute('aria-label', play.playing ? 'Pause' : 'Play');
+}
+function playGo(i) { if (!play) return; play.i = Math.max(0, Math.min(play.n - 1, i)); playApply(); }
+function playStart() {
+  if (!play) return;
+  if (play.i >= play.n - 1) play.i = -1;     // at the end: start over
+  play.playing = true;
+  const tick = () => {
+    if (!play || !play.playing) return;
+    const t = performance.now();
+    play.i++;
+    if (play.i >= play.n - 1) { play.i = play.n - 1; play.playing = false; playApply(); return; }
+    playApply();
+    play.timer = setTimeout(tick, Math.max(30, PLAY_MS[play.speed] - (performance.now() - t)));
+  };
+  tick();
+}
+function playPause() { if (!play) return; clearTimeout(play.timer); if (play.playing) { play.playing = false; playApply(); } }
 
 // Ambient public network ----------------------------------------------------
 const cells = new Map();        // "i,j" -> { t: last load time, busy }
@@ -2168,7 +2326,8 @@ function rebuild() {
     (hash.get(k) || hash.set(k, []).get(k)).push(c);
   }
   stations = [...amb, ...(hist ? [] : official), ...(hist ? [] : snotel)].filter(s => s.v[metric] != null).map((s, i) => ({ ...s, p: s.v[metric], id: i }));
-  computeDerived(); render();
+  computeDerived();
+  if (play) playApply(); else render();
 }
 
 let lastLoad = 0;

@@ -635,6 +635,7 @@ function initMap() {
   let st;
   leafletMap.on('moveend', () => { if (legendRange !== 'screen') return; clearTimeout(st); st = setTimeout(() => { if (updateScale()) render(); }, 200); });
   loadData();
+  histFromUrl();
 }
 
 function fitRadius(r = radius) {
@@ -1919,6 +1920,8 @@ function setHourHist(start, end, label) {
   const hrs = (end - start) / 3600e3;
   label = label || (dayStr(dParts(start)) === dayStr(dParts(end)) ? `${fmtHourMs(start)} – ${fmtHourMs(end, false)}` : `${fmtHourMs(start)} – ${fmtHourMs(end)}`);
   hist = { mode: 'h', start, end, days: hrs / 24, label, key: 'h_' + start + '_' + end };
+  { const m = /^Last (\d+) hours$/.exec(label); hist.lastN = m ? +m[1] : 0; }
+  histToUrl();
   METRICS.hist.label = 'Period';
   METRICS.hist.title = `Rain ${label} (in)`;
   METRICS.hist.scale = hrs <= 24 ? 1 : hrs <= 168 ? 1.5 : 2;
@@ -1940,6 +1943,7 @@ function setHist(from, to) {
   const days = dayCount(from, to);
   const label = from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`;
   hist = { from, to, days, label, key: from + '_' + to };
+  histToUrl();
   METRICS.hist.label = 'Period';
   METRICS.hist.title = `Rain ${label} (in)`;
   METRICS.hist.scale = days <= 1 ? 1 : days <= 7 ? 1.5 : days <= 31 ? 2 : 4;
@@ -1954,9 +1958,55 @@ function setHist(from, to) {
     updateLegend(); rebuild(); ensureHist();
   });
 }
+// Keep the chosen period in the address so a refresh reopens it:
+// ?from=2026-10-21T09&to=2026-10-26T00 (hours, Mountain Time), ?from=2026-10-21&to=2026-10-25 (whole days), ?last=6
+function histToUrl() {
+  try {
+    const p = new URLSearchParams(location.search);
+    p.delete('from'); p.delete('to'); p.delete('last');
+    if (hist) {
+      if (hist.lastN) p.set('last', hist.lastN);
+      else if (hist.mode === 'h') {
+        const f = ms => { const q = dParts(Math.ceil(ms / 3600e3) * 3600e3); return dayStr(q) + 'T' + String(q.h).padStart(2, '0'); };
+        p.set('from', f(hist.start)); p.set('to', f(hist.end));
+      } else { p.set('from', hist.from); p.set('to', hist.to); }
+    }
+    const q = p.toString();
+    history.replaceState(null, '', location.pathname + (q ? '?' + q : '') + location.hash);
+  } catch (e) {}
+}
+function histFromUrl() {
+  try {
+    const p = new URLSearchParams(location.search), last = +p.get('last'), from = p.get('from') || '', to = p.get('to') || from;
+    const HR = /^\d{4}-\d\d-\d\dT\d\d$/, DY = /^\d{4}-\d\d-\d\d$/, $ = id => document.getElementById(id);
+    const hourUi = (a, z) => {
+      const b = document.querySelector('[data-hmode="h"]'); if (b) b.click();
+      const pa = dParts(a), pz = dParts(z);
+      if ($('hh-fd')) { $('hh-fd').value = dayStr(pa); $('hh-fh').value = pa.h; $('hh-td').value = dayStr(pz); $('hh-th').value = pz.h; }
+    };
+    if (last > 0) {
+      const z = Date.now(), a = Math.max(z - last * 3600e3, hrFirstMs());
+      hourUi(a, z); setHourHist(a, z, `Last ${last} hours`);
+    } else if (HR.test(from) && HR.test(to)) {
+      let a = localHourMs(TZ, from.slice(0, 10), +from.slice(11)), z = localHourMs(TZ, to.slice(0, 10), +to.slice(11));
+      if (a > z) [a, z] = [z, a];
+      z = Math.min(z, Date.now()); a = Math.max(a, hrFirstMs());
+      if (z - a < 3600e3) return;
+      hourUi(a, z); setHourHist(a, z);
+    } else if (DY.test(from) && DY.test(to)) {
+      let a = from, z = to; const today = todayDenver(), minDay = addDays(today, -(HIST_MAX_DAYS - 1));
+      if (a > z) [a, z] = [z, a];
+      if (a < minDay) a = minDay; if (z > today) z = today;
+      if (a > z) return;
+      if ($('h-from')) { $('h-from').value = a; $('h-to').value = z; }
+      setHist(a, z);
+    }
+  } catch (e) { console.warn('history link', e); }
+}
 function exitHist(toMetric) {
   playOff();
   hist = null; histRun++;
+  histToUrl();
   metric = toMetric || 'week';
   document.querySelectorAll('[data-metric]').forEach(x => x.classList.toggle('active', x.dataset.metric === metric));
   document.querySelectorAll('[data-hist]').forEach(x => x.classList.toggle('active', x.dataset.hist === 'live'));

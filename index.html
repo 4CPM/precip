@@ -33,6 +33,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .pin.snotel{border-radius:4px;border:2.5px solid #0c4a6e}
 .pin.dot.snotel{width:13px;height:13px;border-radius:2px;transform:rotate(45deg)}
 .pin.dot.suspect{border-width:1.5px}
+.has-play .pin{transition:background-color .2s linear,color .2s linear}
 
 /* ── Popup ─────────────────────────────────────────────── */
 .st-popup{min-width:220px;font-size:12px;color:#334155}
@@ -88,6 +89,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .info-btn{width:17px;height:17px;border-radius:50%;border:1.5px solid #94a3b8;background:#fff;color:#64748b;font:italic 700 11px Georgia,serif;line-height:1;padding:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
 .info-btn:hover,.info-btn.active{border-color:#0891b2;color:#0891b2;background:#ecfeff}
 .info-btn:focus-visible{outline:2px solid #0891b2;outline-offset:1px}
+.hist-row{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-bottom:6px}
+.hist-row label{display:flex;align-items:center;gap:4px;font-weight:600;color:#475569}
+.hist-row select{font:inherit;font-size:12px;padding:2px 4px;border:1px solid rgba(0,0,0,.2);border-radius:5px;background:#fff;color:#1e293b}
+.hist-row input[type=date]{font:inherit;font-size:12px;padding:2px 4px;border:1px solid rgba(0,0,0,.2);border-radius:5px;background:#fff;color:#1e293b}
+.hist-days{margin:4px 0 6px;max-height:160px;overflow-y:auto;border-top:1px solid #f1f5f9}
+.hist-gap{font-size:11px;color:#92400e;margin:3px 0}
 .info-btn.gear{font:400 12px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-style:normal}
 .con-grid{display:grid;grid-template-columns:auto auto;gap:5px 8px;align-items:center;justify-content:start}
 .con-desc{margin-top:7px;padding-top:6px;border-top:1px solid rgba(0,0,0,.08)}
@@ -133,6 +140,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .leg-adj{display:grid;grid-template-columns:auto auto;gap:5px 7px;align-items:center;margin:4px 0 2px;padding:7px 0 3px;border-top:1px solid rgba(0,0,0,.08)}
 .leg-adj[hidden]{display:none}
 .leg-adj .seg-btn:disabled{opacity:.4;cursor:default}
+.leg-num{width:54px;font:inherit;font-size:11px;font-weight:600;padding:2px 5px;border:1px solid rgba(0,0,0,.2);border-radius:5px;background:#fff;color:#1e293b}
+.leg-num:disabled{opacity:.4}
+.leg-num-wrap{white-space:nowrap;color:#64748b;font-size:11px}
+.legend .panel-body{max-height:calc(100vh - 110px);overflow-y:auto}
 .legend .note{margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,.08);color:#64748b;font-size:11px;max-width:200px;line-height:1.4}
 
 /* ── Search ─────────────────────────────────────────────── */
@@ -194,12 +205,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .ring-label{font-size:11px;font-weight:700;color:#dc2626;background:rgba(255,255,255,.85);padding:1px 6px;border-radius:8px;white-space:nowrap;border:1px solid rgba(220,38,38,.3)}
 
 /* ── App name and version ───────────────────────────────── */
-.app-name{font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#94a3b8;margin-bottom:3px;white-space:nowrap}
+.app-name{font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#94a3b8;margin-bottom:3px}
 .app-name span{font-weight:500;letter-spacing:0;text-transform:none}
 
 /* ── Collapsible panels ─────────────────────────────────── */
 .panel-head{display:flex;align-items:center;gap:8px;width:100%;border:none;background:transparent;padding:0;cursor:pointer;font-family:inherit;color:inherit;text-align:left}
 .panel-head h2,.panel-head h4{margin:0;flex:1;white-space:nowrap}
+.info-panel .panel-head h2,.legend .panel-head h4{white-space:normal;min-width:0}
+.legend .panel-head h4{max-width:230px}
 .panel-head .summary{font-size:12px;font-weight:600;color:#2563eb;white-space:nowrap;font-variant-numeric:tabular-nums}
 .panel-head .chev{font-size:12px;color:#64748b;transition:transform .2s}
 .collapsed .panel-head .chev{transform:rotate(-90deg)}
@@ -225,6 +238,22 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   background:#1e293b;color:#fff;font-size:12px;font-weight:600;line-height:1.35;text-align:center;
   padding:8px 14px;border-radius:16px;box-shadow:0 4px 16px rgba(0,0,0,.3);max-width:min(420px,calc(100vw - 40px));
 }
+
+/* ── Playback bar (hourly history) ─────────────────────── */
+#play-bar{position:absolute;left:50%;transform:translateX(-50%);bottom:30px;z-index:1000;display:none;
+  width:min(560px,calc(100vw - 620px));min-width:380px;background:rgba(255,255,255,.96);color:#1e293b;border-radius:10px;
+  box-shadow:0 4px 18px rgba(0,0,0,.22);padding:8px 12px 9px;font-size:12px;backdrop-filter:blur(8px)}
+#play-bar.on{display:block}
+#play-bar .pb-top{display:flex;align-items:center;gap:10px}
+#play-btn{width:34px;height:34px;border-radius:50%;border:none;background:#0e7490;color:#fff;font-size:14px;line-height:1;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+#play-btn:hover{background:#155e75}
+#play-btn:focus-visible,#play-range:focus-visible{outline:2px solid #0891b2;outline-offset:2px}
+#play-time{font-weight:700;font-size:13px;font-variant-numeric:tabular-nums;flex:1;min-width:0}
+#play-time small{display:block;font-weight:600;font-size:11px;color:#64748b}
+#play-range{width:100%;margin:7px 0 3px;accent-color:#0e7490;cursor:pointer}
+#play-bar .pb-row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;color:#64748b;font-size:11px}
+#play-bar .step-btn{border:1px solid rgba(0,0,0,.15);background:#fff;border-radius:5px;padding:2px 7px;font:inherit;font-weight:700;color:#475569;cursor:pointer}
+#play-bar .step-btn:hover{background:#f1f5f9}
 
 /* ── Credit line ────────────────────────────────────────── */
 .leaflet-control-attribution{white-space:normal;max-width:calc(100vw - 20px);line-height:1.35;font-size:11px;text-align:right}
@@ -267,6 +296,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   .sel-copy{padding:10px 0;font-size:14px}
   #draw-hint{top:calc(62px + env(safe-area-inset-top,0px))}
   #zoom-hint{bottom:calc(78px + env(safe-area-inset-bottom,0px))}
+  #play-bar{left:8px;right:8px;transform:none;width:auto;min-width:0;bottom:calc(26px + env(safe-area-inset-bottom,0px))}
+  .has-play .leaflet-bottom.leaflet-right .leaflet-control.legend{margin-bottom:calc(132px + env(safe-area-inset-bottom,0px))}
+  #play-btn{width:40px;height:40px}
+  #play-bar .step-btn{padding:6px 10px}
   .leaflet-control-attribution{font-size:9.5px;max-width:calc(100vw - 70px)}
   .leaflet-control-attribution .cr-d{white-space:normal}
   .leaflet-popup-content{margin:12px 14px}
@@ -282,7 +315,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.40';
+const APP_VERSION = '1.41';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -306,6 +339,7 @@ const METRICS = {
   event: { label: 'Event', title: 'Rain this storm (in)',              unit: 'in',    amb: 'eventrainin',               breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 1,    check: true },
   week:  { label: 'Week',  title: 'Rain this week (in)',               unit: 'in',    amb: 'weeklyrainin',              breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 1.5,  check: true },
   month: { label: 'Month', title: 'Rain this month (in)',              unit: 'in',    amb: 'monthlyrainin',             breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 2,    check: true },
+  hist:  { label: 'Period', title: 'Rain for the dates picked (in)',    unit: 'in',                                              breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 1.5,  check: true },
   year:  { label: 'Year',  title: 'Rain this year (in)',               unit: 'in',    amb: 'yearlyrainin',              breaks: [0.01, 2, 4, 6, 8, 10, 12, 15],                   scale: 10,   check: false, max: 80 },
 };
 const COLORS = [   // lowest class first
@@ -318,11 +352,22 @@ const fmtV = v => v >= 100 ? v.toFixed(0) : v.toFixed(2);
 // Build legend classes from a list of lower bounds. The fixed brackets keep their
 // set colors; fitted brackets spread the twelve colors across however many steps there are.
 const r2 = v => Math.round(v * 100) / 100;
+// More steps than colors: a color part of the way (t, 0–1) along the ramp, mixed from its two neighbors.
+function rampColor(t) {
+  const x = Math.max(0, Math.min(1, t)) * (COLORS.length - 1), k = Math.min(COLORS.length - 2, Math.floor(x)), f = x - k;
+  if (f < 1e-9) return COLORS[k];
+  if (f > 1 - 1e-9) return COLORS[k + 1];
+  const hex = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
+  const a = hex(COLORS[k].bg), b = hex(COLORS[k + 1].bg), m = a.map((v, i) => Math.round(v + (b[i] - v) * f));
+  const yiq = (m[0] * 299 + m[1] * 587 + m[2] * 114) / 1000;   // light text on dark mixes
+  return { bg: '#' + m.map(v => v.toString(16).padStart(2, '0')).join(''), fg: yiq >= 142 ? '#0f172a' : '#fff' };
+}
 function makeClasses(b, fixed) {
   const whole = b.length > 1 && b.slice(1).every(v => Number.isInteger(v));
   const lo = v => whole && v >= 1 ? String(v) : v.toFixed(2);
-  const col = i => fixed || b.length >= COLORS.length ? COLORS[i]
-    : COLORS[b.length === 1 ? 0 : Math.round(i * (COLORS.length - 1) / (b.length - 1))];
+  const col = i => fixed || b.length === COLORS.length ? COLORS[i]
+    : b.length < COLORS.length ? COLORS[b.length === 1 ? 0 : Math.round(i * (COLORS.length - 1) / (b.length - 1))]
+    : rampColor(i / (b.length - 1));
   return b.map((min, i) => {
     const hi = i < b.length - 1 ? r2(b[i + 1] - 0.01) : null;
     return { min, ...col(i), label: hi == null ? lo(min) + '+' : hi <= min ? lo(min) : `${lo(min)} – ${hi.toFixed(2)}` };
@@ -336,7 +381,8 @@ function makeClasses(b, fixed) {
 // readings are left out so one bad gauge can't stretch the scale.
 let legendRange = 'loaded';     // 'fixed' | 'loaded' | 'screen'
 let legendMethod = 'equal';     // 'equal' | 'count'
-let legendSteps = 12;
+let legendSteps = 16;
+const LEG_MIN = 4, LEG_MAX = 30;
 let legendAdjOpen = false;
 let scaleInfo = '', legendSig = '';
 let BREAKS = METRICS[metric].breaks;
@@ -368,6 +414,16 @@ function fitBreaks(vals, n) {
 function updateScale() {
   let b = null;
   scaleInfo = '';
+  if (play) {   // playback: brackets held for the whole run so colors can be compared frame to frame
+    BREAKS = play.breaks; CLASSES = makeClasses(BREAKS, false);
+    scaleInfo = play.mode === 'total' ? 'Brackets fit the totals for the whole period, held while playing.' : 'Brackets fit single hours, up to the wettest 1% of rainy hours in the period, held while playing.';
+    const sig = ['play', play.mode, BREAKS.join(','), legendAdjOpen, contourMode, conMethod, conEdge].join('|');
+    if (!legendEl) return false;
+    if (sig !== legendSig) { legendSig = sig; updateLegend(); }
+    const h4 = legendEl.querySelector('.panel-head h4'); if (h4) h4.textContent = `Rain ${play.label} (in)`;
+    const info = legendEl.querySelector('#leg-info'); if (info) info.textContent = scaleInfo;
+    return false;
+  }
   if (legendRange !== 'fixed') {
     const vb = legendRange === 'screen' && leafletMap ? leafletMap.getBounds() : null;
     const vals = [];
@@ -576,6 +632,10 @@ function initMap() {
   addDrawControl();
   addLegend();
   addSearchBar();
+  // keep the open Filters panel and the legend from overlapping on shorter screens
+  const fitObs = new ResizeObserver(() => fitPanels());
+  fitObs.observe(document.getElementById('options-panel')); fitObs.observe(legendEl); fitObs.observe(leafletMap.getContainer());
+  document.getElementById('options-panel').addEventListener('click', () => setTimeout(fitPanels, 0));
 
   ringLayer = L.layerGroup().addTo(leafletMap);
   createMarkerLayer();
@@ -586,11 +646,13 @@ function initMap() {
   hint.id = 'zoom-hint';
   hint.textContent = 'Zoomed out: showing up to 100 personal stations per 70-mile square. Zoom in to load every station.';
   leafletMap.getContainer().appendChild(hint);
+  addPlayBar();
   let t;
-  leafletMap.on('moveend', () => { clearTimeout(t); t = setTimeout(() => ensureCells(false), 350); });
+  leafletMap.on('moveend', () => { clearTimeout(t); t = setTimeout(() => ensureCells(false).then(() => { if (hist) ensureHist(); }), 350); });
   let st;
   leafletMap.on('moveend', () => { if (legendRange !== 'screen') return; clearTimeout(st); st = setTimeout(() => { if (updateScale()) render(); }, 200); });
   loadData();
+  histFromUrl();
 }
 
 function fitRadius(r = radius) {
@@ -714,6 +776,9 @@ function updateConNote() {
 }
 
 let demRun = 0, terrCredited = false;
+// Which grid points see which gauges depends only on the view, not the readings,
+// so it is worked out once per view and reused frame after frame during playback.
+let conNb = null;   // { sig, start: Int32Array(cells+1), idx: Int32Array, d2: Float32Array } — per cell, nearby gauges nearest first
 function drawContours() {
   if (contourLayer) { leafletMap.removeLayer(contourLayer); contourLayer = null; }
   conNote = '';
@@ -733,16 +798,35 @@ function drawContours() {
   const maskPx = CONTOUR_MASK_MI * pxPerMile, mask2 = maskPx * maskPx;
   // project gauges and bucket them so each grid point only looks nearby
   const B = new Map(), P = [];
-  let maxP = 0;
+  let maxP = 0, sigH = 0;
   for (const s of pts) {
     const q = leafletMap.latLngToContainerPoint([s.lat, s.lon]);
     if (q.x < -maskPx || q.y < -maskPx || q.x > size.x + maskPx || q.y > size.y + maskPx) continue;
-    const g = [q.x, q.y, s.p, 0];
+    const g = [q.x, q.y, s.p, 0, 0, P.length];
     P.push(g); if (s.p > maxP) maxP = s.p;
+    const id = String(s.id); for (let ci = 0; ci < id.length; ci++) sigH = (sigH * 31 + id.charCodeAt(ci)) | 0;
     const k = Math.floor(q.x / maskPx) + ',' + Math.floor(q.y / maskPx);
     (B.get(k) || B.set(k, []).get(k)).push(g);
   }
   if (P.length < 3) return updateConNote();
+  const sig = [W, H, ox, oy, STEP, maskPx.toFixed(4), leafletMap.getZoom(), c.lat.toFixed(7), c.lng.toFixed(7), size.x, size.y, P.length, sigH].join('|');
+  if (!conNb || conNb.sig !== sig) {
+    const start = new Int32Array(W * H + 1), idx = [], d2s = [], tmp = [];
+    for (let gy = 0; gy < H; gy++) for (let gx = 0; gx < W; gx++) {
+      const x = ox + gx * STEP, y = oy + gy * STEP, bx = Math.floor(x / maskPx), by = Math.floor(y / maskPx), i = gy * W + gx;
+      tmp.length = 0;
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+        const list = B.get((bx + a) + ',' + (by + b));
+        if (!list) continue;
+        for (const g of list) { const d2 = (g[0] - x) ** 2 + (g[1] - y) ** 2; if (d2 <= mask2) tmp.push([d2, g[5]]); }
+      }
+      tmp.sort((p1, p2) => p1[0] - p2[0]);
+      for (const [d2, j] of tmp) { d2s.push(d2); idx.push(j); }
+      start[i + 1] = idx.length;
+    }
+    conNb = { sig, start, idx: Int32Array.from(idx), d2: Float32Array.from(d2s) };
+  }
+  const nbStart = conNb.start, nbIdx = conNb.idx, nbD2 = conNb.d2;
 
   let method = conMethod;
   // Kriging needs a variogram; Elevation needs terrain and a usable rain–elevation fit.
@@ -784,53 +868,39 @@ function drawContours() {
   const h2 = 2 * (SMOOTH_MI * pxPerMile) ** 2;
   const gam = vg ? h => h <= 0 ? 0 : vg.c0 + vg.c * (1 - Math.exp(-3 * h / vg.a)) : null;
   const vals = new Float64Array(W * H), dmin = new Float64Array(W * H), cnt = new Uint16Array(W * H);
-  const nb = [];
   const A = new Float64Array(13 * 13), rhs = new Float64Array(13);
-  for (let gy = 0; gy < H; gy++) for (let gx = 0; gx < W; gx++) {
-    const x = ox + gx * STEP, y = oy + gy * STEP, bx = Math.floor(x / maskPx), by = Math.floor(y / maskPx), i = gy * W + gx;
-    nb.length = 0;
-    let dm = Infinity;
-    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
-      const list = B.get((bx + a) + ',' + (by + b));
-      if (!list) continue;
-      for (const g of list) {
-        const d2 = (g[0] - x) ** 2 + (g[1] - y) ** 2;
-        if (d2 > mask2) continue;
-        nb.push([d2, g]); if (d2 < dm) dm = d2;
-      }
-    }
-    cnt[i] = nb.length; dmin[i] = Math.sqrt(dm);
-    if (!nb.length) { vals[i] = -1; continue; }
+  for (let i = 0; i < W * H; i++) {
+    const a0 = nbStart[i], a1 = nbStart[i + 1], n = a1 - a0;   // this cell's gauges, nearest first
+    cnt[i] = n; dmin[i] = n ? Math.sqrt(nbD2[a0]) : Infinity;
+    if (!n) { vals[i] = -1; continue; }
     let v;
     if (method === 'idw') {
-      let sw = 0, sv = 0, exact = null;
-      for (const [d2, g] of nb) { if (d2 < 0.25) { exact = g[2]; break; } const w = 1 / d2; sw += w; sv += w * g[2]; }
-      v = exact !== null ? exact : sv / sw;
+      if (nbD2[a0] < 0.25) v = P[nbIdx[a0]][2];
+      else { let sw = 0, sv = 0; for (let q = a0; q < a1; q++) { const w = 1 / nbD2[q]; sw += w; sv += w * P[nbIdx[q]][2]; } v = sv / sw; }
     } else if (method === 'smooth') {
       let sw = 0, sv = 0;
-      for (const [d2, g] of nb) { const w = Math.exp(-d2 / h2); sw += w; sv += w * g[2]; }
-      v = sw > 1e-300 ? sv / sw : nb.reduce((m, e) => e[0] < m[0] ? e : m)[1][2];
+      for (let q = a0; q < a1; q++) { const w = Math.exp(-nbD2[q] / h2); sw += w; sv += w * P[nbIdx[q]][2]; }
+      v = sw > 1e-300 ? sv / sw : P[nbIdx[a0]][2];
     } else if (method === 'elev') {
       let sw = 0, sv = 0;
-      for (const [d2, g] of nb) { const w = Math.exp(-d2 / h2); sw += w; sv += w * g[4]; }
+      for (let q = a0; q < a1; q++) { const w = Math.exp(-nbD2[q] / h2); sw += w; sv += w * P[nbIdx[q]][4]; }
       const zz = zGrid[i], res = sw > 1e-300 ? sv / sw : 0;
       v = Number.isNaN(zz) ? null : Math.min(1.25 * maxP, Math.max(0, trend(zz) + res));
-      if (v == null) { let s2 = 0, s1 = 0; for (const [d2, g] of nb) { const w = Math.exp(-d2 / h2); s1 += w; s2 += w * g[2]; } v = s1 > 1e-300 ? s2 / s1 : nb[0][1][2]; }
+      if (v == null) { let s2 = 0, s1 = 0; for (let q = a0; q < a1; q++) { const w = Math.exp(-nbD2[q] / h2); s1 += w; s2 += w * P[nbIdx[q]][2]; } v = s1 > 1e-300 ? s2 / s1 : P[nbIdx[a0]][2]; }
     } else {   // ordinary kriging with the nearest 12 gauges
-      if (nb.length > 12) { nb.sort((p, q) => p[0] - q[0]); nb.length = 12; }
-      const n = nb.length;
-      if (n === 1) v = nb[0][1][2];
+      const k = Math.min(12, n);
+      if (k === 1) v = P[nbIdx[a0]][2];
       else {
-        const m = n + 1;
-        for (let r = 0; r < n; r++) {
-          const gr = nb[r][1];
-          for (let s = 0; s < n; s++) { const gs = nb[s][1]; A[r * m + s] = gam(Math.hypot(gr[0] - gs[0], gr[1] - gs[1])); }
-          A[r * m + n] = 1; A[n * m + r] = 1; rhs[r] = gam(Math.sqrt(nb[r][0]));
+        const m = k + 1;
+        for (let r = 0; r < k; r++) {
+          const gr = P[nbIdx[a0 + r]];
+          for (let t = 0; t < k; t++) { const gs = P[nbIdx[a0 + t]]; A[r * m + t] = gam(Math.hypot(gr[0] - gs[0], gr[1] - gs[1])); }
+          A[r * m + k] = 1; A[k * m + r] = 1; rhs[r] = gam(Math.sqrt(nbD2[a0 + r]));
         }
-        A[n * m + n] = 0; rhs[n] = 1;
+        A[k * m + k] = 0; rhs[k] = 1;
         const lam = solveLinear(A.subarray(0, m * m), rhs.subarray(0, m), m);
-        if (!lam) { let sw = 0, sv = 0; for (const [d2, g] of nb) { const w = 1 / Math.max(d2, 0.25); sw += w; sv += w * g[2]; } v = sv / sw; }
-        else { v = 0; for (let r = 0; r < n; r++) v += lam[r] * nb[r][1][2]; v = Math.min(maxP, Math.max(0, v)); }
+        if (!lam) { let sw = 0, sv = 0; for (let r = 0; r < k; r++) { const w = 1 / Math.max(nbD2[a0 + r], 0.25); sw += w; sv += w * P[nbIdx[a0 + r]][2]; } v = sv / sw; }
+        else { v = 0; for (let r = 0; r < k; r++) v += lam[r] * P[nbIdx[a0 + r]][2]; v = Math.min(maxP, Math.max(0, v)); }
       }
     }
     vals[i] = v;
@@ -866,7 +936,11 @@ function drawContours() {
     return true;
   };
   const breaks = BREAKS;
-  const toLL = ([x, y]) => leafletMap.containerPointToLatLng([ox + (x - 0.5) * STEP, oy + (y - 0.5) * STEP]);
+  const w00 = leafletMap.containerPointToLayerPoint([0, 0]).add(leafletMap.getPixelOrigin()), wScale = 256 * Math.pow(2, leafletMap.getZoom());
+  const toLL = ([x, y]) => {   // same as containerPointToLatLng, without building Point and LatLng objects per vertex
+    const wx = w00.x + ox + (x - 0.5) * STEP, wy = w00.y + oy + (y - 0.5) * STEP;
+    return L.latLng((2 * Math.atan(Math.exp((0.5 - wy / wScale) * 2 * Math.PI)) - Math.PI / 2) * 180 / Math.PI, wx / wScale * 360 - 180);
+  };
   const filled = contourMode === 'filled';
   contourLayer = L.layerGroup();
   if (filled) {
@@ -941,13 +1015,15 @@ function createMarkerLayer() {
   markerLayer.addTo(leafletMap);
 }
 
+let pinsMode = 'none';   // what the pins on the map were drawn for: 'full', 'vb' (playback: near the screen) or 'none'
 function render() {
   updateScale();
   drawRings();
   markerLayer.clearLayers();
   for (const k in markersById) delete markersById[k];
   if (pinsHidden) leafletMap.removeLayer(markerLayer); else if (!leafletMap.hasLayer(markerLayer)) markerLayer.addTo(leafletMap);
-  const list = pinsHidden ? [] : stations.filter(s => visible(s)).sort((a, b) => a.p - b.p); // wettest on top
+  const vb = play && play.playing ? leafletMap.getBounds().pad(0.25) : null;   // while playing, pins near the screen only (faster frames)
+  const list = pinsHidden ? [] : stations.filter(s => visible(s) && (!vb || vb.contains([s.lat, s.lon]))).sort((a, b) => a.p - b.p); // wettest on top
   const markers = [];
   for (const s of list) {
     const c = rainClass(s.p);
@@ -956,13 +1032,14 @@ function render() {
     const icon = pinStyle === 'dot'
       ? L.divIcon({ className: '', html: `<div class="${cls}" style="${style}"></div>`, iconSize: [14, 14], iconAnchor: [7, 7] })
       : L.divIcon({ className: '', html: `<div class="${cls}" style="${style}">${fmtV(s.p)}</div>`, iconSize: [40, 22], iconAnchor: [20, 11] });
-    const m = L.marker([s.lat, s.lon], { icon, rain: s.suspect ? null : s.p, riseOnHover: true });
+    const m = L.marker([s.lat, s.lon], { icon, rain: s.suspect ? null : s.p, riseOnHover: true, station: s, pinCls: cls });
     m.bindPopup(() => buildPopup(s), { maxWidth: IS_PHONE ? 260 : 300, autoPanPaddingTopLeft: [10, IS_PHONE ? 70 : 10] });
-    if (!IS_PHONE) m.bindTooltip(`${s.name} · ${fmtV(s.p)} ${METRICS[metric].unit}`, { direction: 'top', offset: [0, -12] });
+    if (!IS_PHONE) m.bindTooltip(() => `${s.name} · ${fmtV(s.p)} ${METRICS[metric].unit}`, { direction: 'top', offset: [0, -12] });
     markers.push(m);
     markersById[s.id] = m;
   }
   if (markerLayer.addLayers) markerLayer.addLayers(markers); else markers.forEach(m => markerLayer.addLayer(m));
+  pinsMode = pinsHidden ? 'none' : vb ? 'vb' : 'full';
   updateStats();
   if (activeBBox || activePoly) buildSelectionPanel();
   drawContours();
@@ -979,11 +1056,12 @@ function buildPopup(s) {
   el.innerHTML = `
     <h3></h3>
     <div class="sub"></div>
-    <div class="big">${fmtV(s.p)} <small>${METRICS[metric].title.replace(/ \(.*\)$/, '').replace(/^Rain /, '').toLowerCase()} (${METRICS[metric].unit})</small></div>
+    <div class="big">${fmtV(s.p)} <small>${metric === 'hist' && hist ? (play ? play.label : hist.label) : METRICS[metric].title.replace(/ \(.*\)$/, '').replace(/^Rain /, '').toLowerCase()} (${METRICS[metric].unit})</small></div>
     <div class="vals">${Object.entries(METRICS).filter(([k2]) => s.v[k2] != null).map(([k2, m2]) =>
       `<div class="${k2 === metric ? 'on' : ''}"><b>${fmtV(s.v[k2])}</b><span>${m2.label}</span></div>`).join('')}</div>
     ${s.why ? `<div class="warn">${s.why}</div>` : ''}
-    <div class="row"><span>As of</span><span>${s.time}</span></div>
+    ${metric === 'hist' && s.hist ? `<div class="hist-days">${hist.mode === 'h' ? histHoursHtml(s.hist) : `${s.hist.have < s.hist.need ? `<div class="hist-gap">Readings on ${s.hist.have} of ${s.hist.need} days.</div>` : ''}${s.hist.days.slice(-31).map(([d, v]) => `<div class="row"><span>${fmtDay(d)}</span><span>${fmtV(v)} in</span></div>`).join('')}${s.hist.days.length > 31 ? `<div class="hist-gap">Last 31 days shown.</div>` : ''}`}</div>` : ''}
+    <div class="row"><span>${metric === 'hist' ? 'Live reading as of' : 'As of'}</span><span>${s.time}</span></div>
     <div class="row"><span>From ${CENTER.name}</span><span>${s.dist.toFixed(1)} mi ${s.dist < 0.05 ? '' : s.dir}</span></div>
     ${s.elev ? `<div class="row"><span>Elevation</span><span>${s.elev.toLocaleString()} ft</span></div>` : ''}
     <div class="row"><span>Lat, Lon</span><span>${s.lat.toFixed(4)}, ${s.lon.toFixed(4)}</span></div>
@@ -1035,7 +1113,7 @@ function updateStats() {
   document.getElementById('asof').textContent = `${dataTime} · within ${radius} mi of ${CENTER.name}`;
   document.getElementById('st-n').textContent = vis.length;
   const U = METRICS[metric].unit;
-  document.getElementById('info-title').textContent = metric === 'day' ? 'Rain Today' : `Rain: ${METRICS[metric].label}`;
+  document.getElementById('info-title').textContent = metric === 'day' ? 'Rain Today' : metric === 'hist' && hist ? `Rain: ${play ? play.label : hist.label}` : `Rain: ${METRICS[metric].label}`;
   document.getElementById('st-med').textContent = good.length ? `${fmtV(median(good))} ${U}` : '—';
   document.getElementById('st-rng').textContent = good.length ? `${fmtV(Math.min(...good))} – ${fmtV(Math.max(...good))} ${U}` : '—';
   document.getElementById('st-sus').textContent = `${inRadius.filter(s => s.suspect).length}${suspectFilter === 'exclude' ? ' (hidden)' : ''}`;
@@ -1052,7 +1130,37 @@ function addFilterBar() {
       <button class="panel-head" type="button"><h4>Filters &amp; tools</h4><span class="chev">▾</span></button>
       <div class="panel-body opt-grid">
         <span class="opt-l">Show</span>
-        <div class="seg-ctrl wrap">${Object.entries(METRICS).map(([k, m]) => `<button class="seg-btn${k === metric ? ' active' : ''}" data-metric="${k}">${m.label}</button>`).join('')}</div>
+        <div class="seg-ctrl wrap">${Object.entries(METRICS).filter(([k]) => k !== 'hist').map(([k, m]) => `<button class="seg-btn${k === metric ? ' active' : ''}" data-metric="${k}">${m.label}</button>`).join('')}</div>
+        <span class="opt-l">History</span>
+        <div class="seg-ctrl">
+          <button class="seg-btn active" data-hist="live">Live</button>
+          <button class="seg-btn" data-hist="pick">Past dates</button>
+        </div>
+        <div class="info-pop" id="hist-pop" hidden>
+          <div class="hist-row"><div class="seg-ctrl"><button class="seg-btn active" type="button" data-hmode="d">Whole days</button><button class="seg-btn" type="button" data-hmode="h">Hours</button></div></div>
+          <div id="h-days">
+          <div class="hist-row"><label>From <input type="date" id="h-from"></label><label>To <input type="date" id="h-to"></label></div>
+          <div class="hist-row">
+            <button class="draw-btn" type="button" data-hq="1">Yesterday</button>
+            <button class="draw-btn" type="button" data-hq="7">Last 7 days</button>
+            <button class="draw-btn" type="button" data-hq="30">Last 30 days</button>
+            <button class="filter-btn active" type="button" id="h-go">Show</button>
+          </div>
+          </div>
+          <div id="h-hours" hidden>
+          <div class="hist-row"><label>From <input type="date" id="hh-fd"> <select id="hh-fh" aria-label="From hour"></select></label></div>
+          <div class="hist-row"><label>To <input type="date" id="hh-td"> <select id="hh-th" aria-label="To hour"></select></label></div>
+          <div class="hist-row">
+            <button class="draw-btn" type="button" data-hh="3">Last 3 hours</button>
+            <button class="draw-btn" type="button" data-hh="6">Last 6 hours</button>
+            <button class="draw-btn" type="button" data-hh="12">Last 12 hours</button>
+            <button class="draw-btn" type="button" data-hh="24">Last 24 hours</button>
+            <button class="draw-btn" type="button" data-hh="48">Last 48 hours</button>
+            <button class="filter-btn active" type="button" id="hh-go">Show</button>
+          </div>
+          </div>
+          <div id="h-msg">Past rain for personal (Ambient) stations, up to a year back. Each day is the station's end-of-day daily total; a period is the sum of its days. One or two days use 5-minute readings, longer periods hourly. Loads station by station for the area on screen.</div>
+        </div>
         <span class="opt-l">Gauges</span>
         <div class="seg-ctrl">
           <button class="seg-btn active" data-src="all">All</button>
@@ -1134,10 +1242,60 @@ function addFilterBar() {
       e.currentTarget.classList.toggle('active', open);
     });
     el.querySelectorAll('[data-metric]').forEach(b => b.addEventListener('click', () => {
+      if (hist) { exitHist(b.dataset.metric); return; }
       metric = b.dataset.metric;
       el.querySelectorAll('[data-metric]').forEach(x => x.classList.toggle('active', x === b));
       updateLegend(); rebuild();
     }));
+    const hf = el.querySelector('#h-from'), ht = el.querySelector('#h-to'), hm = el.querySelector('#h-msg');
+    const today = todayDenver(), minDay = addDays(today, -(HIST_MAX_DAYS - 1));
+    for (const inp of [hf, ht]) { inp.max = today; inp.min = minDay; }
+    hf.value = ht.value = addDays(today, -1);
+    el.querySelectorAll('[data-hist]').forEach(b => b.addEventListener('click', () => {
+      if (b.dataset.hist === 'live') { if (hist) exitHist(); else el.querySelector('#hist-pop').hidden = true; return; }
+      el.querySelector('#hist-pop').hidden = false;
+    }));
+    el.querySelectorAll('[data-hq]').forEach(b => b.addEventListener('click', () => {
+      const n = +b.dataset.hq, t = todayDenver();
+      ht.value = n === 1 ? addDays(t, -1) : t; hf.value = n === 1 ? addDays(t, -1) : addDays(t, -(n - 1));
+    }));
+    el.querySelector('#h-go').addEventListener('click', () => {
+      let a = hf.value, z = ht.value;
+      if (!a || !z) { hm.textContent = 'Pick both dates.'; return; }
+      if (a > z) [a, z] = [z, a];
+      if (a < minDay) a = minDay;
+      if (z > todayDenver()) z = todayDenver();
+      hf.value = a; ht.value = z;
+      setHist(a, z);
+    });
+    // hours
+    const HMSG_D = hm.textContent, HMSG_H = 'Hourly rain for personal (Ambient) stations, back to Oct 19, 2026, when the hourly archive began. Times are Mountain Time. Hours before today come from the nightly hourly archive; today\'s hours are read live, station by station, for the area on screen.';
+    const fd = el.querySelector('#hh-fd'), fh = el.querySelector('#hh-fh'), td = el.querySelector('#hh-td'), th = el.querySelector('#hh-th');
+    for (const sel of [fh, th]) sel.innerHTML = Array.from({ length: 24 }, (_, i) => `<option value="${i}">${hourLbl(i)}</option>`).join('');
+    for (const inp of [fd, td]) { inp.max = today; inp.min = HR_FIRST_DAY; }
+    const setHourInputs = (a, z) => { const pa = dParts(a), pz = dParts(z); fd.value = dayStr(pa); fh.value = pa.h; td.value = dayStr(pz); th.value = pz.h; };
+    { const n = Date.now(); setHourInputs(n - 6 * 3600e3, n); }
+    el.querySelectorAll('[data-hmode]').forEach(b => b.addEventListener('click', () => {
+      const h = b.dataset.hmode === 'h';
+      el.querySelectorAll('[data-hmode]').forEach(x => x.classList.toggle('active', x === b));
+      el.querySelector('#h-days').hidden = h; el.querySelector('#h-hours').hidden = !h;
+      hm.textContent = h ? HMSG_H : HMSG_D;
+    }));
+    el.querySelectorAll('[data-hh]').forEach(b => b.addEventListener('click', () => {
+      const n = +b.dataset.hh, z = Date.now(), a = z - n * 3600e3;
+      setHourInputs(a, z);
+      setHourHist(Math.max(a, hrFirstMs()), z, `Last ${n} hours`);
+    }));
+    el.querySelector('#hh-go').addEventListener('click', () => {
+      if (!fd.value || !td.value) { hm.textContent = 'Pick both dates.'; return; }
+      let a = localHourMs(TZ, fd.value, +fh.value), z = localHourMs(TZ, td.value, +th.value);
+      if (a > z) [a, z] = [z, a];
+      if (z > Date.now()) z = Date.now();
+      if (a < hrFirstMs()) a = hrFirstMs();
+      if (z - a < 3600e3) { hm.textContent = 'Pick at least one hour.'; return; }
+      hm.textContent = HMSG_H;
+      setHourHist(a, z);
+    });
     el.querySelectorAll('[data-src]').forEach(b => b.addEventListener('click', () => {
       srcFilter = b.dataset.src;
       el.querySelectorAll('[data-src]').forEach(x => x.classList.toggle('active', x === b));
@@ -1201,7 +1359,9 @@ function addFilterBar() {
 // ── Legend ───────────────────────────────────────────────────────────────────
 function legendHtml() {
   const M = METRICS[metric];
-  const offNote = metric === 'event' ? '<div class="note">Official gauges and SNOTEL sites don\'t report this value, so only personal stations show.</div>'
+  const offNote = metric === 'hist' && hist && hist.mode === 'h' ? '<div class="note">History shows personal (Ambient) stations only for now. Hours are the station\'s 5-minute readings added up by hour.</div>'
+    : metric === 'hist' ? '<div class="note">History shows personal (Ambient) stations only for now. Each day is the station\'s end-of-day daily total.</div>'
+    : metric === 'event' ? '<div class="note">Official gauges and SNOTEL sites don\'t report this value, so only personal stations show.</div>'
     : metric === 'rate' ? '<div class="note">SNOTEL sites don\'t report Rate.</div>'
     : metric === 'year' ? '<div class="note">SNOTEL Year is January 1 to now, worked out from the water-year total.</div>' : '';
   const chk = M.check ? ''
@@ -1222,10 +1382,29 @@ function legendAdjHtml() {
     <div class="leg-adj"${legendAdjOpen ? '' : ' hidden'}>
       <span class="opt-l">Brackets</span>${seg('lr', legendRange, [['loaded', 'All loaded', 'Fit to every gauge loaded within the radius'], ['screen', 'On screen', 'Fit to the gauges on screen; changes as you pan and zoom'], ['fixed', 'Fixed', 'The set brackets, the same every time']])}
       <span class="opt-l">Steps</span>${seg('lm', legendMethod, [['equal', 'Equal', 'Equal steps with round edges'], ['count', 'Equal counts', 'Each color holds about the same number of gauges']], fixed)}
-      <span class="opt-l">Number</span>${seg('ln', legendSteps, [[4, '4'], [6, '6'], [8, '8'], [10, '10'], [12, '12']], fixed)}
+      <span class="opt-l">Number</span><span class="leg-num-wrap"><input type="number" class="leg-num" id="leg-steps" min="${LEG_MIN}" max="${LEG_MAX}" step="1" inputmode="numeric" value="${legendSteps}"${fixed ? ' disabled' : ''} aria-label="Number of steps" title="How many colors, ${LEG_MIN} to ${LEG_MAX}"> ${LEG_MIN}–${LEG_MAX}</span>
     </div>`;
 }
 let legendEl;
+// The Filters panel (top right) and the legend (bottom right) share the right
+// edge. When both are open and together taller than the map, the Filters panel
+// scrolls inside the room left above the legend; if that room is small, the
+// legend also scrolls, within 40% of the map's height.
+function fitPanels() {
+  const fb = document.getElementById('options-panel'), lg = legendEl;
+  if (!fb || !lg) return;
+  const fbB = fb.querySelector(':scope > .panel-body'), lgB = lg.querySelector(':scope > .panel-body');
+  for (const b of [fbB, lgB]) if (b) { b.style.maxHeight = ''; b.style.overflowY = ''; }
+  if (!fbB || fb.classList.contains('collapsed')) return;
+  const roomNow = () => lg.getBoundingClientRect().top - 10 - fbB.getBoundingClientRect().top - 10;
+  let room = roomNow();
+  if (fbB.scrollHeight <= room) return;
+  if (lgB && !lg.classList.contains('collapsed') && room < 260) {
+    const cap = Math.max(110, leafletMap.getContainer().clientHeight * 0.4 - (lg.offsetHeight - lgB.offsetHeight));
+    if (lgB.offsetHeight > cap) { lgB.style.maxHeight = cap + 'px'; lgB.style.overflowY = 'auto'; room = roomNow(); }
+  }
+  fbB.style.maxHeight = Math.max(150, room) + 'px'; fbB.style.overflowY = 'auto';
+}
 function addLegend() {
   const c = L.control({ position: 'bottomright' });
   c.onAdd = () => {
@@ -1240,11 +1419,25 @@ function addLegend() {
       if (t.id === 'leg-adj') legendAdjOpen = !legendAdjOpen;
       else if (t.dataset.lr) legendRange = t.dataset.lr;
       else if (t.dataset.lm) legendMethod = t.dataset.lm;
-      else if (t.dataset.ln) legendSteps = +t.dataset.ln;
       else return;
       legendSig = '';
+      if (play) play.breaks = playBreaks();
       if (t.id === 'leg-adj') updateScale(); else render();
     });
+    // number of steps: typed, held to 4–30
+    legendEl.addEventListener('change', e => {
+      const t = e.target;
+      if (!t || t.id !== 'leg-steps') return;
+      let n = Math.round(+t.value);
+      if (!Number.isFinite(n)) n = legendSteps;
+      n = Math.max(LEG_MIN, Math.min(LEG_MAX, n));
+      t.value = n;
+      if (n === legendSteps) return;
+      legendSteps = n; legendSig = '';
+      if (play) play.breaks = playBreaks();
+      render();
+    });
+    legendEl.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'leg-steps') { e.preventDefault(); e.target.blur(); } });
     return legendEl;
   };
   c.addTo(leafletMap);
@@ -1504,6 +1697,535 @@ function addSearchBar() {
 const fmtTime = ms => new Date(ms).toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: 'numeric', minute: '2-digit' });
 const titleCase = s => s.toLowerCase().replace(/\b([a-z])/g, c => c.toUpperCase()).replace(/\bRaws\b/g, 'RAWS').replace(/\bAp\b/g, 'Airport').replace(/\bCo\b/g, 'CO').replace(/\bNm\b/g, 'NM').replace(/\bUt\b/g, 'UT').replace(/\b(N|S|E|W|Ne|Nw|Se|Sw|Nne|Nnw|Sse|Ssw|Ene|Ese|Wnw|Wsw)\b/g, d => d.toUpperCase());
 
+// ── History (test) ──────────────────────────────────────────────────────────
+// Past rain for personal stations, from the same public Ambient feed the
+// station dashboards use: lightning.ambientweather.net/device-data, asked per
+// station with its device address and its public dashboard address. Each day's
+// rain is the end-of-day value of the station's daily rain counter (it resets at
+// the station's local midnight); a period's total is the sum of its days.
+// Official gauges and SNOTEL stay live-only for now.
+let hist = null;                 // { from:'YYYY-MM-DD', to:'YYYY-MM-DD', key, days, label }
+const histCache = new Map();     // key|mac -> { total, days:[[date, in]], have, need } | { err:true } | { busy:true }
+const HIST_MAX_DAYS = 366;
+const HIST_PAR = 40;             // requests at a time (the feed answers 40-odd at once about as fast as 6)
+const HIST_MAX_STATIONS = 600;   // per pass, nearest the map center first
+const isoDay = ms => new Date(ms).toISOString().slice(0, 10);
+const addDays = (ds, n) => isoDay(Date.parse(ds + 'T12:00:00Z') + n * 86400e3);
+const dayCount = (a, b) => Math.round((Date.parse(b + 'T12:00:00Z') - Date.parse(a + 'T12:00:00Z')) / 86400e3) + 1;
+const todayDenver = () => { const p = dParts(Date.now()); return `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`; };
+const fmtDay = ds => new Date(ds + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' });
+const tzFmt = new Map();
+const localDay = (ms, tz) => {
+  let f = tzFmt.get(tz);
+  if (!f) { try { f = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }); } catch (e) { f = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Denver', year: 'numeric', month: '2-digit', day: '2-digit' }); } tzFmt.set(tz, f); }
+  return f.format(ms);
+};
+function histWindows(h) {
+  const [y, m, d] = h.from.split('-').map(Number), [y2, m2, d2] = addDays(h.to, 1).split('-').map(Number);
+  const start = denverMidnight(y, m, d) - 2 * 3600e3, end = Math.min(Date.now(), denverMidnight(y2, m2, d2) + 2 * 3600e3);
+  // 5-minute readings for one or two days, hourly for longer periods (the feed returns at most 2,000 per request)
+  if (end - start <= 2.25 * 86400e3) return [{ start, end, res: 5 }];
+  const out = [];
+  for (let s = start; s < end; s += 80 * 86400e3) out.push({ start: s, end: Math.min(end, s + 80 * 86400e3), res: 60 });
+  return out;
+}
+async function fetchHist(st, h) {
+  const k = h.key + '|' + st.mac;
+  histCache.set(k, { busy: true });
+  const dayMax = new Map();
+  try {
+    for (const w of histWindows(h)) {
+      const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 25000);
+      const r = await fetch('https://lightning.ambientweather.net/device-data?' + new URLSearchParams({
+        macAddress: st.mac, dataKey: st.key, start: Math.round(w.start), end: Math.round(w.end), limit: 2000, res: w.res }), { signal: ctl.signal });
+      clearTimeout(timer);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json(), arr = Array.isArray(j) ? j : (j.data || []);
+      for (const x of arr) {
+        if (x.dailyrainin == null || x.dateutc == null) continue;
+        const ds = localDay(x.dateutc, st.tz || 'America/Denver');
+        if (ds < h.from || ds > h.to) continue;
+        const v = +x.dailyrainin;
+        if (!(dayMax.get(ds) >= v)) dayMax.set(ds, v);
+      }
+    }
+    const days = [...dayMax.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1);
+    const need = dayCount(h.from, h.to);
+    histCache.set(k, days.length ? { total: +days.reduce((a, [, v]) => a + v, 0).toFixed(2), days, have: days.length, need } : { none: true });
+  } catch (e) { histCache.set(k, { err: true }); }
+}
+let histRun = 0;
+async function ensureHist() {
+  if (!hist || hist.arch === undefined) return;
+  if (hist.arch && !hist.arch.tail) { histStatus(); return; }
+  const run = ++histRun, h0 = hist, h = hist.arch ? { ...hist.arch.tail, label: hist.label } : hist;
+  const b = leafletMap.getBounds().pad(0.05), ctr = leafletMap.getCenter();
+  const pool = hist.arch
+    ? [...hist.arch.sums.keys()].map(mac => { const m = archStations[mac]; return m && { mac, lat: m[0], lon: m[1], key: m[3], tz: m[4] }; }).filter(Boolean)
+    : [...ambient.values()];
+  const todo = pool.filter(s => s.mac && s.key && b.contains([s.lat, s.lon])
+      && miles(CENTER.lat, CENTER.lon, s.lat, s.lon) <= radius && (!histCache.has(h.key + '|' + s.mac) || histCache.get(h.key + '|' + s.mac).err))
+    .sort((a, z) => (a.lat - ctr.lat) ** 2 + (a.lon - ctr.lng) ** 2 - ((z.lat - ctr.lat) ** 2 + (z.lon - ctr.lng) ** 2))
+    .slice(0, HIST_MAX_STATIONS);
+  if (!todo.length) { histStatus(); return; }
+  let done = 0, i = 0, lastDraw = Date.now();
+  const msg = document.getElementById('refresh-msg');
+  const worker = async () => {
+    while (i < todo.length && run === histRun && hist === h0) {
+      const st = todo[i++];
+      await (h.mode === 'h' ? fetchHourTail(st, h) : fetchHist(st, h)); done++;
+      if (done % 10 === 0) { msg.className = 'refresh-msg'; msg.textContent = hist.arch ? `Archive loaded; adding ${tailLbl(h)} (not archived yet): ${done} of ${todo.length} stations…` : `Loading history for ${h.label}: ${done} of ${todo.length} stations…`; }
+      // redraw at most every 4 seconds while loading; each redraw recomputes every pin and contour
+      if (Date.now() - lastDraw > 4000) { lastDraw = Date.now(); rebuild(); msg.textContent = `Loading history for ${h.label}: ${done} of ${todo.length} stations…`; }
+    }
+  };
+  msg.className = 'refresh-msg'; msg.textContent = `Loading history for ${h.label}: 0 of ${todo.length} stations…`;
+  await Promise.all(Array.from({ length: HIST_PAR }, worker));
+  if (run !== histRun || hist !== h0) return;
+  rebuild(); histStatus();
+}
+function histStatus() {
+  if (!hist) return;
+  if (hist.arch) {
+    const msg = document.getElementById('refresh-msg'), n = stations.length;
+    const t = hist.arch.tail;
+    msg.className = 'refresh-msg';
+    msg.textContent = `History, ${hist.label}: ${n} personal stations from the nightly ${hist.mode === 'h' ? 'hourly ' : ''}archive` +
+      (t ? `, plus ${tailLbl(t)} asked for station by station for the area on screen (not archived until after midnight)` : '') +
+      '. Official gauges and SNOTEL are live-only for now.';
+    return;
+  }
+  const vals = [...histCache.entries()].filter(([k]) => k.startsWith(hist.key + '|')).map(([, v]) => v);
+  const ok = vals.filter(v => v.total != null).length, err = vals.filter(v => v.err).length, none = vals.filter(v => v.none).length;
+  const msg = document.getElementById('refresh-msg');
+  msg.className = 'refresh-msg' + (err && !ok ? ' err' : '');
+  msg.textContent = `History, ${hist.label}: ${ok} personal stations with readings` + (none ? `, ${none} with none for these dates` : '') + (err ? `, ${err} could not be loaded` : '') +
+    '. Pan or zoom to load more. Official gauges and SNOTEL are live-only for now.';
+}
+// Nightly archive: daily totals collected on GitHub's servers into history/
+// (see .github/workflows/history.yml). Days in the archive load from a few
+// files at once; days not yet in it (today, or before the archive began) are
+// asked for station by station as before.
+const ARCH = 'https://raw.githubusercontent.com/4CPM/precip/main/history/';
+let archIndex = null, archIndexAt = 0, archStations = null, archList = [];
+const archMonths = new Map();     // 'YYYY-MM' -> Promise of month file
+const archJSON = name => fetch(ARCH + name + '?t=' + Math.floor(Date.now() / 600e3), { cache: 'no-cache' }).then(r => { if (!r.ok) throw new Error('archive HTTP ' + r.status); return r.json(); });
+async function archFor(h) {
+  try {
+    if (!archIndex || Date.now() - archIndexAt > 600e3) { archIndex = await archJSON('index.json'); archIndexAt = Date.now(); archMonths.clear(); }
+  } catch (e) { return null; }
+  const built = new Set(Object.values(archIndex.months || {}).flat());
+  const days = []; for (let d = h.from; d <= h.to; d = addDays(d, 1)) days.push(d);
+  const inArch = days.filter(d => built.has(d)), missing = days.filter(d => !built.has(d));
+  if (!inArch.length) return null;
+  // the archive is used when the days it lacks are only at the end (today, usually)
+  if (missing.length && missing[0] < inArch[inArch.length - 1]) return null;
+  try {
+    if (!archStations) {   // format 2: list of [device address, lat, lon, name, dashboard address, time zone]; place in list = station number
+      const sj = await archJSON('stations.json');
+      archStations = {}; archList = sj.list || [];
+      for (const r of archList) archStations[r[0]] = [r[1], r[2], r[3], r[4], r[5]];
+    }
+    const months = [...new Set(inArch.map(d => d.slice(0, 7)))];
+    const files = await Promise.all(months.map(m => { if (!archMonths.has(m)) archMonths.set(m, archJSON(m + '.json').catch(e => { archMonths.delete(m); throw e; })); return archMonths.get(m); }));
+    const sums = new Map();
+    for (const mf of files) {
+      // rows: [station number, day 1, day 2, ...] in hundredths of an inch
+      const want = inArch.filter(d => d.startsWith(mf.month)).map(d => [d, +d.slice(8)]);
+      for (const row of mf.rows || []) {
+        const st = archList[row[0]]; if (!st) continue;
+        const mac = st[0];
+        let e = sums.get(mac);
+        for (const [d, i] of want) { const v = row[i]; if (v == null) continue; if (!e) sums.set(mac, e = { total: 0, days: [], have: 0 }); e.total += v / 100; e.days.push([d, v / 100]); e.have++; }
+      }
+    }
+    for (const e of sums.values()) { e.total = +e.total.toFixed(2); e.days.sort((a, b) => a[0] < b[0] ? -1 : 1); }
+    return { sums, inArch, missing, tail: missing.length ? { from: missing[0], to: h.to, key: 'tail_' + missing[0] + '_' + h.to } : null };
+  } catch (e) { return null; }
+}
+
+// Hourly history (test): history/hourly/YYYY-MM-DD.json holds each station's
+// rain by hour of its local day (see .github/scripts/hourly.mjs). Hours before
+// today come from there; hours since the last saved day are worked out live,
+// station by station, from the 5-minute readings (rises of the daily counter).
+const HR_FIRST_DAY = '2026-10-19';
+const DEFAULT_PERIOD = { from: '2026-10-21T00', to: '2026-10-25T23' };   // opening view when the address names no period: the October 21–25 storm, hour by hour (Mountain Time)
+let hrIndex = null, hrIndexAt = 0, hrTzfix = {};
+const hrFiles = new Map();        // day -> Promise of hourly file
+const hrStarts = new Map();       // zone|day -> [ms each of its 24 hours starts]
+const zFmt = new Map();
+function zParts(ms, tz) {
+  let f = zFmt.get(tz);
+  if (!f) { try { f = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }); } catch (e) { f = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }); } zFmt.set(tz, f); }
+  const o = {}; for (const p of f.formatToParts(ms)) o[p.type] = p.value; return o;
+}
+function localHourMs(tz, day, h) {   // ms when hour h of that date starts in zone tz
+  const [y, m, d] = day.split('-').map(Number), guess = Date.UTC(y, m - 1, d, h);
+  let t = guess;
+  for (let i = 0; i < 2; i++) { const o = zParts(t, tz); t -= Date.UTC(+o.year, +o.month - 1, +o.day, +o.hour % 24, +o.minute) - guess; }
+  return t;
+}
+function hourStarts(tz, day) {
+  const k = tz + '|' + day; let a = hrStarts.get(k);
+  if (!a) { a = Array.from({ length: 24 }, (_, h) => localHourMs(tz, day, h)); hrStarts.set(k, a); }
+  return a;
+}
+const hrFirstMs = () => localHourMs(TZ, HR_FIRST_DAY, 0);
+const hourLbl = h => h === 0 ? '12 AM' : h < 12 ? h + ' AM' : h === 12 ? '12 PM' : (h - 12) + ' PM';
+const dayStr = p => `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`;
+function fmtHourMs(ms, withDay = true) {
+  const p = dParts(ms), mi = Math.floor(ms / 60e3) % 60;
+  const t = mi ? `${p.h % 12 || 12}:${String(mi).padStart(2, '0')} ${p.h < 12 ? 'AM' : 'PM'}` : hourLbl(p.h);
+  return withDay ? `${fmtDay(dayStr(p))}, ${t}` : t;
+}
+const tailLbl = h => h.mode === 'h' ? `${fmtHourMs(h.start)} to ${h.end >= Date.now() - 60e3 ? 'now' : fmtHourMs(h.end)}` : `${fmtDay(h.from)}${h.from === h.to ? '' : '–' + fmtDay(h.to)}`;
+function histHoursHtml(e) {
+  const rainy = e.days.filter(([, v]) => v >= 0.005);
+  return (e.have < e.need ? `<div class="hist-gap">Readings for ${e.have} of ${e.need} hours.</div>` : '') +
+    (rainy.length ? rainy.slice(-31).map(([t, v]) => `<div class="row"><span>${fmtHourMs(t)}</span><span>${fmtV(v)} in</span></div>`).join('') + `<div class="hist-gap">${rainy.length > 31 ? 'Last 31 hours with rain shown.' : 'Hours with no rain not listed.'}</div>`
+      : '<div class="hist-gap">No rain in any hour.</div>');
+}
+async function archHourFor(h) {
+  try {
+    if (!hrIndex || Date.now() - hrIndexAt > 600e3) {
+      [hrIndex, hrTzfix] = await Promise.all([archJSON('hourly/index.json'), archJSON('hourly/tzfix.json').catch(() => ({}))]);
+      hrIndexAt = Date.now(); hrFiles.clear();
+    }
+  } catch (e) { return null; }
+  const days = (hrIndex.days || []).filter(d => d >= HR_FIRST_DAY).sort();
+  if (!days.length) return null;
+  const archEnd = localHourMs(TZ, addDays(days[days.length - 1], 1), 0), aEnd = Math.min(h.end, archEnd);
+  if (aEnd <= h.start) return null;           // nothing archived in the range: all live
+  const tail = h.end > archEnd ? { mode: 'h', start: archEnd, end: h.end, key: 'htail_' + archEnd + '_' + h.end } : null;
+  try {
+    if (!archStations) {
+      const sj = await archJSON('stations.json');
+      archStations = {}; archList = sj.list || [];
+      for (const r of archList) archStations[r[0]] = [r[1], r[2], r[3], r[4], r[5]];
+    }
+    const d0 = addDays(dayStr(dParts(h.start)), -1), d1 = addDays(dayStr(dParts(aEnd - 1)), 1);
+    const want = days.filter(d => d >= d0 && d <= d1);
+    const files = await Promise.all(want.map(d => { if (!hrFiles.has(d)) hrFiles.set(d, archJSON('hourly/' + d + '.json').catch(e => { hrFiles.delete(d); throw e; })); return hrFiles.get(d); }));
+    const lo = h.start - 1800e3, needH = Math.round((aEnd - h.start) / 3600e3);
+    const sums = new Map();
+    for (const f of files) {
+      if (!f || f.v !== 2) continue;
+      // rows: [station number, rain in hour 0 ... hour 23 of the station's local day, peak rate], hundredths of an inch
+      for (const row of f.rows || []) {
+        const st = archList[row[0]]; if (!st) continue;
+        const hs = hourStarts(hrTzfix[row[0]] || st[5] || TZ, f.date);
+        if (hs[23] < lo || hs[0] >= aEnd) continue;
+        let e = sums.get(st[0]);
+        for (let i = 0; i < 24; i++) {
+          const t = hs[i], v = row[1 + i];
+          if (t < lo || t >= aEnd || v == null) continue;
+          if (!e) sums.set(st[0], e = { total: 0, days: [], have: 0, need: needH });
+          e.have++; e.total += v / 100; if (v > 0) e.days.push([t, v / 100]);
+        }
+      }
+    }
+    for (const e of sums.values()) { e.total = +e.total.toFixed(2); e.have = Math.min(e.have, e.need); e.days.sort((a, b) => a[0] - b[0]); }
+    return { sums, tail };
+  } catch (e) { return null; }
+}
+// rain between two moments from a station's 5-minute readings
+async function fetchHourTail(st, h) {
+  const k = h.key + '|' + st.mac;
+  histCache.set(k, { busy: true });
+  try {
+    const rs = [];
+    for (let s = h.start - 20 * 60e3; s < h.end; s += 6.5 * 86400e3) {
+      const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 25000);
+      const r = await fetch('https://lightning.ambientweather.net/device-data?' + new URLSearchParams({
+        macAddress: st.mac, dataKey: st.key, start: Math.round(s), end: Math.round(Math.min(h.end, s + 6.5 * 86400e3)), limit: 2000, res: 5 }), { signal: ctl.signal });
+      clearTimeout(timer);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json(), arr = Array.isArray(j) ? j : (j.data || []);
+      for (const x of arr) if (x.dailyrainin != null && x.dateutc != null) rs.push([+x.dateutc, +x.dailyrainin]);
+    }
+    rs.sort((a, b) => a[0] - b[0]);
+    if (!rs.length || rs[rs.length - 1][0] < h.start) { histCache.set(k, { none: true }); return; }
+    const byHour = new Map(); let total = 0;
+    for (let i = 1; i < rs.length; i++) {
+      const [t0, v0] = rs[i - 1], [t1, v1] = rs[i]; if (t1 <= t0) continue;
+      let rise = v1 >= v0 ? v1 - v0 : v1;            // a drop: the counter reset at the station's midnight
+      const a = Math.max(t0, h.start), b = Math.min(t1, h.end);
+      if (b <= a || rise <= 0) continue;
+      rise *= (b - a) / (t1 - t0);
+      total += rise;
+      const hk = Math.floor((b - 1) / 3600e3) * 3600e3; byHour.set(hk, (byHour.get(hk) || 0) + rise);
+    }
+    const need = Math.max(1, Math.round((h.end - h.start) / 3600e3));
+    const covered = Math.min(rs[rs.length - 1][0], h.end) - Math.max(rs[0][0], h.start);
+    histCache.set(k, { total: +total.toFixed(2), days: [...byHour.entries()].sort((a, b) => a[0] - b[0]).map(([t, v]) => [t, +v.toFixed(2)]),
+      have: Math.min(need, Math.max(0, Math.round(covered / 3600e3))), need });
+  } catch (e) { histCache.set(k, { err: true }); }
+}
+function setHourHist(start, end, label) {
+  playOff();
+  const hrs = (end - start) / 3600e3;
+  label = label || (dayStr(dParts(start)) === dayStr(dParts(end)) ? `${fmtHourMs(start)} – ${fmtHourMs(end, false)}` : `${fmtHourMs(start)} – ${fmtHourMs(end)}`);
+  hist = { mode: 'h', start, end, days: hrs / 24, label, key: 'h_' + start + '_' + end };
+  { const m = /^Last (\d+) hours$/.exec(label); hist.lastN = m ? +m[1] : 0; }
+  histToUrl();
+  METRICS.hist.label = 'Period';
+  METRICS.hist.title = `Rain ${label} (in)`;
+  METRICS.hist.scale = hrs <= 24 ? 1 : hrs <= 168 ? 1.5 : 2;
+  metric = 'hist';
+  document.querySelectorAll('[data-metric]').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('[data-hist]').forEach(x => x.classList.toggle('active', x.dataset.hist === 'pick'));
+  const h = hist, msg = document.getElementById('refresh-msg');
+  msg.className = 'refresh-msg'; msg.textContent = `Loading history for ${label}…`;
+  archHourFor(h).then(a => {
+    if (hist !== h) return;
+    h.arch = a;
+    updateLegend(); rebuild(); ensureHist();
+    playOn();
+  });
+}
+
+function setHist(from, to) {
+  playOff();
+  const days = dayCount(from, to);
+  const label = from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`;
+  hist = { from, to, days, label, key: from + '_' + to };
+  histToUrl();
+  METRICS.hist.label = 'Period';
+  METRICS.hist.title = `Rain ${label} (in)`;
+  METRICS.hist.scale = days <= 1 ? 1 : days <= 7 ? 1.5 : days <= 31 ? 2 : 4;
+  metric = 'hist';
+  document.querySelectorAll('[data-metric]').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('[data-hist]').forEach(x => x.classList.toggle('active', x.dataset.hist === 'pick'));
+  const h = hist, msg = document.getElementById('refresh-msg');
+  msg.className = 'refresh-msg'; msg.textContent = `Loading history for ${label}…`;
+  (h.mode === 'h' ? archHourFor(h) : archFor(h)).then(a => {
+    if (hist !== h) return;
+    h.arch = a;
+    updateLegend(); rebuild(); ensureHist();
+  });
+}
+// Keep the chosen period in the address so a refresh reopens it:
+// ?from=2026-10-21T09&to=2026-10-26T00 (hours, Mountain Time), ?from=2026-10-21&to=2026-10-25 (whole days), ?last=6
+function histToUrl() {
+  try {
+    const p = new URLSearchParams(location.search);
+    p.delete('from'); p.delete('to'); p.delete('last');
+    if (hist) {
+      if (hist.lastN) p.set('last', hist.lastN);
+      else if (hist.mode === 'h') {
+        const f = ms => { const q = dParts(Math.ceil(ms / 3600e3) * 3600e3); return dayStr(q) + 'T' + String(q.h).padStart(2, '0'); };
+        p.set('from', f(hist.start)); p.set('to', f(hist.end));
+      } else { p.set('from', hist.from); p.set('to', hist.to); }
+    }
+    const q = p.toString();
+    history.replaceState(null, '', location.pathname + (q ? '?' + q : '') + location.hash);
+  } catch (e) {}
+}
+function histFromUrl() {
+  try {
+    const p = new URLSearchParams(location.search), last = +p.get('last');
+    let from = p.get('from') || '', to = p.get('to') || from;
+    if (!last && !from && !to) { from = DEFAULT_PERIOD.from; to = DEFAULT_PERIOD.to; }
+    const HR = /^\d{4}-\d\d-\d\dT\d\d$/, DY = /^\d{4}-\d\d-\d\d$/, $ = id => document.getElementById(id);
+    const hourUi = (a, z) => {
+      const b = document.querySelector('[data-hmode="h"]'); if (b) b.click();
+      const pa = dParts(a), pz = dParts(z);
+      if ($('hh-fd')) { $('hh-fd').value = dayStr(pa); $('hh-fh').value = pa.h; $('hh-td').value = dayStr(pz); $('hh-th').value = pz.h; }
+    };
+    if (last > 0) {
+      const z = Date.now(), a = Math.max(z - last * 3600e3, hrFirstMs());
+      hourUi(a, z); setHourHist(a, z, `Last ${last} hours`);
+    } else if (HR.test(from) && HR.test(to)) {
+      let a = localHourMs(TZ, from.slice(0, 10), +from.slice(11)), z = localHourMs(TZ, to.slice(0, 10), +to.slice(11));
+      if (a > z) [a, z] = [z, a];
+      z = Math.min(z, Date.now()); a = Math.max(a, hrFirstMs());
+      if (z - a < 3600e3) return;
+      hourUi(a, z); setHourHist(a, z);
+    } else if (DY.test(from) && DY.test(to)) {
+      let a = from, z = to; const today = todayDenver(), minDay = addDays(today, -(HIST_MAX_DAYS - 1));
+      if (a > z) [a, z] = [z, a];
+      if (a < minDay) a = minDay; if (z > today) z = today;
+      if (a > z) return;
+      if ($('h-from')) { $('h-from').value = a; $('h-to').value = z; }
+      setHist(a, z);
+    }
+  } catch (e) { console.warn('history link', e); }
+}
+function exitHist(toMetric) {
+  playOff();
+  hist = null; histRun++;
+  histToUrl();
+  metric = toMetric || 'week';
+  document.querySelectorAll('[data-metric]').forEach(x => x.classList.toggle('active', x.dataset.metric === metric));
+  document.querySelectorAll('[data-hist]').forEach(x => x.classList.toggle('active', x.dataset.hist === 'live'));
+  const pop = document.getElementById('hist-pop'); if (pop) pop.hidden = true;
+  updateLegend(); rebuild(); setStatus();
+}
+
+// ── Playback (hourly history) ──
+// Steps through the period hour by hour: each frame shows either the rain so far
+// (from the start of the period to the end of that hour) or the rain in that one
+// hour. Brackets are held for the whole run. Likely-erroneous flags come from the
+// whole-period totals, so a gauge doesn't flicker in and out.
+let play = null;   // { A, end, n, i, f, mode: 'total' | 'hour', playing, speed, breaks, label, timer, k, j, frameMs }
+// While playing, each hour is reached in several steps (f = part of the way from the
+// previous hour's values to this hour's), as many as a frame's cost allows, so the
+// field moves gradually instead of jumping once an hour.
+const SUB_MAX = 8, SUB_MIN_MS = 90;
+const PLAY_MS = { slow: 1000, normal: 450, fast: 150 };
+function addPlayBar() {
+  const el = document.createElement('div');
+  el.id = 'play-bar';
+  el.innerHTML = `
+    <div class="pb-top">
+      <button id="play-btn" type="button" aria-label="Play">▶</button>
+      <div id="play-time"></div>
+      <button class="step-btn" type="button" data-step="-1" aria-label="Back one hour">‹</button>
+      <button class="step-btn" type="button" data-step="1" aria-label="Forward one hour">›</button>
+    </div>
+    <input type="range" id="play-range" min="0" max="0" value="0" step="1" aria-label="Hour">
+    <div class="pb-row">
+      <div class="seg-ctrl"><button class="seg-btn active" type="button" data-pmode="total">Total so far</button><button class="seg-btn" type="button" data-pmode="hour">Each hour</button></div>
+      <div class="seg-ctrl"><button class="seg-btn" type="button" data-pspeed="slow">Slow</button><button class="seg-btn active" type="button" data-pspeed="normal">Normal</button><button class="seg-btn" type="button" data-pspeed="fast">Fast</button></div>
+    </div>`;
+  L.DomEvent.disableClickPropagation(el);
+  L.DomEvent.disableScrollPropagation(el);
+  leafletMap.getContainer().appendChild(el);
+  el.querySelector('#play-btn').addEventListener('click', () => { if (!play) return; play.playing ? playPause() : playStart(); });
+  el.querySelectorAll('[data-step]').forEach(b => b.addEventListener('click', () => { if (!play) return; playPause(); playGo(play.i + +b.dataset.step); }));
+  const rg = el.querySelector('#play-range');
+  rg.addEventListener('input', () => { if (!play) return; if (play.playing) playPause(); playGo(+rg.value); });
+  el.querySelectorAll('[data-pmode]').forEach(b => b.addEventListener('click', () => {
+    if (!play) return;
+    el.querySelectorAll('[data-pmode]').forEach(x => x.classList.toggle('active', x === b));
+    play.mode = b.dataset.pmode; play.breaks = playBreaks(); legendSig = ''; playApply();
+  }));
+  el.querySelectorAll('[data-pspeed]').forEach(b => b.addEventListener('click', () => {
+    el.querySelectorAll('[data-pspeed]').forEach(x => x.classList.toggle('active', x === b));
+    if (play) play.speed = b.dataset.pspeed;
+  }));
+  document.addEventListener('keydown', e => {
+    if (!play || e.target.closest('input,select,textarea')) return;
+    if (e.key === ' ') { e.preventDefault(); play.playing ? playPause() : playStart(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); playPause(); playGo(play.i + (e.key === 'ArrowRight' ? 1 : -1)); }
+  });
+  leafletMap.on('moveend', () => { if (play && play.playing) render(); });
+}
+function playOn() {
+  if (!hist || hist.mode !== 'h') return;
+  const A = Math.floor(hist.start / 3600e3) * 3600e3, n = Math.max(1, Math.ceil((hist.end - A) / 3600e3));
+  const bar = document.getElementById('play-bar');
+  const mode = bar.querySelector('[data-pmode].active')?.dataset.pmode || 'total';
+  const speed = bar.querySelector('[data-pspeed].active')?.dataset.pspeed || 'normal';
+  // starts on the last hour, which shows the same as the plain view (the whole period)
+  play = { A, end: hist.end, n, i: n - 1, f: 1, j: 0, k: 1, frameMs: 0, mode, speed, playing: false, label: hist.label };
+  play.breaks = playBreaks();
+  const rg = bar.querySelector('#play-range'); rg.max = n - 1; rg.value = n - 1;
+  bar.classList.add('on'); leafletMap.getContainer().classList.add('has-play');
+  legendSig = ''; playApply();
+  setTimeout(fitPanels, 0);
+}
+function playOff() {
+  if (!play) return;
+  clearTimeout(play.timer); play = null;
+  const bar = document.getElementById('play-bar'); if (bar) bar.classList.remove('on');
+  leafletMap.getContainer().classList.remove('has-play');
+  legendSig = '';
+  for (const s of stations) if (s.hist && s.hist.total != null) { s.p = s.hist.total; s.v.hist = s.hist.total; }
+}
+const frameEnd = i => Math.min(play.A + (i + 1) * 3600e3, play.end);
+function frameValue(s, i, f = 1) {
+  const d = s.hist && s.hist.days; if (!d) return 0;
+  // running total by hour, built once per station and reused for every frame
+  let pc = s._pc;
+  if (!pc || s._pcFor !== d || s._pcA !== play.A || pc.length !== play.n + 1) {
+    pc = new Float32Array(play.n + 1);
+    for (const [t, x] of d) { const k = Math.max(0, Math.min(play.n - 1, Math.floor((t - play.A) / 3600e3))); pc[k + 1] += x; }
+    for (let k = 1; k <= play.n; k++) pc[k] += pc[k - 1];
+    s._pc = pc; s._pcFor = d; s._pcA = play.A;
+  }
+  const at = j => play.mode === 'total' ? pc[j + 1] : pc[j + 1] - pc[j];
+  const v = f < 1 && i > 0 ? at(i - 1) + (at(i) - at(i - 1)) * f : at(i);
+  return +v.toFixed(2);
+}
+// Playback frames recolor the pins already on the map instead of rebuilding them
+// (quicker, and the colors glide between hours); clusters and contours follow.
+function playPaint() {
+  if (!play || pinsMode === 'none' || pinsHidden) return false;
+  updateScale();
+  for (const id in markersById) {
+    const m = markersById[id], s = m.options.station;
+    if (!s) continue;
+    const c = rainClass(s.p), txt = pinStyle === 'dot' ? '' : fmtV(s.p);
+    m.options.rain = s.suspect ? null : s.p;
+    m.options.icon.options.html = `<div class="${m.options.pinCls}" style="${s.suspect ? '' : `background:${c.bg};color:${c.fg}`}">${txt}</div>`;
+    const el = m._icon && m._icon.firstElementChild;
+    if (!el) continue;
+    if (!s.suspect) { el.style.background = c.bg; el.style.color = c.fg; }
+    if (pinStyle !== 'dot') el.textContent = txt;
+  }
+  if (clusteringEnabled && markerLayer.refreshClusters) markerLayer.refreshClusters();
+  updateStats();
+  if (activeBBox || activePoly) buildSelectionPanel();
+  drawContours();
+  return true;
+}
+function playBreaks() {
+  const vals = [];
+  for (const s of stations) {
+    if (s.suspect || !s.hist || s.dist > radius + 1e-9) continue;
+    if (play.mode === 'total') vals.push(s.hist.total);
+    else { const h = new Map(); for (const [t, x] of s.hist.days) { const k = Math.floor(t / 3600e3); h.set(k, (h.get(k) || 0) + x); } for (const x of h.values()) if (x >= 0.01) vals.push(x); }
+  }
+  if (play.mode === 'hour') {
+    // single hours: steps up to the wettest 1% of rainy station-hours, so a few
+    // outsized hours don't wash every other hour into the lowest color
+    if (vals.length < 2) return METRICS.hist.breaks;
+    vals.sort((a, b) => a - b);
+    return fitBreaks([0.01, vals[Math.floor(vals.length * 0.99)]], legendSteps) || METRICS.hist.breaks;
+  }
+  return fitBreaks(vals, legendSteps) || METRICS.hist.breaks;
+}
+function playApply() {
+  if (!play) return;
+  const i = play.i, e = frameEnd(i);
+  play.label = play.mode === 'total'
+    ? (dParts(play.A).d === dParts(e).d ? `${fmtHourMs(play.A)} – ${fmtHourMs(e, false)}` : `${fmtHourMs(play.A)} – ${fmtHourMs(e)}`)
+    : `${fmtHourMs(play.A + i * 3600e3)} – ${fmtHourMs(e, false)}`;
+  const f = play.playing ? play.f : 1;
+  for (const s of stations) { if (!s.hist) continue; const v = frameValue(s, i, f); s.p = v; s.v.hist = v; }
+  // playing: pins near the screen only, repainted in place; paused or scrubbing: every pin
+  if (pinsMode !== (play.playing ? 'vb' : 'full') || !playPaint()) render();
+  const bar = document.getElementById('play-bar');
+  bar.querySelector('#play-range').value = i;
+  const pt = play.mode === 'total' ? fmtHourMs(e) : `${fmtHourMs(play.A + i * 3600e3)} – ${fmtHourMs(e, false)}`;
+  bar.querySelector('#play-time').innerHTML = `${pt}<small>${play.mode === 'total' ? 'Rain so far, from ' + fmtHourMs(play.A) : 'Rain in this hour'} · hour ${i + 1} of ${play.n}</small>`;
+  const pb = bar.querySelector('#play-btn'); pb.textContent = play.playing ? '❚❚' : '▶'; pb.setAttribute('aria-label', play.playing ? 'Pause' : 'Play');
+}
+function playGo(i) { if (!play) return; play.i = Math.max(0, Math.min(play.n - 1, i)); play.f = 1; play.j = 0; playApply(); }
+function playStart() {
+  if (!play) return;
+  if (play.i >= play.n - 1) play.i = -1;     // at the end: start over
+  play.playing = true; play.j = 0;
+  const tick = () => {
+    if (!play || !play.playing) return;
+    const t = performance.now(), H = PLAY_MS[play.speed];
+    if (play.j === 0) {   // on to the next hour
+      if (play.i >= play.n - 1) { play.playing = false; play.f = 1; playApply(); return; }
+      play.i++;
+      play.k = play.i === 0 ? 1 : Math.max(1, Math.min(SUB_MAX, Math.floor(H / Math.max(SUB_MIN_MS, (play.frameMs || 150) * 1.25))));
+    }
+    play.j++; play.f = play.j / play.k;
+    playApply();
+    const dt = performance.now() - t;
+    play.frameMs = play.frameMs ? play.frameMs * 0.7 + dt * 0.3 : dt;
+    if (play.j >= play.k) play.j = 0;
+    play.timer = setTimeout(tick, Math.max(16, H / play.k - dt));
+  };
+  tick();
+}
+function playPause() { if (!play) return; clearTimeout(play.timer); if (play.playing) { play.playing = false; play.f = 1; play.j = 0; playApply(); } }
+
 // Ambient public network ----------------------------------------------------
 const cells = new Map();        // "i,j" -> { t: last load time, busy }
 const ambient = new Map();      // device id -> station
@@ -1545,7 +2267,7 @@ async function loadCell(key, sample) {
         name: ((x.public && x.public.name) || x.info.name || 'Ambient station').trim(),
         area: (x.info.coords.location || '').trim(), lat, lon,
         v: Object.fromEntries(Object.entries(METRICS).map(([k, m]) => [k, d[m.amb] == null ? null : +(+d[m.amb]).toFixed(2)])),
-        time: fmtTime(d.dateutc), slug: x.public?.slug });
+        time: fmtTime(d.dateutc), slug: x.info?.slug || x.public?.slug, mac: x.macAddress, key: x.info?.slug, tz: x.tz?.name });
     }
     c.t = now; c.err = false; c.sample = !!sample;
   } catch (e) { c.err = true; }
@@ -1721,21 +2443,36 @@ async function loadSnotel() {
 function rebuild() {
   const amb = [];
   const hash = new Map();
+  if (hist && hist.arch) {
+    const live = new Map(); for (const s of ambient.values()) if (s.mac) live.set(s.mac, s);
+    const t = hist.arch.tail;
+    for (const [mac, a] of hist.arch.sums) {
+      const m = archStations[mac]; if (!m) continue;
+      let total = a.total, days = a.days, have = a.have, need = a.need ?? hist.days;
+      if (t) { const tc = histCache.get(t.key + '|' + mac); if (tc && tc.total != null) { total = +(total + tc.total).toFixed(2); days = days.concat(tc.days); have += tc.have; if (hist.mode === 'h') need += tc.need; } }
+      const L = live.get(mac);
+      amb.push({ src: 'A', net: 'Ambient', name: L ? L.name : m[2], area: L ? L.area : '', lat: m[0], lon: m[1], slug: m[3], mac, key: m[3], tz: m[4],
+        v: { ...(L ? L.v : {}), hist: total }, time: L ? L.time : 'not reporting now', hist: { total, days, have, need } });
+    }
+  } else
   for (const s of ambient.values()) {
     // one owner sometimes registers the same station twice
     const twin = near(hash, s, 0.05).find(o => Math.abs(o.v.day - s.v.day) < 0.01);
     if (twin) { if (!twin.name.includes(s.name)) twin.name += ' / ' + s.name; continue; }
     const c = { ...s };
+    if (hist) { const hc = histCache.get(hist.key + '|' + s.mac); c.v = { ...s.v, hist: hc && hc.total != null ? hc.total : null }; c.hist = hc && hc.total != null ? hc : null; }
     amb.push(c);
     const k = hkey(Math.floor(c.lat / HASH), Math.floor(c.lon / HASH));
     (hash.get(k) || hash.set(k, []).get(k)).push(c);
   }
-  stations = [...amb, ...official, ...snotel].filter(s => s.v[metric] != null).map((s, i) => ({ ...s, p: s.v[metric], id: i }));
-  computeDerived(); render();
+  stations = [...amb, ...(hist ? [] : official), ...(hist ? [] : snotel)].filter(s => s.v[metric] != null).map((s, i) => ({ ...s, p: s.v[metric], id: i }));
+  computeDerived();
+  if (play) playApply(); else render();
 }
 
 let lastLoad = 0;
 function setStatus(extra, isErr) {
+  if (hist && !extra) return histStatus();
   const msg = document.getElementById('refresh-msg');
   const a = stations.filter(s => s.src === 'A').length, o = stations.filter(s => s.src === 'O').length, sn = stations.filter(s => s.src === 'S').length;
   msg.className = 'refresh-msg' + (isErr ? ' err' : '');
@@ -1759,6 +2496,7 @@ async function loadData() {
   dataTime = `${new Date(now).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'long', day: 'numeric' })}, live as of ${fmtTime(now)}`;
   rebuild();
   await ensureCells(true);
+  if (hist) await ensureHist();
   btn.disabled = false; btn.textContent = '↻ Refresh live data';
   if (offErr) setStatus('Official gauges could not be loaded (no connection, or the browser blocked it). Showing the last values it had.', true);
   else if (!document.getElementById('refresh-msg').classList.contains('err')) setStatus();

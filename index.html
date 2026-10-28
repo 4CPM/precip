@@ -315,7 +315,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.46';
+const APP_VERSION = '1.47';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1181,7 +1181,7 @@ function addFilterBar() {
           <button class="seg-btn" data-win="day" title="The last 24 hours">24hr</button>
           <button class="seg-btn" data-win="week" title="The last 7 days">7 days</button>
           <button class="seg-btn" data-win="month" title="The last 30 days">30 days</button>
-          ${['year', 'rate'].map(k => `<button class="seg-btn${k === metric ? ' active' : ''}" data-metric="${k}" title="${METRICS[k].title.replace(/ \(.*\)$/, '')}, as the gauges report it now">${METRICS[k].label}</button>`).join('')}
+          ${['year'].map(k => `<button class="seg-btn${k === metric ? ' active' : ''}" data-metric="${k}" title="${METRICS[k].title.replace(/ \(.*\)$/, '')}, as the gauges report it now">${METRICS[k].label}</button>`).join('')}
           <button class="seg-btn" data-hist="pick" title="Any dates or hours">Past dates</button>
         </div>
         <div class="info-pop" id="hist-pop" hidden>
@@ -1209,6 +1209,8 @@ function addFilterBar() {
           </div>
           <div id="h-msg">Past rain for personal (Ambient) stations, up to a year back. Each day is the station's end-of-day daily total; a period is the sum of its days. One or two days use 5-minute readings, longer periods hourly. Loads station by station for the area on screen.</div>
         </div>
+        <span class="opt-l">Events</span>
+        <div class="seg-ctrl wrap">${EVENTS.map(e => `<button class="seg-btn" data-ev="${e.id}" title="${e.title}">${e.label}</button>`).join('')}</div>
         <span class="opt-l">Gauges</span>
         <div class="seg-ctrl">
           <button class="seg-btn active" data-src="all">All</button>
@@ -1300,6 +1302,7 @@ function addFilterBar() {
     }));
     // Day, Week, Month: the last 24 hours, 7 days, 30 days, ending now
     el.querySelectorAll('[data-win]').forEach(b => b.addEventListener('click', () => { el.querySelector('#hist-pop').hidden = true; showWindow(b.dataset.win); }));
+    el.querySelectorAll('[data-ev]').forEach(b => b.addEventListener('click', () => { el.querySelector('#hist-pop').hidden = true; showEvent(b.dataset.ev); }));
     const hf = el.querySelector('#h-from'), ht = el.querySelector('#h-to'), hm = el.querySelector('#h-msg');
     const today = todayDenver(), minDay = addDays(today, -(HIST_MAX_DAYS - 1));
     for (const inp of [hf, ht]) { inp.max = today; inp.min = minDay; }
@@ -1918,7 +1921,10 @@ async function archFor(h) {
 // today come from there; hours since the last saved day are worked out live,
 // station by station, from the 5-minute readings (rises of the daily counter).
 const HR_FIRST_DAY = '2026-10-19';
-const DEFAULT_PERIOD = { from: '2026-10-21T00', to: '2026-10-25T23' };   // opening view when the address names no period: the October 21–25 storm, hour by hour (Mountain Time)
+// Named events (Filters & tools → Events), hour by hour, Mountain Time. The address keeps them as ?event=<id>.
+const EVENTS = [
+  { id: 'oct21', label: 'Oct 21–25 storm', title: 'Remnants of Hurricane Trudy: Oct 21, 12 AM to Oct 25, 11 PM, 2026, hour by hour', from: '2026-10-21T00', to: '2026-10-25T23' },
+];
 let hrIndex = null, hrIndexAt = 0, hrTzfix = {};
 const hrFiles = new Map();        // day -> Promise of hourly file
 const hrStarts = new Map();       // zone|day -> [ms each of its 24 hours starts]
@@ -2038,7 +2044,18 @@ function markShow() {
   const w = hist ? (hist.preset || 'pick') : null;
   document.querySelectorAll('[data-metric]').forEach(x => x.classList.toggle('active', !hist && x.dataset.metric === metric));
   document.querySelectorAll('[data-win]').forEach(x => x.classList.toggle('active', x.dataset.win === w));
+  document.querySelectorAll('[data-ev]').forEach(x => x.classList.toggle('active', w === 'ev:' + x.dataset.ev));
   document.querySelectorAll('[data-hist]').forEach(x => x.classList.toggle('active', w === 'pick'));
+}
+// A named event: its hours, with the pickers set to match
+function showEvent(id) {
+  const e = EVENTS.find(x => x.id === id); if (!e) return;
+  const $ = q => document.getElementById(q);
+  const a = localHourMs(TZ, e.from.slice(0, 10), +e.from.slice(11)), z = localHourMs(TZ, e.to.slice(0, 10), +e.to.slice(11));
+  const b = document.querySelector('[data-hmode="h"]'); if (b) b.click();
+  const pa = dParts(a), pz = dParts(z);
+  if ($('hh-fd')) { $('hh-fd').value = dayStr(pa); $('hh-fh').value = pa.h; $('hh-td').value = dayStr(pz); $('hh-th').value = pz.h; }
+  setHourHist(a, z, null, 'ev:' + id);
 }
 const histTitle = label => /^Last /.test(label) ? `Rain in the ${label.toLowerCase()} (in)` : `Rain ${label} (in)`;
 // Day = the last 24 hours (hourly archive plus today's readings); Week and Month = the last 7 or 30 days ending today
@@ -2104,9 +2121,10 @@ function setHist(from, to, label, preset) {
 function histToUrl() {
   try {
     const p = new URLSearchParams(location.search);
-    p.delete('from'); p.delete('to'); p.delete('last'); p.delete('days');
+    p.delete('from'); p.delete('to'); p.delete('last'); p.delete('days'); p.delete('event');
     if (hist) {
-      if (hist.preset === 'week' || hist.preset === 'month') p.set('days', hist.preset === 'week' ? 7 : 30);
+      if (hist.preset && hist.preset.startsWith('ev:')) p.set('event', hist.preset.slice(3));
+      else if (hist.preset === 'week' || hist.preset === 'month') p.set('days', hist.preset === 'week' ? 7 : 30);
       else if (hist.lastN) p.set('last', hist.lastN);
       else if (hist.mode === 'h') {
         const f = ms => { const q = dParts(Math.ceil(ms / 3600e3) * 3600e3); return dayStr(q) + 'T' + String(q.h).padStart(2, '0'); };
@@ -2119,9 +2137,10 @@ function histToUrl() {
 }
 function histFromUrl() {
   try {
-    const p = new URLSearchParams(location.search), last = +p.get('last'), nd = +p.get('days');
+    const p = new URLSearchParams(location.search), last = +p.get('last'), nd = +p.get('days'), ev = p.get('event') || '';
     let from = p.get('from') || '', to = p.get('to') || from;
-    if (!last && !nd && !from && !to) { from = DEFAULT_PERIOD.from; to = DEFAULT_PERIOD.to; }
+    if (ev && EVENTS.some(e => e.id === ev)) { showEvent(ev); return; }
+    if (!last && !nd && !from && !to) { showWindow('day'); return; }   // opening view: the last 24 hours
     const HR = /^\d{4}-\d\d-\d\dT\d\d$/, DY = /^\d{4}-\d\d-\d\d$/, $ = id => document.getElementById(id);
     const hourUi = (a, z) => {
       const b = document.querySelector('[data-hmode="h"]'); if (b) b.click();

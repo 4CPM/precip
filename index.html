@@ -315,7 +315,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.44';
+const APP_VERSION = '1.45';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -2550,6 +2550,7 @@ function rebuild() {
   }
   stations = [...amb, ...(hist ? [] : official), ...(hist ? [] : snotel)].filter(s => s.v[metric] != null).map((s, i) => ({ ...s, p: s.v[metric], id: i }));
   computeDerived();
+  pinsMode = 'none';   // the pins on the map still point at the old station objects, so the next frame redraws them
   if (play) playApply(); else render();
 }
 

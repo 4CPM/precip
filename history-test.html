@@ -567,7 +567,7 @@ let polyMode = false, polyDrawing = false, activePoly = null, polyVertices = [],
 const markersById = {};
 let contourMode = 'filled';        // 'off' | 'lines' | 'filled'
 let contourLayer = null;
-let conReachMi = 10;            // contours reach this far from each gauge; the map is blank beyond it (typed in Contours ⚙)
+let conReachMi = 13;            // contours reach this far from each gauge; the map is blank beyond it (typed in Contours ⚙)
 const REACH_MIN = 1, REACH_MAX = 100;
 const fmtReach = () => String(conReachMi);
 const conText = t => t.replace(/\{R\}/g, fmtReach());   // '{R}' in the contour texts is the reach in miles
@@ -677,7 +677,7 @@ function drawRings() {
 // Estimate rain on a grid from the gauges shown (likely-erroneous readings left
 // out), then trace the legend brackets. The viewer picks the method, the edge,
 // the grid and labels (Contours ⚙ in Filters & tools):
-//   Distance  – inverse-distance weighting of gauges within the reach (conReachMi, 10 mi unless changed), lightly smoothed (the original)
+//   Distance  – inverse-distance weighting of gauges within the reach (conReachMi, 13 mi unless changed), lightly smoothed (the original)
 //   Smooth    – Gaussian weighting, so each gauge's influence fades gradually over a few miles
 //   Kriging   – ordinary kriging with an exponential variogram fitted to the readings on screen
 //   Elevation – rain fitted against ground elevation (AWS Terrain Tiles) for the gauges on screen,
@@ -1178,9 +1178,9 @@ function addFilterBar() {
       <div class="panel-body opt-grid">
         <span class="opt-l">Show</span>
         <div class="seg-ctrl wrap">
-          <button class="seg-btn" data-win="day" title="The last 24 hours">Day</button>
-          <button class="seg-btn" data-win="week" title="The last 7 days">Week</button>
-          <button class="seg-btn" data-win="month" title="The last 30 days">Month</button>
+          <button class="seg-btn" data-win="day" title="The last 24 hours">24hr</button>
+          <button class="seg-btn" data-win="week" title="The last 7 days">7 days</button>
+          <button class="seg-btn" data-win="month" title="The last 30 days">30 days</button>
           ${['year', 'rate'].map(k => `<button class="seg-btn${k === metric ? ' active' : ''}" data-metric="${k}" title="${METRICS[k].title.replace(/ \(.*\)$/, '')}, as the gauges report it now">${METRICS[k].label}</button>`).join('')}
           <button class="seg-btn" data-hist="pick" title="Any dates or hours">Past dates</button>
         </div>

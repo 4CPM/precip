@@ -33,6 +33,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .pin.snotel{border-radius:4px;border:2.5px solid #0c4a6e}
 .pin.dot.snotel{width:13px;height:13px;border-radius:2px;transform:rotate(45deg)}
 .pin.dot.suspect{border-width:1.5px}
+.has-play .pin{transition:background-color .35s linear,color .35s linear}
+.leaflet-contourFill-pane,.leaflet-contourFill2-pane,.leaflet-contourLine-pane,.leaflet-contourLine2-pane{transition:opacity .4s linear}
 
 /* ── Popup ─────────────────────────────────────────────── */
 .st-popup{min-width:220px;font-size:12px;color:#334155}
@@ -139,6 +141,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .leg-adj{display:grid;grid-template-columns:auto auto;gap:5px 7px;align-items:center;margin:4px 0 2px;padding:7px 0 3px;border-top:1px solid rgba(0,0,0,.08)}
 .leg-adj[hidden]{display:none}
 .leg-adj .seg-btn:disabled{opacity:.4;cursor:default}
+.leg-num{width:54px;font:inherit;font-size:11px;font-weight:600;padding:2px 5px;border:1px solid rgba(0,0,0,.2);border-radius:5px;background:#fff;color:#1e293b}
+.leg-num:disabled{opacity:.4}
+.leg-num-wrap{white-space:nowrap;color:#64748b;font-size:11px}
+.legend .panel-body{max-height:calc(100vh - 170px);overflow-y:auto}
 .legend .note{margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,.08);color:#64748b;font-size:11px;max-width:200px;line-height:1.4}
 
 /* ── Search ─────────────────────────────────────────────── */
@@ -347,11 +353,22 @@ const fmtV = v => v >= 100 ? v.toFixed(0) : v.toFixed(2);
 // Build legend classes from a list of lower bounds. The fixed brackets keep their
 // set colors; fitted brackets spread the twelve colors across however many steps there are.
 const r2 = v => Math.round(v * 100) / 100;
+// More steps than colors: a color part of the way (t, 0–1) along the ramp, mixed from its two neighbors.
+function rampColor(t) {
+  const x = Math.max(0, Math.min(1, t)) * (COLORS.length - 1), k = Math.min(COLORS.length - 2, Math.floor(x)), f = x - k;
+  if (f < 1e-9) return COLORS[k];
+  if (f > 1 - 1e-9) return COLORS[k + 1];
+  const hex = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
+  const a = hex(COLORS[k].bg), b = hex(COLORS[k + 1].bg), m = a.map((v, i) => Math.round(v + (b[i] - v) * f));
+  const yiq = (m[0] * 299 + m[1] * 587 + m[2] * 114) / 1000;   // light text on dark mixes
+  return { bg: '#' + m.map(v => v.toString(16).padStart(2, '0')).join(''), fg: yiq >= 142 ? '#0f172a' : '#fff' };
+}
 function makeClasses(b, fixed) {
   const whole = b.length > 1 && b.slice(1).every(v => Number.isInteger(v));
   const lo = v => whole && v >= 1 ? String(v) : v.toFixed(2);
-  const col = i => fixed || b.length >= COLORS.length ? COLORS[i]
-    : COLORS[b.length === 1 ? 0 : Math.round(i * (COLORS.length - 1) / (b.length - 1))];
+  const col = i => fixed || b.length === COLORS.length ? COLORS[i]
+    : b.length < COLORS.length ? COLORS[b.length === 1 ? 0 : Math.round(i * (COLORS.length - 1) / (b.length - 1))]
+    : rampColor(i / (b.length - 1));
   return b.map((min, i) => {
     const hi = i < b.length - 1 ? r2(b[i + 1] - 0.01) : null;
     return { min, ...col(i), label: hi == null ? lo(min) + '+' : hi <= min ? lo(min) : `${lo(min)} – ${hi.toFixed(2)}` };
@@ -366,6 +383,7 @@ function makeClasses(b, fixed) {
 let legendRange = 'loaded';     // 'fixed' | 'loaded' | 'screen'
 let legendMethod = 'equal';     // 'equal' | 'count'
 let legendSteps = 12;
+const LEG_MIN = 4, LEG_MAX = 30;
 let legendAdjOpen = false;
 let scaleInfo = '', legendSig = '';
 let BREAKS = METRICS[metric].breaks;
@@ -567,9 +585,12 @@ function visible(s, ignoreRegion) {
 // ── Map ──────────────────────────────────────────────────────────────────────
 function initMap() {
   leafletMap = L.map('map', { zoomControl: true }).setView([CENTER.lat, CENTER.lon], 10);
+  // two sets of contour panes, so playback can fade a new field in over the old one
   leafletMap.createPane('contourFill').style.zIndex = 350;
-  leafletMap.getPane('contourFill').style.opacity = '0.45';
+  leafletMap.createPane('contourFill2').style.zIndex = 351;
   leafletMap.createPane('contourLine').style.zIndex = 360;
+  leafletMap.createPane('contourLine2').style.zIndex = 361;
+  setConPanes();
   let ct;
   leafletMap.on('moveend', () => { clearTimeout(ct); if (contourMode !== 'off') ct = setTimeout(drawContours, 150); });
   const lightBase = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
@@ -759,12 +780,23 @@ function updateConNote() {
 }
 
 let demRun = 0, terrCredited = false;
+const CON_PANES = [['contourFill', 'contourLine'], ['contourFill2', 'contourLine2']];
+let conSet = 0, conOld = null, conOldTimer = 0;
+function setConPanes() {   // the current pane set shows; the other is clear
+  CON_PANES.forEach(([f, l], i) => { leafletMap.getPane(f).style.opacity = i === conSet ? '0.45' : '0'; leafletMap.getPane(l).style.opacity = i === conSet ? '1' : '0'; });
+}
 function drawContours() {
-  if (contourLayer) { leafletMap.removeLayer(contourLayer); contourLayer = null; }
+  // While playing, the new field is drawn into the other pane set and faded in
+  // over the old one (the panes' opacity transition), so hours don't snap.
+  const fade = !!(play && play.playing && contourLayer);
+  if (conOld) { clearTimeout(conOldTimer); leafletMap.removeLayer(conOld); conOld = null; }
+  if (contourLayer) { if (fade) conOld = contourLayer; else leafletMap.removeLayer(contourLayer); contourLayer = null; }
+  const [FILL_PANE, LINE_PANE] = CON_PANES[fade ? 1 - conSet : conSet];
+  const bail = () => { if (conOld) { leafletMap.removeLayer(conOld); conOld = null; } setConPanes(); return updateConNote(); };
   conNote = '';
-  if (contourMode === 'off' || !window.d3 || !d3.contours) return updateConNote();
+  if (contourMode === 'off' || !window.d3 || !d3.contours) return bail();
   const pts = stations.filter(s => visible(s, true) && !s.suspect && s.p != null);
-  if (pts.length < 3) return updateConNote();
+  if (pts.length < 3) return bail();
   const size = leafletMap.getSize(), STEP = (IS_PHONE ? 5 : 6) * (conMethod === 'krige' ? 1.5 : 1);
   // Map grid: grid points sit on fixed world-pixel multiples, so panning doesn't move them.
   let ox = 0, oy = 0;
@@ -787,7 +819,7 @@ function drawContours() {
     const k = Math.floor(q.x / maskPx) + ',' + Math.floor(q.y / maskPx);
     (B.get(k) || B.set(k, []).get(k)).push(g);
   }
-  if (P.length < 3) return updateConNote();
+  if (P.length < 3) return bail();
 
   let method = conMethod;
   // Kriging needs a variogram; Elevation needs terrain and a usable rain–elevation fit.
@@ -885,7 +917,7 @@ function drawContours() {
   // blank area doesn't draw a stack of false lines.
   const inside = new Uint8Array(W * H), ext = Float64Array.from(vals), queue = [];
   for (let i = 0; i < W * H; i++) if (vals[i] >= 0 && (conEdge !== 'three' || cnt[i] >= 3)) { inside[i] = 1; queue.push(i); }
-  if (!queue.length) return updateConNote();
+  if (!queue.length) return bail();
   const seen = Uint8Array.from(inside);
   for (let h = 0; h < queue.length; h++) {
     const i = queue[h], x = i % W, y = (i - x) / W;
@@ -923,7 +955,7 @@ function drawContours() {
       for (const band of d3.contours().size([W, H]).thresholds(breaks)(Array.from(grid))) {
         if (!band.coordinates.length) continue;
         const gj = { type: 'MultiPolygon', coordinates: band.coordinates.map(poly => poly.map(ring => ring.map(pt => { const ll = toLL(pt); return [ll.lng, ll.lat]; }))) };
-        L.geoJSON(gj, { pane: 'contourFill', interactive: false,
+        L.geoJSON(gj, { pane: FILL_PANE, interactive: false,
           style: { stroke: false, fill: true, fillColor: rainClass(band.value).bg, fillOpacity: op } }).addTo(contourLayer);
       }
     }
@@ -940,7 +972,7 @@ function drawContours() {
       if (cur.length > 1) lines.push(cur);
     }
     if (!lines.length) continue;
-    L.polyline(lines, { pane: 'contourLine', interactive: false,
+    L.polyline(lines, { pane: LINE_PANE, interactive: false,
       ...(filled ? { color: 'rgba(15,23,42,.45)', weight: 0.9 } : { color: rainClass(band.value).bg, weight: 2.2, opacity: 0.95 }) }).addTo(contourLayer);
     if (conLabels) for (const ln of lines) if (ln.length >= 14) labels.push([ln.length, ln[Math.floor(ln.length / 2)], band.value]);
   }
@@ -953,12 +985,18 @@ function drawContours() {
       if (q.x < 10 || q.y < 10 || q.x > size.x - 10 || q.y > size.y - 10) continue;
       if (placed.some(p => Math.hypot(p.x - q.x, p.y - q.y) < 70)) continue;
       placed.push(q);
-      L.marker(ll, { pane: 'contourLine', interactive: false, keyboard: false,
+      L.marker(ll, { pane: LINE_PANE, interactive: false, keyboard: false,
         icon: L.divIcon({ className: '', html: `<span class="con-label">${v.toFixed(2)}</span>`, iconSize: [36, 14], iconAnchor: [18, 7] }) }).addTo(contourLayer);
       if (placed.length >= 60) break;
     }
   }
   contourLayer.addTo(leafletMap);
+  if (fade) {
+    conSet = 1 - conSet;
+    const old = conOld;
+    conOldTimer = setTimeout(() => { if (conOld === old) { leafletMap.removeLayer(old); conOld = null; } }, 450);
+  }
+  setConPanes();
   // credit the terrain source only while Elevation is in use
   const terr = 'Terrain: AWS Terrain Tiles';
   if ((method === 'elev') !== terrCredited) {
@@ -986,6 +1024,7 @@ function createMarkerLayer() {
   markerLayer.addTo(leafletMap);
 }
 
+let pinsMode = 'none';   // what the pins on the map were drawn for: 'full', 'vb' (playback: near the screen) or 'none'
 function render() {
   updateScale();
   drawRings();
@@ -1002,13 +1041,14 @@ function render() {
     const icon = pinStyle === 'dot'
       ? L.divIcon({ className: '', html: `<div class="${cls}" style="${style}"></div>`, iconSize: [14, 14], iconAnchor: [7, 7] })
       : L.divIcon({ className: '', html: `<div class="${cls}" style="${style}">${fmtV(s.p)}</div>`, iconSize: [40, 22], iconAnchor: [20, 11] });
-    const m = L.marker([s.lat, s.lon], { icon, rain: s.suspect ? null : s.p, riseOnHover: true });
+    const m = L.marker([s.lat, s.lon], { icon, rain: s.suspect ? null : s.p, riseOnHover: true, station: s, pinCls: cls });
     m.bindPopup(() => buildPopup(s), { maxWidth: IS_PHONE ? 260 : 300, autoPanPaddingTopLeft: [10, IS_PHONE ? 70 : 10] });
-    if (!IS_PHONE) m.bindTooltip(`${s.name} · ${fmtV(s.p)} ${METRICS[metric].unit}`, { direction: 'top', offset: [0, -12] });
+    if (!IS_PHONE) m.bindTooltip(() => `${s.name} · ${fmtV(s.p)} ${METRICS[metric].unit}`, { direction: 'top', offset: [0, -12] });
     markers.push(m);
     markersById[s.id] = m;
   }
   if (markerLayer.addLayers) markerLayer.addLayers(markers); else markers.forEach(m => markerLayer.addLayer(m));
+  pinsMode = pinsHidden ? 'none' : vb ? 'vb' : 'full';
   updateStats();
   if (activeBBox || activePoly) buildSelectionPanel();
   drawContours();
@@ -1351,7 +1391,7 @@ function legendAdjHtml() {
     <div class="leg-adj"${legendAdjOpen ? '' : ' hidden'}>
       <span class="opt-l">Brackets</span>${seg('lr', legendRange, [['loaded', 'All loaded', 'Fit to every gauge loaded within the radius'], ['screen', 'On screen', 'Fit to the gauges on screen; changes as you pan and zoom'], ['fixed', 'Fixed', 'The set brackets, the same every time']])}
       <span class="opt-l">Steps</span>${seg('lm', legendMethod, [['equal', 'Equal', 'Equal steps with round edges'], ['count', 'Equal counts', 'Each color holds about the same number of gauges']], fixed)}
-      <span class="opt-l">Number</span>${seg('ln', legendSteps, [[4, '4'], [6, '6'], [8, '8'], [10, '10'], [12, '12']], fixed)}
+      <span class="opt-l">Number</span><span class="leg-num-wrap"><input type="number" class="leg-num" id="leg-steps" min="${LEG_MIN}" max="${LEG_MAX}" step="1" inputmode="numeric" value="${legendSteps}"${fixed ? ' disabled' : ''} aria-label="Number of steps" title="How many colors, ${LEG_MIN} to ${LEG_MAX}"> ${LEG_MIN}–${LEG_MAX}</span>
     </div>`;
 }
 let legendEl;
@@ -1388,11 +1428,25 @@ function addLegend() {
       if (t.id === 'leg-adj') legendAdjOpen = !legendAdjOpen;
       else if (t.dataset.lr) legendRange = t.dataset.lr;
       else if (t.dataset.lm) legendMethod = t.dataset.lm;
-      else if (t.dataset.ln) legendSteps = +t.dataset.ln;
       else return;
       legendSig = '';
+      if (play) play.breaks = playBreaks();
       if (t.id === 'leg-adj') updateScale(); else render();
     });
+    // number of steps: typed, held to 4–30
+    legendEl.addEventListener('change', e => {
+      const t = e.target;
+      if (!t || t.id !== 'leg-steps') return;
+      let n = Math.round(+t.value);
+      if (!Number.isFinite(n)) n = legendSteps;
+      n = Math.max(LEG_MIN, Math.min(LEG_MAX, n));
+      t.value = n;
+      if (n === legendSteps) return;
+      legendSteps = n; legendSig = '';
+      if (play) play.breaks = playBreaks();
+      render();
+    });
+    legendEl.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'leg-steps') { e.preventDefault(); e.target.blur(); } });
     return legendEl;
   };
   c.addTo(leafletMap);
@@ -2084,10 +2138,38 @@ function playOff() {
 const frameEnd = i => Math.min(play.A + (i + 1) * 3600e3, play.end);
 function frameValue(s, i) {
   const d = s.hist && s.hist.days; if (!d) return 0;
-  let v = 0;
-  if (play.mode === 'total') { const e = frameEnd(i); for (const [t, x] of d) if (t < e) v += x; }
-  else { const a = play.A + i * 3600e3, b = a + 3600e3; for (const [t, x] of d) if (t >= a && t < b) v += x; }
+  // running total by hour, built once per station and reused for every frame
+  let pc = s._pc;
+  if (!pc || s._pcFor !== d || s._pcA !== play.A || pc.length !== play.n + 1) {
+    pc = new Float32Array(play.n + 1);
+    for (const [t, x] of d) { const k = Math.max(0, Math.min(play.n - 1, Math.floor((t - play.A) / 3600e3))); pc[k + 1] += x; }
+    for (let k = 1; k <= play.n; k++) pc[k] += pc[k - 1];
+    s._pc = pc; s._pcFor = d; s._pcA = play.A;
+  }
+  const v = play.mode === 'total' ? pc[i + 1] : pc[i + 1] - pc[i];
   return +v.toFixed(2);
+}
+// Playback frames recolor the pins already on the map instead of rebuilding them
+// (quicker, and the colors glide between hours); clusters and contours follow.
+function playPaint() {
+  if (!play || pinsMode === 'none' || pinsHidden) return false;
+  updateScale();
+  for (const id in markersById) {
+    const m = markersById[id], s = m.options.station;
+    if (!s) continue;
+    const c = rainClass(s.p), txt = pinStyle === 'dot' ? '' : fmtV(s.p);
+    m.options.rain = s.suspect ? null : s.p;
+    m.options.icon.options.html = `<div class="${m.options.pinCls}" style="${s.suspect ? '' : `background:${c.bg};color:${c.fg}`}">${txt}</div>`;
+    const el = m._icon && m._icon.firstElementChild;
+    if (!el) continue;
+    if (!s.suspect) { el.style.background = c.bg; el.style.color = c.fg; }
+    if (pinStyle !== 'dot') el.textContent = txt;
+  }
+  if (clusteringEnabled && markerLayer.refreshClusters) markerLayer.refreshClusters();
+  updateStats();
+  if (activeBBox || activePoly) buildSelectionPanel();
+  drawContours();
+  return true;
 }
 function playBreaks() {
   const vals = [];
@@ -2112,7 +2194,8 @@ function playApply() {
     ? (dParts(play.A).d === dParts(e).d ? `${fmtHourMs(play.A)} – ${fmtHourMs(e, false)}` : `${fmtHourMs(play.A)} – ${fmtHourMs(e)}`)
     : `${fmtHourMs(play.A + i * 3600e3)} – ${fmtHourMs(e, false)}`;
   for (const s of stations) { if (!s.hist) continue; const v = frameValue(s, i); s.p = v; s.v.hist = v; }
-  render();
+  // playing: pins near the screen only, repainted in place; paused or scrubbing: every pin
+  if (pinsMode !== (play.playing ? 'vb' : 'full') || !playPaint()) render();
   const bar = document.getElementById('play-bar');
   bar.querySelector('#play-range').value = i;
   const pt = play.mode === 'total' ? fmtHourMs(e) : `${fmtHourMs(play.A + i * 3600e3)} – ${fmtHourMs(e, false)}`;

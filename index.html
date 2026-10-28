@@ -315,7 +315,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.41';
+const APP_VERSION = '1.42';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -567,7 +567,10 @@ let polyMode = false, polyDrawing = false, activePoly = null, polyVertices = [],
 const markersById = {};
 let contourMode = 'filled';        // 'off' | 'lines' | 'filled'
 let contourLayer = null;
-const CONTOUR_MASK_MI = 10;     // leave the map blank where no gauge is this close
+let conReachMi = 10;            // contours reach this far from each gauge; the map is blank beyond it (typed in Contours ⚙)
+const REACH_MIN = 1, REACH_MAX = 30;
+const fmtReach = () => String(conReachMi);
+const conText = t => t.replace(/\{R\}/g, fmtReach());   // '{R}' in the contour texts is the reach in miles
 
 function visible(s, ignoreRegion) {
   if (s.dist > radius + 1e-9) return false;
@@ -674,12 +677,12 @@ function drawRings() {
 // Estimate rain on a grid from the gauges shown (likely-erroneous readings left
 // out), then trace the legend brackets. The viewer picks the method, the edge,
 // the grid and labels (Contours ⚙ in Filters & tools):
-//   Distance  – inverse-distance weighting of gauges within CONTOUR_MASK_MI, lightly smoothed (the original)
+//   Distance  – inverse-distance weighting of gauges within the reach (conReachMi, 10 mi unless changed), lightly smoothed (the original)
 //   Smooth    – Gaussian weighting, so each gauge's influence fades gradually over a few miles
 //   Kriging   – ordinary kriging with an exponential variogram fitted to the readings on screen
 //   Elevation – rain fitted against ground elevation (AWS Terrain Tiles) for the gauges on screen,
 //               with what's left over smoothed and added back
-// Edges: Hard (blank past CONTOUR_MASK_MI), Soft (fades out toward it), 3+ gauges (only where at
+// Edges: Hard (blank past the reach), Soft (fades out toward it), 3+ gauges (only where at
 // least three gauges are within it). Grid: Screen (follows the screen) or Map (tied to the map).
 let conMethod = 'idw';      // 'idw' | 'smooth' | 'krige' | 'elev'
 let conEdge = 'hard';       // 'hard' | 'soft' | 'three'
@@ -689,12 +692,12 @@ let conNote = '';
 const SMOOTH_MI = 3;        // Gaussian width for Smooth and for the Elevation leftovers
 const CON_NAMES = { idw: 'Distance', smooth: 'Smooth', krige: 'Kriging', elev: 'Elevation' };
 const CON_DESC = {
-  idw: 'Distance: each spot is a distance-weighted average of gauges within 10 mi, lightly smoothed. The nearest gauge dominates, so it can look patchy.',
+  idw: 'Distance: each spot is a distance-weighted average of gauges within {R} mi, lightly smoothed. The nearest gauge dominates, so it can look patchy.',
   smooth: 'Smooth: each gauge\'s influence fades gradually over a few miles (Gaussian weighting). No bullseyes or hard seams.',
   krige: 'Kriging: gauges are weighted by how much readings on screen actually differ with distance (ordinary kriging). Slower.',
   elev: 'Elevation: rain is fitted against ground elevation for the gauges on screen, and what is left over is smoothed and added back, so estimates follow the terrain. Elevation from AWS Terrain Tiles.',
 };
-const EDGE_DESC = { hard: 'blank past 10 mi from a gauge', soft: 'fading out toward 10 mi from a gauge', three: 'only where 3 or more gauges are within 10 mi' };
+const EDGE_DESC = { hard: 'blank past {R} mi from a gauge', soft: 'fading out toward {R} mi from a gauge', three: 'only where 3 or more gauges are within {R} mi' };
 
 // Terrain (Terrarium PNG tiles: meters = R×256 + G + B/256 − 32768)
 const DEM_URL = (z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
@@ -795,7 +798,7 @@ function drawContours() {
   const W = Math.ceil((size.x - ox) / STEP) + 1, H = Math.ceil((size.y - oy) / STEP) + 1;
   const c = leafletMap.getCenter();
   const pxPerMile = Math.abs(leafletMap.latLngToContainerPoint([c.lat + 1 / 69, c.lng]).y - leafletMap.latLngToContainerPoint(c).y);
-  const maskPx = CONTOUR_MASK_MI * pxPerMile, mask2 = maskPx * maskPx;
+  const maskPx = conReachMi * pxPerMile, mask2 = maskPx * maskPx;
   // project gauges and bucket them so each grid point only looks nearby
   const B = new Map(), P = [];
   let maxP = 0, sigH = 0;
@@ -811,22 +814,32 @@ function drawContours() {
   if (P.length < 3) return updateConNote();
   const sig = [W, H, ox, oy, STEP, maskPx.toFixed(4), leafletMap.getZoom(), c.lat.toFixed(7), c.lng.toFixed(7), size.x, size.y, P.length, sigH].join('|');
   if (!conNb || conNb.sig !== sig) {
-    const start = new Int32Array(W * H + 1), idx = [], d2s = [], tmp = [];
+    // Each cell keeps its nearest NB_MAX gauges within reach (nearest first) and the full count.
+    // More than NB_MAX within reach happens only over city centers, where the farther ones weigh little.
+    const NB_MAX = 128, bd2 = new Float64Array(NB_MAX), bix = new Int32Array(NB_MAX);
+    const start = new Int32Array(W * H + 1), count = new Int32Array(W * H), idx = [], d2s = [];
     for (let gy = 0; gy < H; gy++) for (let gx = 0; gx < W; gx++) {
       const x = ox + gx * STEP, y = oy + gy * STEP, bx = Math.floor(x / maskPx), by = Math.floor(y / maskPx), i = gy * W + gx;
-      tmp.length = 0;
+      let bn = 0, total = 0;
       for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
         const list = B.get((bx + a) + ',' + (by + b));
         if (!list) continue;
-        for (const g of list) { const d2 = (g[0] - x) ** 2 + (g[1] - y) ** 2; if (d2 <= mask2) tmp.push([d2, g[5]]); }
+        for (const g of list) {
+          const d2 = (g[0] - x) ** 2 + (g[1] - y) ** 2;
+          if (d2 > mask2) continue;
+          total++;
+          let q;
+          if (bn < NB_MAX) q = bn++; else if (d2 < bd2[NB_MAX - 1]) q = NB_MAX - 1; else continue;
+          while (q > 0 && bd2[q - 1] > d2) { bd2[q] = bd2[q - 1]; bix[q] = bix[q - 1]; q--; }
+          bd2[q] = d2; bix[q] = g[5];
+        }
       }
-      tmp.sort((p1, p2) => p1[0] - p2[0]);
-      for (const [d2, j] of tmp) { d2s.push(d2); idx.push(j); }
-      start[i + 1] = idx.length;
+      for (let q = 0; q < bn; q++) { d2s.push(bd2[q]); idx.push(bix[q]); }
+      count[i] = total; start[i + 1] = idx.length;
     }
-    conNb = { sig, start, idx: Int32Array.from(idx), d2: Float32Array.from(d2s) };
+    conNb = { sig, start, count, idx: Int32Array.from(idx), d2: Float32Array.from(d2s) };
   }
-  const nbStart = conNb.start, nbIdx = conNb.idx, nbD2 = conNb.d2;
+  const nbStart = conNb.start, nbIdx = conNb.idx, nbD2 = conNb.d2, nbCount = conNb.count;
 
   let method = conMethod;
   // Kriging needs a variogram; Elevation needs terrain and a usable rain–elevation fit.
@@ -867,11 +880,11 @@ function drawContours() {
   }
   const h2 = 2 * (SMOOTH_MI * pxPerMile) ** 2;
   const gam = vg ? h => h <= 0 ? 0 : vg.c0 + vg.c * (1 - Math.exp(-3 * h / vg.a)) : null;
-  const vals = new Float64Array(W * H), dmin = new Float64Array(W * H), cnt = new Uint16Array(W * H);
+  const vals = new Float64Array(W * H), dmin = new Float64Array(W * H), cnt = nbCount;
   const A = new Float64Array(13 * 13), rhs = new Float64Array(13);
   for (let i = 0; i < W * H; i++) {
     const a0 = nbStart[i], a1 = nbStart[i + 1], n = a1 - a0;   // this cell's gauges, nearest first
-    cnt[i] = n; dmin[i] = n ? Math.sqrt(nbD2[a0]) : Infinity;
+    dmin[i] = n ? Math.sqrt(nbD2[a0]) : Infinity;
     if (!n) { vals[i] = -1; continue; }
     let v;
     if (method === 'idw') {
@@ -1205,6 +1218,8 @@ function addFilterBar() {
               <button class="seg-btn" data-ce="soft" title="Fades out toward 10 mi from a gauge">Soft</button>
               <button class="seg-btn" data-ce="three" title="Only where 3 or more gauges are within 10 mi">3+ gauges</button>
             </div>
+            <span class="opt-l">Reach</span>
+            <span class="leg-num-wrap"><input type="number" class="leg-num" id="con-reach" min="${REACH_MIN}" max="${REACH_MAX}" step="0.5" inputmode="decimal" value="${conReachMi}" aria-label="Reach in miles" title="Contours reach this far from each gauge; the map is blank beyond it"> mi from each gauge, ${REACH_MIN}–${REACH_MAX}</span>
             <span class="opt-l">Grid</span>
             <div class="seg-ctrl">
               <button class="seg-btn active" data-cg="screen" title="Grid follows the screen">Screen</button>
@@ -1311,8 +1326,24 @@ function addFilterBar() {
       el.querySelectorAll('[data-sus]').forEach(x => x.classList.toggle('active', x === b));
       render();
     }));
-    const conDesc = () => { el.querySelector('#con-desc').textContent = CON_DESC[conMethod] + ' Edges: ' + EDGE_DESC[conEdge] + '. Grid: ' + (conGrid === 'map' ? 'tied to the map, so contours stay put as you pan.' : 'follows the screen.'); };
+    const conDesc = () => { el.querySelector('#con-desc').textContent = conText(CON_DESC[conMethod] + ' Edges: ' + EDGE_DESC[conEdge]) + '. Grid: ' + (conGrid === 'map' ? 'tied to the map, so contours stay put as you pan.' : 'follows the screen.'); };
     conDesc();
+    // reach: typed in miles, held to 1–30
+    const reachInp = el.querySelector('#con-reach');
+    const reachTitles = () => {
+      el.querySelector('[data-ce="hard"]').title = conText('Blank past {R} mi from a gauge');
+      el.querySelector('[data-ce="soft"]').title = conText('Fades out toward {R} mi from a gauge');
+      el.querySelector('[data-ce="three"]').title = conText('Only where 3 or more gauges are within {R} mi');
+    };
+    reachInp.addEventListener('change', () => {
+      let r = +reachInp.value;
+      if (!Number.isFinite(r)) r = conReachMi;
+      r = Math.round(Math.max(REACH_MIN, Math.min(REACH_MAX, r)) * 10) / 10;
+      reachInp.value = r;
+      if (r === conReachMi) return;
+      conReachMi = r; reachTitles(); conDesc(); drawContours(); updateLegend();
+    });
+    reachInp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); reachInp.blur(); } });
     el.querySelector('#con-set-btn').addEventListener('click', e => {
       const box = el.querySelector('#con-set'), open = box.hidden;
       box.hidden = !open; e.currentTarget.setAttribute('aria-expanded', String(open));
@@ -1371,7 +1402,7 @@ function legendHtml() {
     legendAdjHtml() +
     `<div class="legend-row" style="margin-top:4px"><div class="legend-sw suspect"></div>Likely erroneous</div>
      <div class="legend-row"><div class="legend-sw official"></div>NWS etc</div>
-     <div class="legend-row"><div class="legend-sw snotel"></div>SNOTEL</div>${offNote}${chk}${contourMode === 'off' ? '' : `<div class="note">Contours (${CON_NAMES[conMethod]}) are estimated between gauges, not measured, ${EDGE_DESC[conEdge]}; likely-erroneous readings are left out. <span id="con-note">${conNote}</span></div>`}</div>`;
+     <div class="legend-row"><div class="legend-sw snotel"></div>SNOTEL</div>${offNote}${chk}${contourMode === 'off' ? '' : `<div class="note">Contours (${CON_NAMES[conMethod]}) are estimated between gauges, not measured, ${conText(EDGE_DESC[conEdge])}; likely-erroneous readings are left out. <span id="con-note">${conNote}</span></div>`}</div>`;
 }
 function legendAdjHtml() {
   const seg = (attr, cur, opts, off) => `<div class="seg-ctrl">${opts.map(([v, t, tip]) =>

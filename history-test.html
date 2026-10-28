@@ -1181,7 +1181,7 @@ function addFilterBar() {
           <button class="seg-btn" data-win="day" title="The last 24 hours">Day</button>
           <button class="seg-btn" data-win="week" title="The last 7 days">Week</button>
           <button class="seg-btn" data-win="month" title="The last 30 days">Month</button>
-          ${['year', 'event', 'rate'].map(k => `<button class="seg-btn${k === metric ? ' active' : ''}" data-metric="${k}" title="${METRICS[k].title.replace(/ \(.*\)$/, '')}, as the gauges report it now">${METRICS[k].label}</button>`).join('')}
+          ${['year', 'rate'].map(k => `<button class="seg-btn${k === metric ? ' active' : ''}" data-metric="${k}" title="${METRICS[k].title.replace(/ \(.*\)$/, '')}, as the gauges report it now">${METRICS[k].label}</button>`).join('')}
           <button class="seg-btn" data-hist="pick" title="Any dates or hours">Past dates</button>
         </div>
         <div class="info-pop" id="hist-pop" hidden>
@@ -1842,6 +1842,7 @@ async function ensureHist() {
     while (i < todo.length && run === histRun && hist === h0) {
       const st = todo[i++];
       await (h.mode === 'h' ? fetchHourTail(st, h) : fetchHist(st, h)); done++;
+      if (run !== histRun || hist !== h0) break;
       if (done % 10 === 0) { msg.className = 'refresh-msg'; msg.textContent = hist.arch ? `Archive loaded; adding ${tailLbl(h)} (not archived yet): ${done} of ${todo.length} stations…` : `Loading history for ${h.label}: ${done} of ${todo.length} stations…`; }
       // redraw at most every 4 seconds while loading; each redraw recomputes every pin and contour
       if (Date.now() - lastDraw > 4000) { lastDraw = Date.now(); rebuild(); msg.textContent = `Loading history for ${h.label}: ${done} of ${todo.length} stations…`; }

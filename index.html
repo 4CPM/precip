@@ -315,7 +315,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.42';
+const APP_VERSION = '1.43';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -568,7 +568,7 @@ const markersById = {};
 let contourMode = 'filled';        // 'off' | 'lines' | 'filled'
 let contourLayer = null;
 let conReachMi = 10;            // contours reach this far from each gauge; the map is blank beyond it (typed in Contours ⚙)
-const REACH_MIN = 1, REACH_MAX = 30;
+const REACH_MIN = 1, REACH_MAX = 100;
 const fmtReach = () => String(conReachMi);
 const conText = t => t.replace(/\{R\}/g, fmtReach());   // '{R}' in the contour texts is the reach in miles
 
@@ -799,8 +799,8 @@ function drawContours() {
   const c = leafletMap.getCenter();
   const pxPerMile = Math.abs(leafletMap.latLngToContainerPoint([c.lat + 1 / 69, c.lng]).y - leafletMap.latLngToContainerPoint(c).y);
   const maskPx = conReachMi * pxPerMile, mask2 = maskPx * maskPx;
-  // project gauges and bucket them so each grid point only looks nearby
-  const B = new Map(), P = [];
+  // project the gauges within reach of the screen
+  const P = [];
   let maxP = 0, sigH = 0;
   for (const s of pts) {
     const q = leafletMap.latLngToContainerPoint([s.lat, s.lon]);
@@ -808,36 +808,70 @@ function drawContours() {
     const g = [q.x, q.y, s.p, 0, 0, P.length];
     P.push(g); if (s.p > maxP) maxP = s.p;
     const id = String(s.id); for (let ci = 0; ci < id.length; ci++) sigH = (sigH * 31 + id.charCodeAt(ci)) | 0;
-    const k = Math.floor(q.x / maskPx) + ',' + Math.floor(q.y / maskPx);
-    (B.get(k) || B.set(k, []).get(k)).push(g);
   }
   if (P.length < 3) return updateConNote();
   const sig = [W, H, ox, oy, STEP, maskPx.toFixed(4), leafletMap.getZoom(), c.lat.toFixed(7), c.lng.toFixed(7), size.x, size.y, P.length, sigH].join('|');
   if (!conNb || conNb.sig !== sig) {
-    // Each cell keeps its nearest NB_MAX gauges within reach (nearest first) and the full count.
-    // More than NB_MAX within reach happens only over city centers, where the farther ones weigh little.
-    const NB_MAX = 128, bd2 = new Float64Array(NB_MAX), bix = new Int32Array(NB_MAX);
-    const start = new Int32Array(W * H + 1), count = new Int32Array(W * H), idx = [], d2s = [];
+    // Each cell keeps its nearest NB_MAX gauges within reach, nearest first. Gauges sit in a
+    // bucket grid; a cell searches outward ring by ring and stops once no unseen bucket can
+    // hold a nearer gauge than its NB_MAX-th, so a long reach over a dense area stays quick.
+    // More than NB_MAX within reach happens only over city centers or at a long reach, where
+    // the farther gauges weigh little. The count is exact up to NB_MAX (it is only tested ≥ 3).
+    const NB_MAX = 128, hd2 = new Float64Array(NB_MAX), hix = new Int32Array(NB_MAX);   // a max-heap of the nearest so far
+    // Bucket size: where the reach holds fewer than NB_MAX gauges, one bucket per reach (a 3×3 block
+    // covers the circle); where it holds more, buckets a fifth of the typical distance to the NB_MAX-th gauge.
+    const density = P.length / ((size.x + 2 * maskPx) * (size.y + 2 * maskPx)), dNB = Math.sqrt(NB_MAX / (Math.PI * Math.max(density, 1e-12)));
+    const bs = dNB >= maskPx ? maskPx * 1.01 : Math.max(2 * STEP, Math.min(maskPx * 1.01, dNB / 5)), minX = -maskPx - STEP - 1, minY = -maskPx - STEP - 1;
+    const cols = Math.ceil((size.x + 2 * (maskPx + STEP + 1)) / bs) + 1, rows = Math.ceil((size.y + 2 * (maskPx + STEP + 1)) / bs) + 1;
+    const bk = new Array(cols * rows).fill(null);
+    for (const g of P) {
+      const bxi = Math.min(cols - 1, Math.max(0, Math.floor((g[0] - minX) / bs))), byi = Math.min(rows - 1, Math.max(0, Math.floor((g[1] - minY) / bs)));
+      (bk[byi * cols + bxi] || (bk[byi * cols + bxi] = [])).push(g);
+    }
+    const R = Math.ceil(maskPx / bs) + 1;
+    const start = new Int32Array(W * H + 1), count = new Int32Array(W * H), idx = new Int32Array(W * H * NB_MAX), d2s = new Float32Array(W * H * NB_MAX);
+    let used = 0;
     for (let gy = 0; gy < H; gy++) for (let gx = 0; gx < W; gx++) {
-      const x = ox + gx * STEP, y = oy + gy * STEP, bx = Math.floor(x / maskPx), by = Math.floor(y / maskPx), i = gy * W + gx;
+      const x = ox + gx * STEP, y = oy + gy * STEP, i = gy * W + gx;
+      const cx = Math.min(cols - 1, Math.max(0, Math.floor((x - minX) / bs))), cy = Math.min(rows - 1, Math.max(0, Math.floor((y - minY) / bs)));
       let bn = 0, total = 0;
-      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
-        const list = B.get((bx + a) + ',' + (by + b));
-        if (!list) continue;
-        for (const g of list) {
-          const d2 = (g[0] - x) ** 2 + (g[1] - y) ** 2;
-          if (d2 > mask2) continue;
-          total++;
-          let q;
-          if (bn < NB_MAX) q = bn++; else if (d2 < bd2[NB_MAX - 1]) q = NB_MAX - 1; else continue;
-          while (q > 0 && bd2[q - 1] > d2) { bd2[q] = bd2[q - 1]; bix[q] = bix[q - 1]; q--; }
-          bd2[q] = d2; bix[q] = g[5];
+      for (let r = 0; r <= R; r++) {
+        const near = (r - 1) * bs;   // no gauge in this ring or beyond is closer than this
+        if (near > maskPx || (bn === NB_MAX && near * near >= hd2[0])) break;
+        for (let byi = cy - r; byi <= cy + r; byi++) {
+          if (byi < 0 || byi >= rows) continue;
+          const edge = byi === cy - r || byi === cy + r, stepX = edge ? 1 : 2 * r || 1;
+          for (let bxi = cx - r; bxi <= cx + r; bxi += stepX) {
+            if (bxi < 0 || bxi >= cols) continue;
+            const list = bk[byi * cols + bxi];
+            if (!list) continue;
+            for (const g of list) {
+              const d2 = (g[0] - x) ** 2 + (g[1] - y) ** 2;
+              if (d2 > mask2) continue;
+              total++;
+              if (bn < NB_MAX) {             // add, sifting up
+                let q = bn++;
+                while (q > 0) { const pq = (q - 1) >> 1; if (hd2[pq] >= d2) break; hd2[q] = hd2[pq]; hix[q] = hix[pq]; q = pq; }
+                hd2[q] = d2; hix[q] = g[5];
+              } else if (d2 < hd2[0]) {      // nearer than the farthest kept: replace it, sifting down
+                let q = 0;
+                for (;;) { let ch = 2 * q + 1; if (ch >= NB_MAX) break; if (ch + 1 < NB_MAX && hd2[ch + 1] > hd2[ch]) ch++; if (hd2[ch] <= d2) break; hd2[q] = hd2[ch]; hix[q] = hix[ch]; q = ch; }
+                hd2[q] = d2; hix[q] = g[5];
+              }
+            }
+          }
         }
       }
-      for (let q = 0; q < bn; q++) { d2s.push(bd2[q]); idx.push(bix[q]); }
-      count[i] = total; start[i + 1] = idx.length;
+      for (let end = bn - 1; end > 0; end--) {   // heap sort: nearest first
+        const d = hd2[end], ix = hix[end]; hd2[end] = hd2[0]; hix[end] = hix[0];
+        let q = 0;
+        for (;;) { let ch = 2 * q + 1; if (ch >= end) break; if (ch + 1 < end && hd2[ch + 1] > hd2[ch]) ch++; if (hd2[ch] <= d) break; hd2[q] = hd2[ch]; hix[q] = hix[ch]; q = ch; }
+        hd2[q] = d; hix[q] = ix;
+      }
+      for (let q = 0; q < bn; q++) { d2s[used] = hd2[q]; idx[used++] = hix[q]; }
+      count[i] = total; start[i + 1] = used;
     }
-    conNb = { sig, start, count, idx: Int32Array.from(idx), d2: Float32Array.from(d2s) };
+    conNb = { sig, start, count, idx: idx.slice(0, used), d2: d2s.slice(0, used) };
   }
   const nbStart = conNb.start, nbIdx = conNb.idx, nbD2 = conNb.d2, nbCount = conNb.count;
 

@@ -20,19 +20,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 /* ── Pins ─────────────────────────────────────────────── */
 .pin{
   display:flex;align-items:center;justify-content:center;
-  border-radius:11px;font-weight:700;font-size:11px;
+  border-radius:9px;font-weight:700;font-size:10px;
   font-variant-numeric:tabular-nums;
-  border:2px solid rgba(255,255,255,.9);
-  box-shadow:0 2px 6px rgba(0,0,0,.4);
-  cursor:pointer;height:22px;min-width:38px;padding:0 5px;
+  border:1px solid rgba(255,255,255,.7);
+  box-shadow:0 1px 3px rgba(0,0,0,.25);
+  cursor:pointer;height:18px;min-width:32px;padding:0 4px;
 }
-.pin.suspect{border:2px dashed #475569;background:#e2e8f0 !important;color:#475569 !important}
-.pin.official{border-color:#111827;border-width:2.5px}
-.pin.dot{min-width:0;width:12px;height:12px;padding:0;border-radius:50%;font-size:0;box-shadow:0 1px 3px rgba(0,0,0,.35)}
-.pin.dot.official{width:14px;height:14px;border-radius:2px}
-.pin.snotel{border-radius:4px;border:2.5px solid #0c4a6e}
-.pin.dot.snotel{width:13px;height:13px;border-radius:2px;transform:rotate(45deg)}
-.pin.dot.suspect{border-width:1.5px}
+.pin.suspect{border:1.5px dashed #64748b;background:#e2e8f0 !important;color:#475569 !important}
+.pin.official{border-color:rgba(17,24,39,.75);border-width:1.5px}
+.pin.dot{min-width:0;width:10px;height:10px;padding:0;border-radius:50%;font-size:0;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.pin.dot.official{width:12px;height:12px;border-radius:2px}
+.pin.snotel{border-radius:3px;border:1.5px solid rgba(12,74,110,.8)}
+.pin.dot.snotel{width:11px;height:11px;border-radius:2px;transform:rotate(45deg)}
+.pin.dot.suspect{border-width:1px}
 .has-play .pin{transition:background-color .2s linear,color .2s linear}
 
 /* ── Popup ─────────────────────────────────────────────── */
@@ -56,11 +56,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 /* ── Info panel ────────────────────────────────────────── */
 .info-panel{
   background:rgba(255,255,255,.94);color:#1e293b;
-  padding:14px 18px;border-radius:10px;
+  padding:12px 16px 13px;border-radius:10px;
   box-shadow:0 4px 20px rgba(0,0,0,.15);
-  width:250px;font-size:13px;line-height:1.5;
+  width:auto;max-width:min(480px,calc(100vw - 20px));font-size:13px;line-height:1.5;
   backdrop-filter:blur(8px);
 }
+.info-panel .filters{margin-top:10px;padding-top:9px;border-top:1px solid rgba(0,0,0,.08)}
+.refresh-row{display:flex;align-items:center;gap:8px;margin-top:10px}
+.refresh-row .panel-btn{margin-top:0;flex:1}
 .info-panel h2{font-size:15px;color:#1e293b;margin-bottom:2px}
 .info-panel .asof{font-size:11px;color:#64748b;margin-bottom:8px}
 .info-panel .stat{display:flex;justify-content:space-between;padding:2px 0;gap:16px}
@@ -73,15 +76,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 }
 .panel-btn:hover{background:#dbeafe}
 .panel-btn:disabled{opacity:.6;cursor:wait}
-.refresh-msg{font-size:11px;color:#64748b;margin-top:6px;line-height:1.4}
+.refresh-msg{display:none;font-size:11px;color:#64748b;margin-top:6px;line-height:1.4}
+.refresh-msg.show{display:block}
 .refresh-msg.err{color:#b91c1c}
 
-/* ── Filter bar ─────────────────────────────────────────── */
-.filter-bar{
-  display:flex;flex-direction:column;
-  background:rgba(255,255,255,.95);padding:6px 9px 8px;border-radius:9px;
-  box-shadow:0 3px 14px rgba(0,0,0,.15);backdrop-filter:blur(8px);
-}
+/* ── Filters (inside the panel) ─────────────────────────── */
 .opt-grid{display:grid;grid-template-columns:auto auto;gap:5px 8px;align-items:center}
 .opt-l{font-size:11px;font-weight:600;color:#64748b;text-align:right;white-space:nowrap}
 .opt-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
@@ -98,6 +97,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .info-btn.gear{font:400 12px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-style:normal}
 .con-grid{display:grid;grid-template-columns:auto auto;gap:5px 8px;align-items:center;justify-content:start}
 .con-desc{margin-top:7px;padding-top:6px;border-top:1px solid rgba(0,0,0,.08)}
+.sus-grid{display:grid;grid-template-columns:auto 1fr;gap:6px 8px;align-items:center}
+.sus-t{font-size:11px;color:#475569;line-height:2}
+.sus-t .leg-num{width:50px}
+.con-desc .draw-btn{margin-left:4px}
 .con-label{display:inline-block;font-size:10px;font-weight:700;color:#0f172a;background:rgba(255,255,255,.85);border-radius:6px;padding:0 3px;font-variant-numeric:tabular-nums;white-space:nowrap;transform:translateY(0)}
 .info-pop{grid-column:1 / -1;font-size:11px;line-height:1.45;color:#475569;background:#f1f5f9;border-radius:6px;padding:7px 9px;max-width:400px}
 .filter-row{display:flex;gap:6px;align-items:center}
@@ -134,7 +137,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .legend-sw.suspect{background:#e2e8f0;border:1.5px dashed #475569}
 .legend-sw.official{background:#fff;border:2.5px solid #111827}
 .legend-sw.snotel{background:#fff;border:2.5px solid #0c4a6e;border-radius:3px}
-.leg-fit{margin:5px 0 2px;color:#64748b;font-size:11px;max-width:220px;line-height:1.4}
+.leg-foot{display:flex;align-items:center;gap:10px;margin:7px 0 2px}
+.leg-notes{margin-top:6px;max-width:230px}
+.leg-notes>div+div{margin-top:5px}
 .leg-adj-btn{border:none;background:none;padding:0;margin-left:2px;color:#0e7490;font:inherit;font-weight:600;cursor:pointer;white-space:nowrap}
 .leg-adj-btn:hover{text-decoration:underline}
 .leg-adj{display:grid;grid-template-columns:auto auto;gap:5px 7px;align-items:center;margin:4px 0 2px;padding:7px 0 3px;border-top:1px solid rgba(0,0,0,.08)}
@@ -142,9 +147,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .leg-adj .seg-btn:disabled{opacity:.4;cursor:default}
 .leg-num{width:54px;font:inherit;font-size:11px;font-weight:600;padding:2px 5px;border:1px solid rgba(0,0,0,.2);border-radius:5px;background:#fff;color:#1e293b}
 .leg-num:disabled{opacity:.4}
+.leg-num.active{border-color:#0891b2;box-shadow:0 0 0 2px rgba(8,145,178,.3)}
 .leg-num-wrap{white-space:nowrap;color:#64748b;font-size:11px}
-.legend .panel-body{max-height:calc(100vh - 110px);overflow-y:auto}
-.legend .note{margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,.08);color:#64748b;font-size:11px;max-width:200px;line-height:1.4}
+.legend .panel-body{max-height:calc(100vh - 220px);overflow-y:auto}
 
 /* ── Search ─────────────────────────────────────────────── */
 .search-bar{
@@ -219,9 +224,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .collapsed .panel-body{display:none}
 .panel-body{margin-top:8px}
 .info-panel:not(.collapsed) .panel-head .summary{display:none}
-.filter-bar .panel-head{padding:1px 1px 0}
-.filter-bar .panel-head h4{font-size:12px;color:#1e293b}
-.filter-bar.collapsed{padding:6px 10px}
 .legend.collapsed{padding:8px 12px}
 
 /* ── Draw hint ──────────────────────────────────────────── */
@@ -241,10 +243,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 
 /* ── Playback bar (hourly history) ─────────────────────── */
 #play-bar{position:absolute;left:50%;transform:translateX(-50%);bottom:30px;z-index:1000;display:none;
-  width:min(560px,calc(100vw - 620px));min-width:380px;background:rgba(255,255,255,.96);color:#1e293b;border-radius:10px;
+  width:min(560px,calc(100vw - 820px));min-width:380px;background:rgba(255,255,255,.96);color:#1e293b;border-radius:10px;
   box-shadow:0 4px 18px rgba(0,0,0,.22);padding:8px 12px 9px;font-size:12px;backdrop-filter:blur(8px)}
 #play-bar.on{display:block}
 #play-bar .pb-top{display:flex;align-items:center;gap:10px}
+#play-bar .pb-chev{border:none;background:transparent;color:#64748b;font-size:13px;cursor:pointer;padding:2px 4px;transition:transform .2s;flex-shrink:0}
+#play-bar .pb-chev:hover{color:#1e293b}
+#play-bar.min .pb-chev{transform:rotate(-90deg)}
+#play-bar.min #play-range,#play-bar.min .pb-row{display:none}
+#play-bar.min{width:auto;min-width:0;padding:6px 10px}
 #play-btn{width:34px;height:34px;border-radius:50%;border:none;background:#0e7490;color:#fff;font-size:14px;line-height:1;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center}
 #play-btn:hover{background:#155e75}
 #play-btn:focus-visible,#play-range:focus-visible{outline:2px solid #0891b2;outline-offset:2px}
@@ -270,11 +277,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   .leaflet-top .leaflet-control{margin-top:6px}
   .leaflet-left .leaflet-control{margin-left:10px}
   .leaflet-right .leaflet-control{margin-right:10px}
-  .info-panel{width:auto;max-width:calc(100vw - 150px);padding:9px 12px;font-size:13px}
+  .info-panel{width:auto;max-width:calc(100vw - 80px);padding:9px 12px;font-size:13px}
   .info-panel h2{font-size:14px}
-  .info-panel:not(.collapsed){max-width:calc(100vw - 20px);width:calc(100vw - 20px)}
-  .filter-bar{max-width:calc(100vw - 20px)}
-  .filter-bar:not(.collapsed){width:auto}
+  .info-panel:not(.collapsed){width:calc(100vw - 20px);max-width:calc(100vw - 20px)}
+  .info-panel:not(.collapsed) .panel-head{padding-right:52px}
   .seg-ctrl.wrap{max-width:none}
   .opt-grid{grid-template-columns:auto minmax(0,1fr)}
   .seg-ctrl{flex-wrap:wrap}
@@ -287,8 +293,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   .opt-grid{gap:7px 8px}
   .panel-btn{padding:10px 0;font-size:14px}
   .legend{font-size:12px;padding:9px 12px}
-  .legend .note{max-width:none}
-  .leg-fit{max-width:none}
+  .leg-notes{max-width:none}
   .leaflet-bottom .leaflet-control{margin-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
   #sel-panel{left:8px;right:8px;width:auto;max-width:none;bottom:calc(8px + env(safe-area-inset-bottom,0px));max-height:42vh;overflow-y:auto;font-size:14px}
   .sel-list{max-height:none}
@@ -298,6 +303,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   #zoom-hint{bottom:calc(78px + env(safe-area-inset-bottom,0px))}
   #play-bar{left:8px;right:8px;transform:none;width:auto;min-width:0;bottom:calc(26px + env(safe-area-inset-bottom,0px))}
   .has-play .leaflet-bottom.leaflet-right .leaflet-control.legend{margin-bottom:calc(132px + env(safe-area-inset-bottom,0px))}
+  .has-play.play-min .leaflet-bottom.leaflet-right .leaflet-control.legend{margin-bottom:calc(76px + env(safe-area-inset-bottom,0px))}
   #play-btn{width:40px;height:40px}
   #play-bar .step-btn{padding:6px 10px}
   .leaflet-control-attribution{font-size:9.5px;max-width:calc(100vw - 70px)}
@@ -315,7 +321,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.48';
+const APP_VERSION = '1.49';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -383,7 +389,7 @@ let legendRange = 'loaded';     // 'fixed' | 'loaded' | 'screen'
 let legendMethod = 'equal';     // 'equal' | 'count'
 let legendSteps = 16;
 const LEG_MIN = 4, LEG_MAX = 30;
-let legendAdjOpen = false;
+let legendAdjOpen = false, legendInfoOpen = false;
 let scaleInfo = '', legendSig = '';
 let BREAKS = METRICS[metric].breaks;
 let CLASSES = makeClasses(BREAKS, true);
@@ -479,6 +485,18 @@ let dataTime = 'Loading…';
 //   - more than 12 inches, beyond anything this region records in a day.
 // "Nearby" is gauges within 3 miles; where fewer than 2 are that close, within 10 miles;
 // for high readings only, within 25 miles if still fewer than 2.
+// The numbers above are the defaults; Filters ⚙ (Error filter) changes them for the session.
+// Inches are for a day's rain and scale with the period (k below: ×1.5 a week, ×2 a month, ×4 beyond).
+const SUS_DEF = { hi: 2.5, hiGap: 1, lo: 0.4, loGap: 0.25, r1: 3, r2: 10, r3: 25, cap: 12 };
+const SUS = { ...SUS_DEF };
+const SUS_LIM = { hi: [1.1, 10], hiGap: [0, 5], lo: [0, 95], loGap: [0, 5], r1: [0.5, 15], r2: [1, 30], r3: [1, 50], cap: [1, 50] };
+function susInfoText() {
+  return `A reading is flagged when it is under ${Math.round(SUS.lo * 100)}% of nearby gauges and at least ${SUS.loGap} in below them (including 0.00 where nearby gauges show rain), ` +
+    `or over ${SUS.hi} times nearby gauges and at least ${SUS.hiGap} in above them (${2 * SUS.hiGap} in when the comparison reaches ${SUS.r2} mi, ${3 * SUS.hiGap} in at ${SUS.r3} mi). ` +
+    `Nearby means within ${SUS.r1} mi, or ${SUS.r2} mi where gauges are sparse; high readings at isolated gauges are checked against gauges within ${SUS.r3} mi. ` +
+    `Over ${SUS.cap} in is flagged as more than this region records. Inches are for a day's rain and scale up for longer periods. ` +
+    `On Event, a storm total smaller than the same gauge's rain today is flagged, since its storm counter was reset partway through. Ambient stations registered twice by the same owner are shown once.`;
+}
 const HASH = 0.07;  // degrees; a 3x3 block of these covers a 3-mile search
 const hkey = (i, j) => i + ',' + j;
 function buildHash(list) {
@@ -506,10 +524,10 @@ function computeDerived() {
   // one bad gauge cannot make its good neighbors look wrong. High readings are
   // found first and left out when checking for low ones.
   const hood = (s, skip, wide) => {
-    let r = 3, nb = near(hash, s, 3).filter(o => !(skip && skip.has(o)));
-    if (nb.length < 2) { r = 10; nb = near(hash, s, 10).filter(o => !(skip && skip.has(o))); }
-    // isolated gauges: look out to 25 mi, but only when testing for high readings
-    if (nb.length < 2 && wide) { r = 25; nb = near(hash, s, 25).filter(o => !(skip && skip.has(o))); }
+    let r = SUS.r1, nb = near(hash, s, SUS.r1).filter(o => !(skip && skip.has(o)));
+    if (nb.length < 2) { r = SUS.r2; nb = near(hash, s, SUS.r2).filter(o => !(skip && skip.has(o))); }
+    // isolated gauges: look out to 25 mi (r3), but only when testing for high readings
+    if (nb.length < 2 && wide) { r = SUS.r3; nb = near(hash, s, SUS.r3).filter(o => !(skip && skip.has(o))); }
     return nb.length >= 2 ? { med: median([...nb.map(o => o.p), s.p]), n: nb.length, r } : null;
   };
   const M = METRICS[metric], k = M.scale, U = M.unit;
@@ -521,15 +539,15 @@ function computeDerived() {
     return;
   }
   for (const s of stations) {
-    if (s.p > 12 * k) {   // beyond anything this region records
+    if (s.p > SUS.cap * k) {   // beyond anything this region records
       highs.add(s); s.suspect = true;
       s.why = 'Reads more rain than this region records. Gauge error.';
       continue;
     }
     const h0 = hood(s, null, true);
     // wider neighborhoods need a bigger gap, since storm cells can be that small
-    const gap = (h0 ? (h0.r === 3 ? 1 : h0.r === 10 ? 2 : 3) : 0) * k;
-    if (h0 && s.p > 2.5 * h0.med && s.p - h0.med >= gap) {
+    const gap = (h0 ? (h0.r === SUS.r1 ? 1 : h0.r === SUS.r2 ? 2 : 3) : 0) * SUS.hiGap * k;
+    if (h0 && s.p > SUS.hi * h0.med && s.p - h0.med >= gap) {
       highs.add(s); s.suspect = true; s.nbMed = h0.med;
       s.why = `Reads far above nearby gauges (median ${h0.med.toFixed(2)} ${U}, ${h0.n} gauges within ${h0.r} mi). Possible gauge problem, such as sprinkler water or a stuck tipping bucket.`;
     }
@@ -544,7 +562,7 @@ function computeDerived() {
     }
     const h1 = hood(s, highs);
     s.nbMed = h1 ? h1.med : null;
-    if (h1 && s.p < 0.4 * h1.med && h1.med - s.p >= 0.25 * k) {
+    if (h1 && s.p < SUS.lo * h1.med && h1.med - s.p >= SUS.loGap * k) {
       s.suspect = true;
       s.why = s.p === 0
         ? `Reads 0.00 while nearby gauges show rain (median ${h1.med.toFixed(2)} ${U}, ${h1.n} gauges within ${h1.r} mi). Likely no rain gauge or a failed gauge.`
@@ -586,7 +604,8 @@ function visible(s, ignoreRegion) {
 
 // ── Map ──────────────────────────────────────────────────────────────────────
 function initMap() {
-  leafletMap = L.map('map', { zoomControl: true }).setView([CENTER.lat, CENTER.lon], 10);
+  leafletMap = L.map('map', { zoomControl: false }).setView([CENTER.lat, CENTER.lon], 10);
+  L.control.zoom({ position: 'topright' }).addTo(leafletMap);
   leafletMap.createPane('contourFill').style.zIndex = 350;
   leafletMap.getPane('contourFill').style.opacity = '0.45';
   leafletMap.createPane('contourLine').style.zIndex = 360;
@@ -627,7 +646,7 @@ function initMap() {
     'Light gray': light, 'CARTO Voyager': cartoVoyager, 'CARTO Positron': cartoPositron, 'CARTO Dark Matter': cartoDark, 'Streets (OSM)': osm, 'Topographic (OpenTopoMap)': topo,
     'USGS Topo': usgsTopo, 'USGS Imagery + topo': usgsImgTopo, 'USGS Shaded relief': usgsRelief,
     'Esri World Topo': esriTopo, 'Esri Terrain': esriTerrain, 'Esri National Geographic': esriNatGeo, 'Imagery (Esri)': imagery,
-  }, { 'USGS Hydrography': usgsHydro }, { position: 'bottomleft' }).addTo(leafletMap);
+  }, { 'USGS Hydrography': usgsHydro }, { position: 'topright' }).addTo(leafletMap);
   L.control.scale({ imperial: true, metric: false, position: 'bottomleft' }).addTo(leafletMap);
 
   addInfoPanel();
@@ -635,10 +654,10 @@ function initMap() {
   addDrawControl();
   addLegend();
   addSearchBar();
-  // keep the open Filters panel and the legend from overlapping on shorter screens
+  // keep the open panel inside the map on shorter screens (it scrolls instead)
   const fitObs = new ResizeObserver(() => fitPanels());
-  fitObs.observe(document.getElementById('options-panel')); fitObs.observe(legendEl); fitObs.observe(leafletMap.getContainer());
-  document.getElementById('options-panel').addEventListener('click', () => setTimeout(fitPanels, 0));
+  fitObs.observe(document.getElementById('info-panel')); fitObs.observe(leafletMap.getContainer());
+  document.getElementById('info-panel').addEventListener('click', () => setTimeout(fitPanels, 0));
 
   ringLayer = L.layerGroup().addTo(leafletMap);
   createMarkerLayer();
@@ -1077,11 +1096,11 @@ function render() {
     const cls = `pin${s.suspect ? ' suspect' : ''}${s.src === 'O' ? ' official' : s.src === 'S' ? ' snotel' : ''}${pinStyle === 'dot' ? ' dot' : ''}`;
     const style = s.suspect ? '' : `background:${c.bg};color:${c.fg}`;
     const icon = pinStyle === 'dot'
-      ? L.divIcon({ className: '', html: `<div class="${cls}" style="${style}"></div>`, iconSize: [14, 14], iconAnchor: [7, 7] })
-      : L.divIcon({ className: '', html: `<div class="${cls}" style="${style}">${fmtV(s.p)}</div>`, iconSize: [40, 22], iconAnchor: [20, 11] });
+      ? L.divIcon({ className: '', html: `<div class="${cls}" style="${style}"></div>`, iconSize: [12, 12], iconAnchor: [6, 6] })
+      : L.divIcon({ className: '', html: `<div class="${cls}" style="${style}">${fmtV(s.p)}</div>`, iconSize: [34, 18], iconAnchor: [17, 9] });
     const m = L.marker([s.lat, s.lon], { icon, rain: s.suspect ? null : s.p, riseOnHover: true, station: s, pinCls: cls });
     m.bindPopup(() => buildPopup(s), { maxWidth: IS_PHONE ? 260 : 300, autoPanPaddingTopLeft: [10, IS_PHONE ? 70 : 10] });
-    if (!IS_PHONE) m.bindTooltip(() => `${s.name} · ${fmtV(s.p)} ${METRICS[metric].unit}`, { direction: 'top', offset: [0, -12] });
+    if (!IS_PHONE) m.bindTooltip(() => `${s.name} · ${fmtV(s.p)} ${METRICS[metric].unit}`, { direction: 'top', offset: [0, -10] });
     markers.push(m);
     markersById[s.id] = m;
   }
@@ -1139,13 +1158,20 @@ function addInfoPanel() {
         <div class="stat"><span>Gauges shown</span><span class="val" id="st-n"></span></div>
         <div class="stat"><span>Median</span><span class="val" id="st-med"></span></div>
         <div class="stat"><span>Range</span><span class="val" id="st-rng"></span></div>
-        <div class="stat"><span>Likely erroneous</span><span class="val" id="st-sus"></span></div>
-        <button class="panel-btn" id="refresh-btn">↻ Refresh live data</button>
+        <div class="stat"><span>Errors flagged</span><span class="val" id="st-sus"></span></div>
+        <div class="refresh-row"><button class="panel-btn" id="refresh-btn">↻ Refresh live data</button><button class="info-btn" id="status-btn" type="button" aria-expanded="false" aria-controls="refresh-msg" title="About the data shown">i</button></div>
         <div class="refresh-msg" id="refresh-msg">Loading live gauges…</div>
       </div>`;
     L.DomEvent.disableClickPropagation(el);
     L.DomEvent.disableScrollPropagation(el);
     el.querySelector('#refresh-btn').addEventListener('click', loadData);
+    // the status line shows while something is loading (its messages end in …) or on an error; otherwise behind the i button
+    const msg = el.querySelector('#refresh-msg'), sb = el.querySelector('#status-btn');
+    let statusOpen = false;
+    const showMsg = () => msg.classList.toggle('show', statusOpen || msg.classList.contains('err') || /…\s*$/.test(msg.textContent));
+    sb.addEventListener('click', () => { statusOpen = !statusOpen; sb.classList.toggle('active', statusOpen); sb.setAttribute('aria-expanded', String(statusOpen)); showMsg(); });
+    new MutationObserver(showMsg).observe(msg, { childList: true, characterData: true, subtree: true });
+    showMsg();
     el.querySelector('#app-ver').textContent = 'v' + APP_VERSION;
     makeCollapsible(el, IS_PHONE);
     return el;
@@ -1169,20 +1195,19 @@ function updateStats() {
 
 // ── Filter bar ───────────────────────────────────────────────────────────────
 function addFilterBar() {
-  const c = L.control({ position: 'topright' });
-  c.onAdd = () => {
-    const el = L.DomUtil.create('div', 'filter-bar');
+  {
+    const el = document.createElement('div');
+    el.className = 'opt-grid filters';
     el.id = 'options-panel';
     el.innerHTML = `
-      <button class="panel-head" type="button"><h4>Filters &amp; tools</h4><span class="chev">▾</span></button>
-      <div class="panel-body opt-grid">
         <span class="opt-l">Show</span>
-        <div class="seg-ctrl wrap">
-          <button class="seg-btn" data-win="day" title="The last 24 hours">24hr</button>
-          <button class="seg-btn" data-win="week" title="The last 7 days">7 days</button>
-          <button class="seg-btn" data-win="month" title="The last 30 days">30 days</button>
-          ${['year'].map(k => `<button class="seg-btn${k === metric ? ' active' : ''}" data-metric="${k}" title="${METRICS[k].title.replace(/ \(.*\)$/, '')}, as the gauges report it now">${METRICS[k].label}</button>`).join('')}
-          <button class="seg-btn" data-hist="pick" title="Any dates or hours">Past dates</button>
+        <div class="opt-row">
+          <div class="seg-ctrl"><button class="seg-btn" data-win="day" title="The last 24 hours">24hr</button></div>
+          <span class="leg-num-wrap"><input type="number" class="leg-num" id="win-days" min="1" max="${HIST_MAX_DAYS - 1}" step="1" inputmode="numeric" aria-label="The last how many days" title="The last N days, ending now: hour by hour as far back as the hourly archive reaches (about a week), whole days beyond that"> days</span>
+          <div class="seg-ctrl">
+            ${['year'].map(k => `<button class="seg-btn${k === metric ? ' active' : ''}" data-metric="${k}" title="${METRICS[k].title.replace(/ \(.*\)$/, '')}, as the gauges report it now">${METRICS[k].label}</button>`).join('')}
+            <button class="seg-btn" data-hist="pick" title="Any dates or hours">Choose dates</button>
+          </div>
         </div>
         <div class="info-pop" id="hist-pop" hidden>
           <div class="hist-row"><div class="seg-ctrl"><button class="seg-btn active" type="button" data-hmode="d">Whole days</button><button class="seg-btn" type="button" data-hmode="h">Hours</button></div></div>
@@ -1227,9 +1252,9 @@ function addFilterBar() {
         </div>
         <span class="opt-l">Pins</span>
         <div class="opt-row">
+          <button class="toggle-btn" id="hide-btn" title="Hide pins and clusters, to see contours only"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Hide</span></button>
           <button class="toggle-btn active" id="cluster-btn"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Cluster</span></button>
           <button class="toggle-btn" id="dot-btn"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Dots</span></button>
-          <button class="toggle-btn" id="hide-btn" title="Hide pins and clusters, to see contours only"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Hide</span></button>
         </div>
         <span class="opt-l">Contours</span>
         <div class="opt-row">
@@ -1267,32 +1292,63 @@ function addFilterBar() {
           </div>
           <div class="con-desc" id="con-desc"></div>
         </div>
-        <span class="opt-l">Likely erroneous</span>
+        <span class="opt-l">Error filter</span>
         <div class="opt-row">
           <div class="seg-ctrl">
             <button class="seg-btn active" data-sus="exclude">Exclude</button>
             <button class="seg-btn" data-sus="include">Include</button>
             <button class="seg-btn" data-sus="only">Only</button>
           </div>
+          <button class="info-btn gear" id="sus-set-btn" type="button" aria-expanded="false" aria-controls="sus-set" title="Error filter settings">⚙</button>
           <button class="info-btn" id="sus-info-btn" type="button" aria-expanded="false" aria-controls="sus-info" title="How readings are flagged">i</button>
         </div>
-        <div class="info-pop" id="sus-info" hidden>A reading is flagged when it is under 40% of nearby gauges and well below them (including 0.00 where nearby gauges show rain), or over 2.5 times nearby gauges and well above them. Nearby means within 3 mi, or 10 mi where gauges are sparse; high readings at isolated gauges are checked against gauges within 25 mi. On Event, a storm total smaller than the same gauge's rain today is flagged, since its storm counter was reset partway through. Ambient stations registered twice by the same owner are shown once.</div>
-        <span class="opt-l">Summarize</span>
-        <div class="opt-row">
-          <button class="draw-btn" id="draw-btn" title="Drag a box to summarize gauges inside it">⬚ Box</button>
-          <button class="draw-clear" id="draw-clear">Clear ×</button>
-          <button class="draw-btn poly" id="poly-draw-btn" title="Draw a freeform area to summarize gauges inside it">⬟ Polygon</button>
-          <button class="draw-clear" id="poly-clear">Clear ×</button>
+        <div class="info-pop con-pop" id="sus-set" hidden>
+          <div class="sus-grid">
+            <span class="opt-l">Too high</span>
+            <span class="sus-t">over <input type="number" class="leg-num" data-sus-k="hi" min="1.1" max="10" step="0.1" inputmode="decimal" aria-label="High: times nearby gauges"> × nearby and <input type="number" class="leg-num" data-sus-k="hiGap" min="0" max="5" step="0.05" inputmode="decimal" aria-label="High: inches above nearby gauges"> in above</span>
+            <span class="opt-l">Too low</span>
+            <span class="sus-t">under <input type="number" class="leg-num" data-sus-k="lo" min="0" max="95" step="1" inputmode="numeric" aria-label="Low: percent of nearby gauges"> % of nearby and <input type="number" class="leg-num" data-sus-k="loGap" min="0" max="5" step="0.05" inputmode="decimal" aria-label="Low: inches below nearby gauges"> in below</span>
+            <span class="opt-l">Nearby</span>
+            <span class="sus-t">within <input type="number" class="leg-num" data-sus-k="r1" min="0.5" max="15" step="0.5" inputmode="decimal" aria-label="Nearby, miles"> mi, or <input type="number" class="leg-num" data-sus-k="r2" min="1" max="30" step="1" inputmode="numeric" aria-label="Nearby where sparse, miles"> mi if sparse</span>
+            <span class="opt-l">Isolated</span>
+            <span class="sus-t">high readings out to <input type="number" class="leg-num" data-sus-k="r3" min="1" max="50" step="1" inputmode="numeric" aria-label="Isolated gauges, miles"> mi</span>
+            <span class="opt-l">Impossible</span>
+            <span class="sus-t">over <input type="number" class="leg-num" data-sus-k="cap" min="1" max="50" step="0.5" inputmode="decimal" aria-label="Impossible, inches"> in</span>
+          </div>
+          <div class="con-desc">Inches are for a day's rain and scale up for longer periods (×1.5 a week, ×2 a month, ×4 beyond); the high gap doubles at the sparse distance and triples at the isolated one. <button class="draw-btn" id="sus-reset" type="button">Reset to defaults</button></div>
         </div>
-      </div>`;
-    L.DomEvent.disableClickPropagation(el);
-    L.DomEvent.disableScrollPropagation(el);
-    makeCollapsible(el, IS_PHONE);
+        <div class="info-pop" id="sus-info" hidden></div>`;
+    document.querySelector('#info-panel .panel-body').appendChild(el);
     el.querySelector('#sus-info-btn').addEventListener('click', e => {
       const box = el.querySelector('#sus-info'), open = box.hidden;
       box.hidden = !open; e.currentTarget.setAttribute('aria-expanded', String(open));
       e.currentTarget.classList.toggle('active', open);
     });
+    el.querySelector('#sus-set-btn').addEventListener('click', e => {
+      const box = el.querySelector('#sus-set'), open = box.hidden;
+      box.hidden = !open; e.currentTarget.setAttribute('aria-expanded', String(open));
+      e.currentTarget.classList.toggle('active', open);
+    });
+    // error filter settings: typed, held to their ranges; the flags are reworked at once
+    const susInputs = el.querySelectorAll('[data-sus-k]');
+    const susFill = () => {
+      susInputs.forEach(i => { const k = i.dataset.susK; i.value = k === 'lo' ? Math.round(SUS.lo * 100) : SUS[k]; });
+      el.querySelector('#sus-info').textContent = susInfoText();
+    };
+    susFill();
+    susInputs.forEach(i => {
+      i.addEventListener('change', () => {
+        const k = i.dataset.susK, [lo, hi] = SUS_LIM[k];
+        let v = +i.value;
+        if (!Number.isFinite(v) || i.value === '') { susFill(); return; }
+        v = Math.round(Math.max(lo, Math.min(hi, v)) * 100) / 100;
+        const nv = k === 'lo' ? v / 100 : v;
+        if (nv === SUS[k]) { susFill(); return; }
+        SUS[k] = nv; susFill(); rebuild();
+      });
+      i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); i.blur(); } });
+    });
+    el.querySelector('#sus-reset').addEventListener('click', () => { Object.assign(SUS, SUS_DEF); susFill(); rebuild(); });
     el.querySelectorAll('[data-metric]').forEach(b => b.addEventListener('click', () => {
       el.querySelector('#hist-pop').hidden = true;
       if (hist) { exitHist(b.dataset.metric); return; }
@@ -1302,6 +1358,16 @@ function addFilterBar() {
     }));
     // Day, Week, Month: the last 24 hours, 7 days, 30 days, ending now
     el.querySelectorAll('[data-win]').forEach(b => b.addEventListener('click', () => { el.querySelector('#hist-pop').hidden = true; showWindow(b.dataset.win); }));
+    // the days box: the last N days ending now
+    const wd = el.querySelector('#win-days');
+    wd.addEventListener('change', () => {
+      let n = Math.round(+wd.value);
+      if (!Number.isFinite(n) || n < 1) { wd.value = ''; return; }
+      n = Math.min(n, HIST_MAX_DAYS - 1); wd.value = n;
+      el.querySelector('#hist-pop').hidden = true;
+      showDays(n);
+    });
+    wd.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); wd.blur(); } });
     el.querySelectorAll('[data-ev]').forEach(b => b.addEventListener('click', () => { el.querySelector('#hist-pop').hidden = true; showEvent(b.dataset.ev); }));
     const hf = el.querySelector('#h-from'), ht = el.querySelector('#h-to'), hm = el.querySelector('#h-msg');
     const today = todayDenver(), minDay = addDays(today, -(HIST_MAX_DAYS - 1));
@@ -1422,34 +1488,35 @@ function addFilterBar() {
       e.currentTarget.classList.toggle('active', pinStyle === 'dot');
       render();
     });
-    return el;
-  };
-  c.addTo(leafletMap);
+  }
 }
 
 // ── Legend ───────────────────────────────────────────────────────────────────
 function legendHtml() {
   const M = METRICS[metric];
-  const offNote = metric === 'hist' && hist && hist.mode === 'h' ? '<div class="note">History shows personal (Ambient) stations only for now. Hours are the station\'s 5-minute readings added up by hour.</div>'
-    : metric === 'hist' ? '<div class="note">History shows personal (Ambient) stations only for now. Each day is the station\'s end-of-day daily total.</div>'
-    : metric === 'event' ? '<div class="note">Official gauges and SNOTEL sites don\'t report this value, so only personal stations show.</div>'
-    : metric === 'rate' ? '<div class="note">SNOTEL sites don\'t report Rate.</div>'
-    : metric === 'year' ? '<div class="note">SNOTEL Year is January 1 to now, worked out from the water-year total.</div>' : '';
-  const chk = M.check ? ''
-    : '<div class="note">Year depends on when each gauge was installed or reset, so it isn\'t checked against nearby gauges. Year readings over 80 in are flagged as impossible here.</div>';
+  const notes = [];
+  if (metric === 'hist' && hist && hist.mode === 'h') notes.push('History shows personal (Ambient) stations only for now. Hours are the station\'s 5-minute readings added up by hour.');
+  else if (metric === 'hist') notes.push('History shows personal (Ambient) stations only for now. Each day is the station\'s end-of-day daily total.');
+  else if (metric === 'event') notes.push('Official gauges and SNOTEL sites don\'t report this value, so only personal stations show.');
+  else if (metric === 'rate') notes.push('SNOTEL sites don\'t report Rate.');
+  else if (metric === 'year') notes.push('SNOTEL Year is January 1 to now, worked out from the water-year total.');
+  if (!M.check) notes.push('Year depends on when each gauge was installed or reset, so it isn\'t checked against nearby gauges. Year readings over 80 in are flagged as impossible here.');
+  if (contourMode !== 'off') notes.push(`Contours (${CON_NAMES[conMethod]}) are estimated between gauges, not measured, ${conText(EDGE_DESC[conEdge])}; flagged errors are left out. <span id="con-note">${conNote}</span>`);
   return `<button class="panel-head" type="button"><h4>${M.title}</h4><span class="chev">▾</span></button><div class="panel-body">` +
     CLASSES.map(c => `<div class="legend-row"><div class="legend-sw" style="background:${c.bg}"></div>${c.label}</div>`).join('') +
-    legendAdjHtml() +
-    `<div class="legend-row" style="margin-top:4px"><div class="legend-sw suspect"></div>Likely erroneous</div>
+    `<div class="legend-row" style="margin-top:4px"><div class="legend-sw suspect"></div>Flagged error</div>
      <div class="legend-row"><div class="legend-sw official"></div>NWS etc</div>
-     <div class="legend-row"><div class="legend-sw snotel"></div>SNOTEL</div>${offNote}${chk}${contourMode === 'off' ? '' : `<div class="note">Contours (${CON_NAMES[conMethod]}) are estimated between gauges, not measured, ${conText(EDGE_DESC[conEdge])}; likely-erroneous readings are left out. <span id="con-note">${conNote}</span></div>`}</div>`;
+     <div class="legend-row"><div class="legend-sw snotel"></div>SNOTEL</div>` +
+    legendAdjHtml(notes) + `</div>`;
 }
-function legendAdjHtml() {
+// Under the rows: an i button (what the brackets fit, and the notes) and Adjust (the bracket settings).
+function legendAdjHtml(notes) {
   const seg = (attr, cur, opts, off) => `<div class="seg-ctrl">${opts.map(([v, t, tip]) =>
     `<button class="seg-btn${String(v) === String(cur) ? ' active' : ''}" type="button" data-${attr}="${v}"${tip ? ` title="${tip}"` : ''}${off ? ' disabled' : ''}>${t}</button>`).join('')}</div>`;
   const fixed = legendRange === 'fixed';
-  return `<div class="leg-fit"><span id="leg-info">${scaleInfo || 'Fixed brackets, the same every time.'}</span>
+  return `<div class="leg-foot"><button class="info-btn${legendInfoOpen ? ' active' : ''}" id="leg-info-btn" type="button" aria-expanded="${legendInfoOpen}" aria-controls="leg-notes" title="About the brackets and contours">i</button>
       <button class="leg-adj-btn" id="leg-adj" type="button" aria-expanded="${legendAdjOpen}">Adjust ${legendAdjOpen ? '▴' : '▾'}</button></div>
+    <div class="info-pop leg-notes" id="leg-notes"${legendInfoOpen ? '' : ' hidden'}><div id="leg-info">${scaleInfo || 'Fixed brackets, the same every time.'}</div>${notes.map(n => `<div>${n}</div>`).join('')}</div>
     <div class="leg-adj"${legendAdjOpen ? '' : ' hidden'}>
       <span class="opt-l">Brackets</span>${seg('lr', legendRange, [['loaded', 'All loaded', 'Fit to every gauge loaded within the radius'], ['screen', 'On screen', 'Fit to the gauges on screen; changes as you pan and zoom'], ['fixed', 'Fixed', 'The set brackets, the same every time']])}
       <span class="opt-l">Steps</span>${seg('lm', legendMethod, [['equal', 'Equal', 'Equal steps with round edges'], ['count', 'Equal counts', 'Each color holds about the same number of gauges']], fixed)}
@@ -1457,24 +1524,15 @@ function legendAdjHtml() {
     </div>`;
 }
 let legendEl;
-// The Filters panel (top right) and the legend (bottom right) share the right
-// edge. When both are open and together taller than the map, the Filters panel
-// scrolls inside the room left above the legend; if that room is small, the
-// legend also scrolls, within 40% of the map's height.
+// The panel (top left) scrolls inside the map's height when it is taller than the room,
+// leaving the scale bar at the bottom left clear.
 function fitPanels() {
-  const fb = document.getElementById('options-panel'), lg = legendEl;
-  if (!fb || !lg) return;
-  const fbB = fb.querySelector(':scope > .panel-body'), lgB = lg.querySelector(':scope > .panel-body');
-  for (const b of [fbB, lgB]) if (b) { b.style.maxHeight = ''; b.style.overflowY = ''; }
-  if (!fbB || fb.classList.contains('collapsed')) return;
-  const roomNow = () => lg.getBoundingClientRect().top - 10 - fbB.getBoundingClientRect().top - 10;
-  let room = roomNow();
-  if (fbB.scrollHeight <= room) return;
-  if (lgB && !lg.classList.contains('collapsed') && room < 260) {
-    const cap = Math.max(110, leafletMap.getContainer().clientHeight * 0.4 - (lg.offsetHeight - lgB.offsetHeight));
-    if (lgB.offsetHeight > cap) { lgB.style.maxHeight = cap + 'px'; lgB.style.overflowY = 'auto'; room = roomNow(); }
-  }
-  fbB.style.maxHeight = Math.max(150, room) + 'px'; fbB.style.overflowY = 'auto';
+  const ip = document.getElementById('info-panel'); if (!ip || !leafletMap) return;
+  const b = ip.querySelector(':scope > .panel-body'); if (!b) return;
+  b.style.maxHeight = ''; b.style.overflowY = '';
+  if (ip.classList.contains('collapsed')) return;
+  const room = leafletMap.getContainer().getBoundingClientRect().bottom - 44 - b.getBoundingClientRect().top;
+  if (b.scrollHeight > room) { b.style.maxHeight = Math.max(120, room) + 'px'; b.style.overflowY = 'auto'; }
 }
 function addLegend() {
   const c = L.control({ position: 'bottomright' });
@@ -1487,6 +1545,12 @@ function addLegend() {
     legendEl.addEventListener('click', e => {
       const t = e.target.closest('button');
       if (!t || t.disabled) return;
+      if (t.id === 'leg-info-btn') {
+        legendInfoOpen = !legendInfoOpen;
+        const box = legendEl.querySelector('#leg-notes'); if (box) box.hidden = !legendInfoOpen;
+        t.classList.toggle('active', legendInfoOpen); t.setAttribute('aria-expanded', String(legendInfoOpen));
+        return;
+      }
       if (t.id === 'leg-adj') legendAdjOpen = !legendAdjOpen;
       else if (t.dataset.lr) legendRange = t.dataset.lr;
       else if (t.dataset.lm) legendMethod = t.dataset.lm;
@@ -1522,10 +1586,9 @@ function updateLegend() {
 
 // ── Draw box / polygon ───────────────────────────────────────────────────────
 function addDrawControl() {
-  document.getElementById('draw-btn').addEventListener('click', toggleDrawMode);
-  document.getElementById('draw-clear').addEventListener('click', clearBBox);
-  document.getElementById('poly-draw-btn').addEventListener('click', togglePolyMode);
-  document.getElementById('poly-clear').addEventListener('click', clearPoly);
+  // the Summarize buttons are no longer in the panel (v1.49); the tools stay wired for when they are
+  const on = (id, fn) => { const b = document.getElementById(id); if (b) b.addEventListener('click', fn); };
+  on('draw-btn', toggleDrawMode); on('draw-clear', clearBBox); on('poly-draw-btn', togglePolyMode); on('poly-clear', clearPoly);
 
   const container = leafletMap.getContainer();
   const panel = document.createElement('div');
@@ -1577,7 +1640,7 @@ function setMapInteraction(on, hintText) {
     document.getElementById('draw-hint-text').textContent = hintText;
     hint.style.display = 'flex';
     leafletMap.closePopup();
-    if (IS_PHONE) document.getElementById('options-panel').classList.add('collapsed');
+    if (IS_PHONE) document.getElementById('info-panel').classList.add('collapsed');
   } else hint.style.display = 'none';
 }
 
@@ -1701,7 +1764,7 @@ function buildSelectionPanel() {
     list.appendChild(r);
   }
   panel.querySelector('#sel-copy').addEventListener('click', e => {
-    const head = ['Station','Network','Area','Dist (mi)','Dir',`${METRICS[metric].label} (${METRICS[metric].unit})`,'As of','Likely erroneous','Lat','Lon'];
+    const head = ['Station','Network','Area','Dist (mi)','Dir',`${METRICS[metric].label} (${METRICS[metric].unit})`,'As of','Flagged error','Lat','Lon'];
     const rows = sel.map(s => [s.name, s.src === 'A' ? 'Ambient' : s.net, s.area, s.dist.toFixed(1), s.dir, fmtV(s.p), s.time, s.suspect ? 'yes' : '', s.lat, s.lon]);
     const tsv = [head, ...rows].map(r => r.join('\t')).join('\n');
     const btn = e.currentTarget;
@@ -2050,11 +2113,12 @@ async function fetchHourTail(st, h) {
       have: Math.min(need, Math.max(0, Math.round(covered / 3600e3))), need });
   } catch (e) { histCache.set(k, { err: true }); }
 }
-// Which Show button is lit: a window (Day/Week/Month), Past dates for any other period, or the live metric.
+// Which Show control is lit: 24hr, the days box, an event, Choose dates for any other period, or the live metric.
 function markShow() {
   const w = hist ? (hist.preset || 'pick') : null;
   document.querySelectorAll('[data-metric]').forEach(x => x.classList.toggle('active', !hist && x.dataset.metric === metric));
   document.querySelectorAll('[data-win]').forEach(x => x.classList.toggle('active', x.dataset.win === w));
+  const wd = document.getElementById('win-days'); if (wd) { wd.classList.toggle('active', w === 'ndays'); wd.value = w === 'ndays' ? hist.ndays : ''; }
   document.querySelectorAll('[data-ev]').forEach(x => x.classList.toggle('active', w === 'ev:' + x.dataset.ev));
   document.querySelectorAll('[data-hist]').forEach(x => x.classList.toggle('active', w === 'pick'));
 }
@@ -2071,25 +2135,37 @@ function showEvent(id) {
 const histTitle = label => /^Last /.test(label) ? `Rain in the ${label.toLowerCase()} (in)` : `Rain ${label} (in)`;
 // Day = the last 24 hours (hourly archive plus today's readings); Week and Month = the last 7 or 30 days ending today
 function showWindow(w) {
+  if (w !== 'day') return;
   const $ = id => document.getElementById(id);
-  if (w === 'day') {
-    const z = Date.now(), a = Math.max(z - 24 * 3600e3, hrFirstMs());
+  const z = Date.now(), a = Math.max(z - 24 * 3600e3, hrFirstMs());
+  const b = document.querySelector('[data-hmode="h"]'); if (b) b.click();
+  const pa = dParts(a), pz = dParts(z);
+  if ($('hh-fd')) { $('hh-fd').value = dayStr(pa); $('hh-fh').value = pa.h; $('hh-td').value = dayStr(pz); $('hh-th').value = pz.h; }
+  setHourHist(a, z, 'Last 24 hours', 'day');
+}
+// The days box: the last N days ending now. Hour by hour (N × 24 hours, playable by the hour) while
+// the hourly archive reaches back that far; whole days from the daily archive beyond that.
+function showDays(n) {
+  const $ = id => document.getElementById(id);
+  n = Math.max(1, Math.min(HIST_MAX_DAYS - 1, Math.round(n)));
+  const z = Date.now(), a = z - n * 86400e3;
+  if (a >= hrFirstMs()) {
     const b = document.querySelector('[data-hmode="h"]'); if (b) b.click();
     const pa = dParts(a), pz = dParts(z);
     if ($('hh-fd')) { $('hh-fd').value = dayStr(pa); $('hh-fh').value = pa.h; $('hh-td').value = dayStr(pz); $('hh-th').value = pz.h; }
-    setHourHist(a, z, 'Last 24 hours', 'day');
+    setHourHist(a, z, `Last ${n * 24} hours`, 'ndays', { ndays: n });
   } else {
-    const n = w === 'week' ? 7 : 30, t = todayDenver(), a = addDays(t, -(n - 1));
+    const t = todayDenver(), d = addDays(t, -(n - 1));
     const b = document.querySelector('[data-hmode="d"]'); if (b) b.click();
-    if ($('h-from')) { $('h-from').value = a; $('h-to').value = t; }
-    setHist(a, t, `Last ${n} days`, w);
+    if ($('h-from')) { $('h-from').value = d; $('h-to').value = t; }
+    setHist(d, t, `Last ${n} days`, 'ndays', { ndays: n });
   }
 }
-function setHourHist(start, end, label, preset) {
+function setHourHist(start, end, label, preset, extra) {
   playOff();
   const hrs = (end - start) / 3600e3;
   label = label || (dayStr(dParts(start)) === dayStr(dParts(end)) ? `${fmtHourMs(start)} – ${fmtHourMs(end, false)}` : `${fmtHourMs(start)} – ${fmtHourMs(end)}`);
-  hist = { mode: 'h', start, end, days: hrs / 24, label, key: 'h_' + start + '_' + end, preset: preset || null };
+  hist = { mode: 'h', start, end, days: hrs / 24, label, key: 'h_' + start + '_' + end, preset: preset || null, ...(extra || {}) };
   { const m = /^Last (\d+) hours$/.exec(label); hist.lastN = m ? +m[1] : 0; }
   histToUrl();
   METRICS.hist.label = 'Period';
@@ -2107,11 +2183,11 @@ function setHourHist(start, end, label, preset) {
   });
 }
 
-function setHist(from, to, label, preset) {
+function setHist(from, to, label, preset, extra) {
   playOff();
   const days = dayCount(from, to);
   label = label || (from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`);
-  hist = { from, to, days, label, key: from + '_' + to, preset: preset || null };
+  hist = { from, to, days, label, key: from + '_' + to, preset: preset || null, ...(extra || {}) };
   histToUrl();
   METRICS.hist.label = 'Period';
   METRICS.hist.title = histTitle(label);
@@ -2135,7 +2211,7 @@ function histToUrl() {
     p.delete('from'); p.delete('to'); p.delete('last'); p.delete('days'); p.delete('event');
     if (hist) {
       if (hist.preset && hist.preset.startsWith('ev:')) p.set('event', hist.preset.slice(3));
-      else if (hist.preset === 'week' || hist.preset === 'month') p.set('days', hist.preset === 'week' ? 7 : 30);
+      else if (hist.preset === 'ndays') p.set('days', hist.ndays);
       else if (hist.lastN) p.set('last', hist.lastN);
       else if (hist.mode === 'h') {
         const f = ms => { const q = dParts(Math.ceil(ms / 3600e3) * 3600e3); return dayStr(q) + 'T' + String(q.h).padStart(2, '0'); };
@@ -2159,10 +2235,7 @@ function histFromUrl() {
       if ($('hh-fd')) { $('hh-fd').value = dayStr(pa); $('hh-fh').value = pa.h; $('hh-td').value = dayStr(pz); $('hh-th').value = pz.h; }
     };
     if (nd > 0) {
-      const n = Math.min(Math.round(nd), HIST_MAX_DAYS), t = todayDenver(), a = addDays(t, -(n - 1));
-      const b = document.querySelector('[data-hmode="d"]'); if (b) b.click();
-      if ($('h-from')) { $('h-from').value = a; $('h-to').value = t; }
-      setHist(a, t, `Last ${n} days`, n === 7 ? 'week' : n === 30 ? 'month' : null);
+      showDays(nd);
     } else if (last > 0) {
       const z = Date.now(), a = Math.max(z - last * 3600e3, hrFirstMs());
       hourUi(a, z); setHourHist(a, z, `Last ${last} hours`, last === 24 ? 'day' : null);
@@ -2212,6 +2285,7 @@ function addPlayBar() {
       <div id="play-time"></div>
       <button class="step-btn" type="button" data-step="-1" aria-label="Back one hour">‹</button>
       <button class="step-btn" type="button" data-step="1" aria-label="Forward one hour">›</button>
+      <button class="pb-chev" id="play-min" type="button" aria-label="Shrink" title="Shrink">▾</button>
     </div>
     <input type="range" id="play-range" min="0" max="0" value="0" step="1" aria-label="Hour">
     <div class="pb-row">
@@ -2222,6 +2296,11 @@ function addPlayBar() {
   L.DomEvent.disableScrollPropagation(el);
   leafletMap.getContainer().appendChild(el);
   el.querySelector('#play-btn').addEventListener('click', () => { if (!play) return; play.playing ? playPause() : playStart(); });
+  el.querySelector('#play-min').addEventListener('click', e => {
+    const min = el.classList.toggle('min');
+    leafletMap.getContainer().classList.toggle('play-min', min);
+    e.currentTarget.setAttribute('aria-label', min ? 'Expand' : 'Shrink'); e.currentTarget.title = min ? 'Expand' : 'Shrink';
+  });
   el.querySelectorAll('[data-step]').forEach(b => b.addEventListener('click', () => { if (!play) return; playPause(); playGo(play.i + +b.dataset.step); }));
   const rg = el.querySelector('#play-range');
   rg.addEventListener('input', () => { if (!play) return; if (play.playing) playPause(); playGo(+rg.value); });
@@ -2235,7 +2314,7 @@ function addPlayBar() {
     if (play) play.speed = b.dataset.pspeed;
   }));
   document.addEventListener('keydown', e => {
-    if (!play || e.target.closest('input,select,textarea')) return;
+    if (!play || (e.target.closest && e.target.closest('input,select,textarea'))) return;
     if (e.key === ' ') { e.preventDefault(); play.playing ? playPause() : playStart(); }
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); playPause(); playGo(play.i + (e.key === 'ArrowRight' ? 1 : -1)); }
   });

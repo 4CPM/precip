@@ -58,7 +58,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   background:rgba(255,255,255,.94);color:#1e293b;
   padding:12px 16px 13px;border-radius:10px;
   box-shadow:0 4px 20px rgba(0,0,0,.15);
-  width:auto;max-width:min(480px,calc(100vw - 20px));font-size:13px;line-height:1.5;
+  width:392px;max-width:calc(100vw - 20px);font-size:13px;line-height:1.5;
   backdrop-filter:blur(8px);
 }
 .info-panel .filters{margin-top:10px;padding-top:9px;border-top:1px solid rgba(0,0,0,.08)}
@@ -76,8 +76,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 }
 .panel-btn:hover{background:#dbeafe}
 .panel-btn:disabled{opacity:.6;cursor:wait}
-.refresh-msg{display:none;font-size:11px;color:#64748b;margin-top:6px;line-height:1.4}
-.refresh-msg.show{display:block}
+.refresh-msg{font-size:11px;color:#64748b;margin-top:5px;line-height:1.4;height:15px;overflow:hidden;visibility:hidden}
+.refresh-msg.show{height:auto;visibility:visible}
+#win-hours,#win-days{width:46px}
 .refresh-msg.err{color:#b91c1c}
 
 /* ── Filters (inside the panel) ─────────────────────────── */
@@ -296,7 +297,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.50';
+const APP_VERSION = '1.51';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1128,15 +1129,15 @@ function addInfoPanel() {
       <div class="panel-body">
         <div class="asof" id="asof"></div>
         <div class="stat"><span>Gauges shown</span><span class="val" id="st-n"></span></div>
-        <div class="stat"><span>Median</span><span class="val" id="st-med"></span></div>
         <div class="stat"><span>Range</span><span class="val" id="st-rng"></span></div>
         <div class="stat"><span>Errors flagged</span><span class="val" id="st-sus"></span></div>
-        <div class="refresh-row"><button class="panel-btn" id="refresh-btn">↻ Refresh live data</button><button class="info-btn" id="status-btn" type="button" aria-expanded="false" aria-controls="refresh-msg" title="About the data shown">i</button></div>
-        <div class="refresh-msg" id="refresh-msg">Loading live gauges…</div>
+        <div class="refresh-row"><button class="panel-btn" id="refresh-btn" title="Back to the opening view and default settings, with fresh live data">↺ Reset</button><button class="info-btn" id="status-btn" type="button" aria-expanded="false" aria-controls="refresh-msg" title="About the data shown">i</button></div>
+        <div class="refresh-msg" id="refresh-msg">Loading…</div>
       </div>`;
     L.DomEvent.disableClickPropagation(el);
     L.DomEvent.disableScrollPropagation(el);
-    el.querySelector('#refresh-btn').addEventListener('click', loadData);
+    // Reset: reload without any period in the address, which is the opening view with every setting at its default and fresh live data
+    el.querySelector('#refresh-btn').addEventListener('click', () => location.replace(location.pathname));
     // the status line shows while something is loading (its messages end in …) or on an error; otherwise behind the i button
     const msg = el.querySelector('#refresh-msg'), sb = el.querySelector('#status-btn');
     let statusOpen = false;
@@ -1155,14 +1156,13 @@ function updateStats() {
   const vis = stations.filter(s => visible(s));
   const good = vis.filter(s => !s.suspect).map(s => s.p);
   const inRadius = stations.filter(s => s.dist <= radius);
-  document.getElementById('asof').textContent = `${dataTime} · within ${radius} mi of ${CENTER.name}`;
+  document.getElementById('asof').textContent = dataTime;
   document.getElementById('st-n').textContent = vis.length;
   const U = METRICS[metric].unit;
   document.getElementById('info-title').textContent = metric === 'day' ? 'Rain Today' : metric === 'hist' && hist ? `Rain: ${play ? play.label : hist.label}` : `Rain: ${METRICS[metric].label}`;
-  document.getElementById('st-med').textContent = good.length ? `${fmtV(median(good))} ${U}` : '—';
   document.getElementById('st-rng').textContent = good.length ? `${fmtV(Math.min(...good))} – ${fmtV(Math.max(...good))} ${U}` : '—';
   document.getElementById('st-sus').textContent = `${inRadius.filter(s => s.suspect).length}${suspectFilter === 'exclude' ? ' (hidden)' : ''}`;
-  document.getElementById('st-summary').textContent = good.length ? `${fmtV(median(good))} ${U} median · ${vis.length}` : (stations.length ? 'No gauges' : 'Loading…');
+  document.getElementById('st-summary').textContent = stations.length ? `${vis.length} gauges` : 'Loading…';
 }
 
 // ── Filter bar ───────────────────────────────────────────────────────────────
@@ -1174,7 +1174,7 @@ function addFilterBar() {
     el.innerHTML = `
         <span class="opt-l">Show</span>
         <div class="opt-row">
-          <div class="seg-ctrl"><button class="seg-btn" data-win="day" title="The last 24 hours">24hr</button></div>
+          <span class="leg-num-wrap"><input type="number" class="leg-num" id="win-hours" min="1" step="1" inputmode="numeric" aria-label="The last how many hours" title="The last N hours, ending now, back to October 19, 2026, when the hourly archive began"> hours</span>
           <span class="leg-num-wrap"><input type="number" class="leg-num" id="win-days" min="1" max="${HIST_MAX_DAYS - 1}" step="1" inputmode="numeric" aria-label="The last how many days" title="The last N days, ending now: hour by hour as far back as the hourly archive reaches (about a week), whole days beyond that"> days</span>
           <div class="seg-ctrl">
             ${['year'].map(k => `<button class="seg-btn${k === metric ? ' active' : ''}" data-metric="${k}" title="${METRICS[k].title.replace(/ \(.*\)$/, '')}, as the gauges report it now">${METRICS[k].label}</button>`).join('')}
@@ -1328,9 +1328,15 @@ function addFilterBar() {
       markShow();
       updateLegend(); rebuild();
     }));
-    // Day, Week, Month: the last 24 hours, 7 days, 30 days, ending now
-    el.querySelectorAll('[data-win]').forEach(b => b.addEventListener('click', () => { el.querySelector('#hist-pop').hidden = true; showWindow(b.dataset.win); }));
-    // the days box: the last N days ending now
+    // the hours box and the days box: the last N hours or N days, ending now
+    const wh = el.querySelector('#win-hours');
+    wh.addEventListener('change', () => {
+      let n = Math.round(+wh.value);
+      if (!Number.isFinite(n) || n < 1) { wh.value = ''; return; }
+      el.querySelector('#hist-pop').hidden = true;
+      showHours(n);
+    });
+    wh.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); wh.blur(); } });
     const wd = el.querySelector('#win-days');
     wd.addEventListener('change', () => {
       let n = Math.round(+wd.value);
@@ -1374,11 +1380,7 @@ function addFilterBar() {
       el.querySelector('#h-days').hidden = h; el.querySelector('#h-hours').hidden = !h;
       hm.textContent = h ? HMSG_H : HMSG_D;
     }));
-    el.querySelectorAll('[data-hh]').forEach(b => b.addEventListener('click', () => {
-      const n = +b.dataset.hh, z = Date.now(), a = z - n * 3600e3;
-      setHourInputs(a, z);
-      setHourHist(Math.max(a, hrFirstMs()), z, `Last ${n} hours`);
-    }));
+    el.querySelectorAll('[data-hh]').forEach(b => b.addEventListener('click', () => showHours(+b.dataset.hh)));
     el.querySelector('#hh-go').addEventListener('click', () => {
       if (!fd.value || !td.value) { hm.textContent = 'Pick both dates.'; return; }
       let a = localHourMs(TZ, fd.value, +fh.value), z = localHourMs(TZ, td.value, +th.value);
@@ -1828,12 +1830,12 @@ async function ensureHist() {
       const st = todo[i++];
       await (h.mode === 'h' ? fetchHourTail(st, h) : fetchHist(st, h)); done++;
       if (run !== histRun || hist !== h0) break;
-      if (done % 10 === 0) { msg.className = 'refresh-msg'; msg.textContent = hist.arch ? `Archive loaded; adding ${tailLbl(h)} (not archived yet): ${done} of ${todo.length} stations…` : `Loading history for ${h.label}: ${done} of ${todo.length} stations…`; }
+      if (done % 10 === 0) { msg.className = 'refresh-msg'; msg.textContent = `${done} of ${todo.length}…`; }
       // redraw at most every 4 seconds while loading; each redraw recomputes every pin and contour
-      if (Date.now() - lastDraw > 4000) { lastDraw = Date.now(); rebuild(); msg.textContent = `Loading history for ${h.label}: ${done} of ${todo.length} stations…`; }
+      if (Date.now() - lastDraw > 4000) { lastDraw = Date.now(); rebuild(); msg.textContent = `${done} of ${todo.length}…`; }
     }
   };
-  msg.className = 'refresh-msg'; msg.textContent = `Loading history for ${h.label}: 0 of ${todo.length} stations…`;
+  msg.className = 'refresh-msg'; msg.textContent = `0 of ${todo.length}…`;
   await Promise.all(Array.from({ length: HIST_PAR }, worker));
   if (run !== histRun || hist !== h0) return;
   rebuild(); histStatus();
@@ -2032,11 +2034,11 @@ async function fetchHourTail(st, h) {
       have: Math.min(need, Math.max(0, Math.round(covered / 3600e3))), need });
   } catch (e) { histCache.set(k, { err: true }); }
 }
-// Which Show control is lit: 24hr, the days box, an event, Choose dates for any other period, or the live metric.
+// Which Show control is lit: the hours box, the days box, an event, Choose dates for any other period, or the live metric.
 function markShow() {
   const w = hist ? (hist.preset || 'pick') : null;
   document.querySelectorAll('[data-metric]').forEach(x => x.classList.toggle('active', !hist && x.dataset.metric === metric));
-  document.querySelectorAll('[data-win]').forEach(x => x.classList.toggle('active', x.dataset.win === w));
+  const wh = document.getElementById('win-hours'); if (wh) { wh.classList.toggle('active', w === 'nhours'); wh.value = w === 'nhours' ? hist.nhours : ''; }
   const wd = document.getElementById('win-days'); if (wd) { wd.classList.toggle('active', w === 'ndays'); wd.value = w === 'ndays' ? hist.ndays : ''; }
   document.querySelectorAll('[data-ev]').forEach(x => x.classList.toggle('active', w === 'ev:' + x.dataset.ev));
   document.querySelectorAll('[data-hist]').forEach(x => x.classList.toggle('active', w === 'pick'));
@@ -2053,14 +2055,16 @@ function showEvent(id) {
 }
 const histTitle = label => /^Last /.test(label) ? `Rain in the ${label.toLowerCase()} (in)` : `Rain ${label} (in)`;
 // Day = the last 24 hours (hourly archive plus today's readings); Week and Month = the last 7 or 30 days ending today
-function showWindow(w) {
-  if (w !== 'day') return;
+// The hours box: the last N hours ending now, back to the start of the hourly archive.
+function showHours(n) {
   const $ = id => document.getElementById(id);
-  const z = Date.now(), a = Math.max(z - 24 * 3600e3, hrFirstMs());
+  const z = Date.now(), maxH = Math.max(1, Math.floor((z - hrFirstMs()) / 3600e3));
+  n = Math.max(1, Math.min(maxH, Math.round(n)));
+  const a = z - n * 3600e3;
   const b = document.querySelector('[data-hmode="h"]'); if (b) b.click();
   const pa = dParts(a), pz = dParts(z);
   if ($('hh-fd')) { $('hh-fd').value = dayStr(pa); $('hh-fh').value = pa.h; $('hh-td').value = dayStr(pz); $('hh-th').value = pz.h; }
-  setHourHist(a, z, 'Last 24 hours', 'day');
+  setHourHist(a, z, `Last ${n} hours`, 'nhours', { nhours: n });
 }
 // The days box: the last N days ending now. Hour by hour (N × 24 hours, playable by the hour) while
 // the hourly archive reaches back that far; whole days from the daily archive beyond that.
@@ -2072,7 +2076,7 @@ function showDays(n) {
     const b = document.querySelector('[data-hmode="h"]'); if (b) b.click();
     const pa = dParts(a), pz = dParts(z);
     if ($('hh-fd')) { $('hh-fd').value = dayStr(pa); $('hh-fh').value = pa.h; $('hh-td').value = dayStr(pz); $('hh-th').value = pz.h; }
-    setHourHist(a, z, `Last ${n * 24} hours`, 'ndays', { ndays: n });
+    setHourHist(a, z, n === 1 ? 'Last 24 hours' : `Last ${n} days`, 'ndays', { ndays: n });
   } else {
     const t = todayDenver(), d = addDays(t, -(n - 1));
     const b = document.querySelector('[data-hmode="d"]'); if (b) b.click();
@@ -2093,7 +2097,7 @@ function setHourHist(start, end, label, preset, extra) {
   metric = 'hist';
   markShow();
   const h = hist, msg = document.getElementById('refresh-msg');
-  msg.className = 'refresh-msg'; msg.textContent = `Loading history for ${label}…`;
+  msg.className = 'refresh-msg'; msg.textContent = 'Loading…';
   archHourFor(h).then(a => {
     if (hist !== h) return;
     h.arch = a;
@@ -2114,7 +2118,7 @@ function setHist(from, to, label, preset, extra) {
   metric = 'hist';
   markShow();
   const h = hist, msg = document.getElementById('refresh-msg');
-  msg.className = 'refresh-msg'; msg.textContent = `Loading history for ${label}…`;
+  msg.className = 'refresh-msg'; msg.textContent = 'Loading…';
   (h.mode === 'h' ? archHourFor(h) : archFor(h)).then(a => {
     if (hist !== h) return;
     h.arch = a;
@@ -2146,7 +2150,7 @@ function histFromUrl() {
     const p = new URLSearchParams(location.search), last = +p.get('last'), nd = +p.get('days'), ev = p.get('event') || '';
     let from = p.get('from') || '', to = p.get('to') || from;
     if (ev && EVENTS.some(e => e.id === ev)) { showEvent(ev); return; }
-    if (!last && !nd && !from && !to) { showWindow('day'); return; }   // opening view: the last 24 hours
+    if (!last && !nd && !from && !to) { showHours(24); return; }   // opening view: the last 24 hours
     const HR = /^\d{4}-\d\d-\d\dT\d\d$/, DY = /^\d{4}-\d\d-\d\d$/, $ = id => document.getElementById(id);
     const hourUi = (a, z) => {
       const b = document.querySelector('[data-hmode="h"]'); if (b) b.click();
@@ -2156,8 +2160,7 @@ function histFromUrl() {
     if (nd > 0) {
       showDays(nd);
     } else if (last > 0) {
-      const z = Date.now(), a = Math.max(z - last * 3600e3, hrFirstMs());
-      hourUi(a, z); setHourHist(a, z, `Last ${last} hours`, last === 24 ? 'day' : null);
+      showHours(last);
     } else if (HR.test(from) && HR.test(to)) {
       let a = localHourMs(TZ, from.slice(0, 10), +from.slice(11)), z = localHourMs(TZ, to.slice(0, 10), +to.slice(11));
       if (a > z) [a, z] = [z, a];
@@ -2448,7 +2451,7 @@ async function ensureCells(force) {
   need.sort((a, z) => { const [ai, aj] = a.split(',').map(Number), [zi, zj] = z.split(',').map(Number);
     return Math.hypot(ai + .5 - ctr.lat / CELL_LAT, aj + .5 - ctr.lng / CELL_LON) - Math.hypot(zi + .5 - ctr.lat / CELL_LAT, zj + .5 - ctr.lng / CELL_LON); });
   for (let k = 0; k < need.length; k += 8) {
-    msg.textContent = `Loading personal stations for this area (${Math.round(100 * k / need.length)}%)…`;
+    msg.textContent = `${Math.round(100 * k / need.length)}%…`;
     await Promise.all(need.slice(k, k + 8).map(async key => { await loadCell(key, sample); done++; if (cells.get(key).err) failed++; }));
     if (k % 32 === 0 || k + 8 >= need.length) rebuild();
   }
@@ -2639,7 +2642,7 @@ async function loadData() {
   loading = true;
   const btn = document.getElementById('refresh-btn');
   btn.disabled = true; btn.textContent = 'Loading…';
-  setStatus('Pulling official gauges and personal stations…');
+  setStatus('Loading…');
   const now = Date.now();
   let offErr = false;
   try { await loadOfficial(); } catch (e) { offErr = true; }
@@ -2649,7 +2652,7 @@ async function loadData() {
   rebuild();
   await ensureCells(true);
   if (hist) await ensureHist();
-  btn.disabled = false; btn.textContent = '↻ Refresh live data';
+  btn.disabled = false; btn.textContent = '↺ Reset';
   if (offErr) setStatus('Official gauges could not be loaded (no connection, or the browser blocked it). Showing the last values it had.', true);
   else if (!document.getElementById('refresh-msg').classList.contains('err')) setStatus();
   loading = false;

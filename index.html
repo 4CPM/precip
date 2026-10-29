@@ -82,7 +82,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .refresh-msg.err{color:#b91c1c}
 
 /* ── Filters (inside the panel) ─────────────────────────── */
-.opt-grid{display:grid;grid-template-columns:auto auto;gap:5px 8px;align-items:center}
+.opt-grid{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 8px;align-items:center}
 .opt-l{font-size:11px;font-weight:600;color:#64748b;text-align:right;white-space:nowrap}
 .opt-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .seg-ctrl.wrap{flex-wrap:wrap;max-width:420px}
@@ -303,7 +303,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.64';
+const APP_VERSION = '1.65';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1263,7 +1263,6 @@ function addFilterBar() {
         <div class="opt-row">
           <button class="toggle-btn" id="hide-btn" title="Hide pins and clusters, to see contours only"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Hide</span></button>
           <button class="toggle-btn" id="cluster-btn" title="Show every pin on its own instead of grouping nearby pins"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Decluster</span></button>
-          <button class="toggle-btn" id="dot-btn"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Dots</span></button>
         </div>
         <span class="opt-l">Contours</span>
         <div class="opt-row">
@@ -1502,11 +1501,6 @@ function addFilterBar() {
     el.querySelector('#hide-btn').addEventListener('click', e => {
       pinsHidden = !pinsHidden;
       e.currentTarget.classList.toggle('active', pinsHidden);
-      render();
-    });
-    el.querySelector('#dot-btn').addEventListener('click', e => {
-      pinStyle = pinStyle === 'label' ? 'dot' : 'label';
-      e.currentTarget.classList.toggle('active', pinStyle === 'dot');
       render();
     });
   }

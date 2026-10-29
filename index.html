@@ -303,7 +303,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.67';
+const APP_VERSION = '1.68';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -631,7 +631,8 @@ function initMap() {
   leafletMap.attributionControl.setPrefix(
     // same words as before; the spans only keep each phrase whole when the line has to wrap
     '<span class="cr">© 2026 4 Corners Precip Map ·</span> <span class="cr cr-d">Data: Ambient Weather Network; NWS, RAWS and NOAA; SNOTEL/' +
-    '<a href="https://wcc.sc.egov.usda.gov/" target="_blank" rel="noopener">NRCS</a> ·</span> <span class="cr">Readings are unofficial and unverified</span>');
+    '<a href="https://wcc.sc.egov.usda.gov/" target="_blank" rel="noopener">NRCS</a> ·</span> <span class="cr">Readings are unofficial and unverified</span><span class="cr" id="visits"></span>');
+  countVisit();
   L.control.layers({
     'Light gray': light, 'CARTO Voyager': cartoVoyager, 'CARTO Positron': cartoPositron, 'CARTO Dark Matter': cartoDark, 'Streets (OSM)': osm, 'Topographic (OpenTopoMap)': topo,
     'USGS Topo': usgsTopo, 'USGS Imagery + topo': usgsImgTopo, 'USGS Shaded relief': usgsRelief,
@@ -2593,6 +2594,19 @@ const AWDB = 'https://wcc.sc.egov.usda.gov/awdbRestApi/services/v1/';
 const SN_GROUP = 100;                       // sites per NRCS request (fewer, bigger requests: NRCS limits how many arrive in a few minutes)
 const AWDB_WAITS = [4000, 10000, 25000];    // waits before the second, third and fourth try of one request
 const SN_CACHE_MS = 12 * 3600e3;            // a finished period's SNOTEL figures are kept in the browser this long
+// Visit counter (v1.68): a tally kept by the free Abacus counter service, shown in the credits line. One visit per
+// browser session; if the service doesn't answer, the credits line simply goes without it.
+const VISITS = 'https://abacus.jasoncameron.dev/', VISITS_KEY = '4cpm.github.io/precip', VISITS_FROM = 'Oct 29, 2026';
+async function countVisit() {
+  const el = document.getElementById('visits'); if (!el) return;
+  try {
+    let seen = false; try { seen = sessionStorage.getItem('visited') === '1'; sessionStorage.setItem('visited', '1'); } catch (e) {}
+    const r = await fetch(VISITS + (seen ? 'get/' : 'hit/') + VISITS_KEY);
+    if (!r.ok) return;
+    const n = (await r.json()).value;
+    if (typeof n === 'number') el.textContent = ` · ${n.toLocaleString('en-US')} visit${n === 1 ? '' : 's'} since ${VISITS_FROM}`;
+  } catch (e) {}
+}
 const TZ = 'America/Denver';
 function dParts(ms) {
   const o = {};

@@ -303,7 +303,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.69';
+const APP_VERSION = '1.70';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -695,6 +695,9 @@ function drawRings() {
 // least three gauges are within it). Grid: Screen (follows the screen) or Map (tied to the map).
 let conMethod = 'idw';      // 'idw' | 'smooth' | 'krige' | 'elev'
 let conEdge = 'hard';       // 'hard' | 'soft' | 'three'
+let conSurfShade = 'smooth'; // Surface: 'smooth' (colors blend between brackets) | 'steps' (one color per bracket)
+let conSurfLines = false;    // contour lines over the surface
+let conSurfOp = 0.7;         // surface opacity
 let conGrid = 'screen';     // 'screen' | 'map'
 let conLabels = false;
 let conNote = '';
@@ -1021,8 +1024,33 @@ function drawContours() {
     const wx = w00.x + ox + (x - 0.5) * STEP, wy = w00.y + oy + (y - 0.5) * STEP;
     return L.latLng((2 * Math.atan(Math.exp((0.5 - wy / wScale) * 2 * Math.PI)) - Math.PI / 2) * 180 / Math.PI, wx / wScale * 360 - 180);
   };
-  const filled = contourMode === 'filled';
+  const filled = contourMode === 'filled', surface = contourMode === 'surface';
   contourLayer = L.layerGroup();
+  if (surface) {
+    // Surface (raster): every grid cell painted with its own color, upscaled by the browser so it reads as a
+    // continuous surface. Transparent where nothing is estimated; Soft edges fade by distance to the nearest gauge.
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const ctx = cv.getContext('2d'), img = ctx.createImageData(W, H), px = img.data;
+    const asc = CLASSES.slice().reverse();   // lowest bracket first
+    const rgb = asc.map(c => [1, 3, 5].map(i => parseInt(c.bg.slice(i, i + 2), 16)));
+    const lo = asc[0].min, soft = conEdge === 'soft', fadeFrom = 0.45 * maskPx, fadeSpan = Math.max(1, maskPx - fadeFrom);
+    const opA = Math.round(255 * conSurfOp), smooth = conSurfShade === 'smooth';
+    for (let i = 0; i < W * H; i++) {
+      if (!inside[i] || dmin[i] > maskPx) continue;
+      const v = ext[i]; if (v < lo) continue;
+      let k = asc.length - 1; for (let q = 1; q < asc.length; q++) if (v < asc[q].min) { k = q - 1; break; }
+      let r, g, b;
+      if (smooth && k < asc.length - 1) {
+        const t = (v - asc[k].min) / (asc[k + 1].min - asc[k].min), a = rgb[k], c = rgb[k + 1];
+        r = a[0] + (c[0] - a[0]) * t; g = a[1] + (c[1] - a[1]) * t; b = a[2] + (c[2] - a[2]) * t;
+      } else [r, g, b] = rgb[k];
+      let a = opA; if (soft && dmin[i] > fadeFrom) a = Math.round(opA * Math.max(0, 1 - (dmin[i] - fadeFrom) / fadeSpan));
+      const o = i * 4; px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = a;
+    }
+    ctx.putImageData(img, 0, 0);
+    const nw = leafletMap.containerPointToLatLng([ox - STEP / 2, oy - STEP / 2]), se = leafletMap.containerPointToLatLng([ox + (W - 0.5) * STEP, oy + (H - 0.5) * STEP]);
+    L.imageOverlay(cv.toDataURL(), L.latLngBounds(nw, se), { pane: 'contourFill', interactive: false, className: 'con-surface' }).addTo(contourLayer);
+  }
   if (filled) {
     // Soft edges: three nested areas drawn over each other, so the color fades toward the edge.
     const levels = conEdge === 'soft' ? [[1, 0.42], [0.7, 0.42], [0.45, 0.42]] : [[1, 1]];
@@ -1038,7 +1066,7 @@ function drawContours() {
     }
   }
   const labels = [];
-  for (const band of d3.contours().size([W, H]).thresholds(breaks)(Array.from(ext))) {
+  if (!surface || conSurfLines) for (const band of d3.contours().size([W, H]).thresholds(breaks)(Array.from(ext))) {
     const lines = [];
     for (const poly of band.coordinates) for (const ring of poly) {
       let cur = [];
@@ -1050,7 +1078,7 @@ function drawContours() {
     }
     if (!lines.length) continue;
     L.polyline(lines, { pane: 'contourLine', interactive: false,
-      ...(filled ? { color: 'rgba(15,23,42,.45)', weight: 0.9 } : { color: rainClass(band.value).bg, weight: 2.2, opacity: 0.95 }) }).addTo(contourLayer);
+      ...(filled || surface ? { color: 'rgba(15,23,42,.45)', weight: 0.9 } : { color: rainClass(band.value).bg, weight: 2.2, opacity: 0.95 }) }).addTo(contourLayer);
     if (conLabels) for (const ln of lines) if (ln.length >= 14) labels.push([ln.length, ln[Math.floor(ln.length / 2)], band.value]);
   }
   if (conLabels) {
@@ -1270,6 +1298,7 @@ function addFilterBar() {
             <button class="seg-btn" data-con="off">Off</button>
             <button class="seg-btn" data-con="lines">Lines</button>
             <button class="seg-btn active" data-con="filled">Filled</button>
+            <button class="seg-btn" data-con="surface" title="The estimate painted as a continuous surface (raster)">Surface</button>
           </div>
           <button class="info-btn gear" id="con-set-btn" type="button" aria-expanded="false" aria-controls="con-set" title="Contour settings">⚙</button>
         </div>
@@ -1297,6 +1326,15 @@ function addFilterBar() {
             </div>
             <span class="opt-l">Labels</span>
             <div class="opt-row"><button class="toggle-btn" id="con-lab-btn" title="Values on the contour lines"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">On</span></button></div>
+            <span class="opt-l">Surface</span>
+            <div class="opt-row">
+              <div class="seg-ctrl">
+                <button class="seg-btn active" data-cs="smooth" title="Colors blend between the legend brackets">Smooth</button>
+                <button class="seg-btn" data-cs="steps" title="One color per legend bracket">Steps</button>
+              </div>
+              <button class="toggle-btn" id="con-sl-btn" type="button" title="Contour lines over the surface"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Lines</span></button>
+              <span class="leg-num-wrap"><input type="number" class="leg-num" id="con-op" min="30" max="100" step="5" inputmode="numeric" value="70" aria-label="Surface opacity, percent" title="How solid the surface is over the map">% solid</span>
+            </div>
           </div>
           <div class="con-desc" id="con-desc"></div>
         </div>
@@ -1446,7 +1484,7 @@ function addFilterBar() {
       el.querySelectorAll('[data-sus]').forEach(x => x.classList.toggle('active', x === b));
       render();
     }));
-    const conDesc = () => { el.querySelector('#con-desc').textContent = conText(CON_DESC[conMethod] + ' Edges: ' + EDGE_DESC[conEdge]) + '. Grid: ' + (conGrid === 'map' ? 'tied to the map, so contours stay put as you pan.' : 'follows the screen.'); };
+    const conDesc = () => { el.querySelector('#con-desc').textContent = conText(CON_DESC[conMethod] + ' Edges: ' + EDGE_DESC[conEdge]) + '. Grid: ' + (conGrid === 'map' ? 'tied to the map, so contours stay put as you pan.' : 'follows the screen.') + (contourMode === 'surface' ? ' Surface: the same estimate painted as a continuous surface, ' + (conSurfShade === 'smooth' ? 'colors blending between the legend brackets.' : 'one color per legend bracket.') : ''); };
     conDesc();
     // reach: typed in miles, held to 1–30
     const reachInp = el.querySelector('#con-reach');
@@ -1483,6 +1521,16 @@ function addFilterBar() {
     conSet('cm', v => conMethod = v);
     conSet('ce', v => conEdge = v);
     conSet('cg', v => conGrid = v);
+    conSet('cs', v => conSurfShade = v);
+    el.querySelector('#con-sl-btn').addEventListener('click', e => {
+      conSurfLines = !conSurfLines;
+      e.currentTarget.classList.toggle('active', conSurfLines);
+      drawContours();
+    });
+    el.querySelector('#con-op').addEventListener('change', e => {
+      const v = Math.max(30, Math.min(100, Math.round(+e.target.value || 70)));
+      e.target.value = v; conSurfOp = v / 100; drawContours();
+    });
     el.querySelector('#con-lab-btn').addEventListener('click', e => {
       conLabels = !conLabels;
       e.currentTarget.classList.toggle('active', conLabels);
@@ -1491,7 +1539,7 @@ function addFilterBar() {
     el.querySelectorAll('[data-con]').forEach(b => b.addEventListener('click', () => {
       contourMode = b.dataset.con;
       el.querySelectorAll('[data-con]').forEach(x => x.classList.toggle('active', x === b));
-      drawContours(); updateLegend();
+      conDesc(); drawContours(); updateLegend();
     }));
     el.querySelector('#cluster-btn').addEventListener('click', e => {
       clusteringEnabled = !clusteringEnabled;

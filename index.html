@@ -151,27 +151,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .leg-num-wrap{white-space:nowrap;color:#64748b;font-size:11px}
 .legend .panel-body{max-height:calc(100vh - 220px);overflow-y:auto}
 
-/* ── Search ─────────────────────────────────────────────── */
-.search-bar{
-  position:absolute;top:12px;left:50%;transform:translateX(-50%);
-  z-index:1000;display:flex;align-items:center;
-  background:rgba(255,255,255,.96);border-radius:10px;
-  box-shadow:0 4px 24px rgba(0,0,0,.2);
-}
-.search-bar input{border:none;outline:none;background:transparent;font-size:14px;color:#1e293b;padding:10px 14px;width:260px;font-family:inherit}
-.search-bar input::placeholder{color:#94a3b8}
-.search-clear{background:none;border:none;cursor:pointer;padding:0 12px;color:#94a3b8;font-size:16px;line-height:1;display:none}
-.search-clear:hover{color:#475569}
-.search-results{
-  position:absolute;top:calc(100% + 4px);left:0;right:0;
-  background:rgba(255,255,255,.98);border-radius:8px;
-  box-shadow:0 4px 16px rgba(0,0,0,.15);max-height:240px;overflow-y:auto;display:none;
-}
-.search-result-item{padding:7px 12px;font-size:12px;color:#1e293b;cursor:pointer;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;gap:10px}
-.search-result-item:last-child{border-bottom:none}
-.search-result-item:hover,.search-result-item.selected{background:#eff6ff;color:#2563eb}
-.search-result-item .count{color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap}
-
 /* ── Draw control ───────────────────────────────────────── */
 .draw-control{background:rgba(255,255,255,.94);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.15);display:flex;gap:4px;padding:8px 10px}
 .draw-btn{padding:2px 8px;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;border:none;background:rgba(0,0,0,.06);color:#64748b;font-family:inherit}
@@ -269,10 +248,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 /* ── Phones ─────────────────────────────────────────────── */
 @media (max-width:700px){
   .leaflet-control-zoom{display:none}
-  .search-bar{left:10px;right:10px;transform:none;top:calc(10px + env(safe-area-inset-top,0px))}
-  .search-bar input{width:auto;flex:1;min-width:0;font-size:16px;padding:11px 14px}
-  .search-clear{font-size:20px;padding:0 14px}
-  .search-result-item{padding:11px 14px;font-size:14px}
   .leaflet-top{top:calc(58px + env(safe-area-inset-top,0px))}
   .leaflet-top .leaflet-control{margin-top:6px}
   .leaflet-left .leaflet-control{margin-left:10px}
@@ -321,7 +296,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.49';
+const APP_VERSION = '1.50';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -426,7 +401,6 @@ function updateScale() {
     const sig = ['play', play.mode, BREAKS.join(','), legendAdjOpen, contourMode, conMethod, conEdge].join('|');
     if (!legendEl) return false;
     if (sig !== legendSig) { legendSig = sig; updateLegend(); }
-    const h4 = legendEl.querySelector('.panel-head h4'); if (h4) h4.textContent = `Rain ${play.label} (in)`;
     const info = legendEl.querySelector('#leg-info'); if (info) info.textContent = scaleInfo;
     return false;
   }
@@ -579,7 +553,6 @@ let radius = 250;               // miles
 let clusteringEnabled = true;   // on by default: hundreds of gauges at 100 mi
 let pinStyle = 'label';
 let pinsHidden = false;          // hide pins and clusters, e.g. to see contours only
-let activeStation = null;       // search pick
 let activeBBox = null, drawMode = false, drawRect = null, drawStart = null;
 let polyMode = false, polyDrawing = false, activePoly = null, polyVertices = [], polyPreviewLayer = null, polyLayer = null;
 const markersById = {};
@@ -653,7 +626,6 @@ function initMap() {
   addFilterBar();
   addDrawControl();
   addLegend();
-  addSearchBar();
   // keep the open panel inside the map on shorter screens (it scrolls instead)
   const fitObs = new ResizeObserver(() => fitPanels());
   fitObs.observe(document.getElementById('info-panel')); fitObs.observe(leafletMap.getContainer());
@@ -1502,11 +1474,11 @@ function legendHtml() {
   else if (metric === 'year') notes.push('SNOTEL Year is January 1 to now, worked out from the water-year total.');
   if (!M.check) notes.push('Year depends on when each gauge was installed or reset, so it isn\'t checked against nearby gauges. Year readings over 80 in are flagged as impossible here.');
   if (contourMode !== 'off') notes.push(`Contours (${CON_NAMES[conMethod]}) are estimated between gauges, not measured, ${conText(EDGE_DESC[conEdge])}; flagged errors are left out. <span id="con-note">${conNote}</span>`);
-  return `<button class="panel-head" type="button"><h4>${M.title}</h4><span class="chev">▾</span></button><div class="panel-body">` +
+  return `<button class="panel-head" type="button"><h4>Rain</h4><span class="chev">▾</span></button><div class="panel-body">` +
     CLASSES.map(c => `<div class="legend-row"><div class="legend-sw" style="background:${c.bg}"></div>${c.label}</div>`).join('') +
-    `<div class="legend-row" style="margin-top:4px"><div class="legend-sw suspect"></div>Flagged error</div>
-     <div class="legend-row"><div class="legend-sw official"></div>NWS etc</div>
-     <div class="legend-row"><div class="legend-sw snotel"></div>SNOTEL</div>` +
+    `<div class="legend-row" style="margin-top:4px"><div class="legend-sw official"></div>NWS etc</div>
+     <div class="legend-row"><div class="legend-sw snotel"></div>SNOTEL</div>
+     <div class="legend-row"><div class="legend-sw suspect"></div>Flagged error</div>` +
     legendAdjHtml(notes) + `</div>`;
 }
 // Under the rows: an i button (what the brackets fit, and the notes) and Adjust (the bracket settings).
@@ -1605,7 +1577,7 @@ function addDrawControl() {
   hint.querySelector('#draw-cancel').addEventListener('click', () => { if (drawMode) toggleDrawMode(); if (polyMode) togglePolyMode(); });
 
   // Pointer events cover mouse, finger and pen alike.
-  const inUi = e => e.target.closest('.leaflet-control, .search-bar, #sel-panel, #draw-hint');
+  const inUi = e => e.target.closest('.leaflet-control, #sel-panel, #draw-hint');
   const ll = e => leafletMap.mouseEventToLatLng(e);
   let active = false;
   container.addEventListener('pointerdown', e => {
@@ -1773,59 +1745,6 @@ function buildSelectionPanel() {
   });
 }
 
-// ── Search ───────────────────────────────────────────────────────────────────
-function addSearchBar() {
-  const container = leafletMap.getContainer();
-  const bar = document.createElement('div'); bar.className = 'search-bar';
-  const results = document.createElement('div'); results.className = 'search-results';
-  const input = document.createElement('input');
-  input.type = 'text'; input.id = 'station-search'; input.placeholder = 'Search station or town…'; input.autocomplete = 'off';
-  const clearBtn = document.createElement('button'); clearBtn.className = 'search-clear'; clearBtn.textContent = '×'; clearBtn.title = 'Clear search';
-  bar.append(results, input, clearBtn);
-  container.appendChild(bar);
-  L.DomEvent.disableClickPropagation(bar);
-  L.DomEvent.disableScrollPropagation(bar);
-  let hi = -1, matches = [];
-
-  function show(q) {
-    q = q.trim().toLowerCase(); results.innerHTML = '';
-    if (!q) { results.style.display = 'none'; return; }
-    matches = stations.filter(s => [s.name, s.area, s.net].join(' ').toLowerCase().includes(q)).sort((a, b) => a.dist - b.dist).slice(0, 30);
-    if (!matches.length) { results.style.display = 'none'; return; }
-    matches.forEach(s => {
-      const item = document.createElement('div'); item.className = 'search-result-item';
-      const n = document.createElement('span'); n.textContent = s.name + (s.area ? ` · ${s.area}` : '');
-      const c = document.createElement('span'); c.className = 'count'; c.textContent = `${fmtV(s.p)} ${METRICS[metric].unit}`;
-      item.append(n, c);
-      item.addEventListener('mousedown', e => { e.preventDefault(); pick(s); });
-      results.appendChild(item);
-    });
-    results.style.display = 'block'; hi = -1;
-  }
-  function pick(s) {
-    input.value = s.name; results.style.display = 'none'; clearBtn.style.display = 'inline';
-    // make sure it is visible under current filters
-    if (!visible(s)) {
-      if (s.suspect && suspectFilter === 'exclude') document.querySelector('[data-sus="include"]').click();
-      if (srcFilter !== 'all' && srcFilter !== s.src) document.querySelector('[data-src="all"]').click();
-      if (s.dist > radius) document.querySelector('[data-rad="500"]').click();
-    }
-    leafletMap.setView([s.lat, s.lon], 13);
-    setTimeout(() => markersById[s.id]?.openPopup(), 300);
-  }
-  input.addEventListener('input', () => show(input.value));
-  input.addEventListener('focus', () => show(input.value));
-  input.addEventListener('blur', () => setTimeout(() => results.style.display = 'none', 150));
-  input.addEventListener('keydown', e => {
-    const items = results.querySelectorAll('.search-result-item');
-    if (e.key === 'ArrowDown') { e.preventDefault(); hi = Math.min(hi + 1, items.length - 1); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); hi = Math.max(hi - 1, -1); }
-    else if (e.key === 'Enter') { const s = matches[hi >= 0 ? hi : 0]; if (s) pick(s); }
-    else if (e.key === 'Escape') { input.value = ''; clearBtn.style.display = 'none'; results.style.display = 'none'; }
-    items.forEach((el, i) => el.classList.toggle('selected', i === hi));
-  });
-  clearBtn.addEventListener('click', () => { input.value = ''; clearBtn.style.display = 'none'; results.style.display = 'none'; leafletMap.closePopup(); });
-}
 
 // ── Live loading ─────────────────────────────────────────────────────────────
 const fmtTime = ms => new Date(ms).toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: 'numeric', minute: '2-digit' });

@@ -315,7 +315,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.47';
+const APP_VERSION = '1.48';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1863,7 +1863,7 @@ function histStatus() {
     const t = hist.arch.tail;
     msg.className = 'refresh-msg';
     msg.textContent = `History, ${hist.label}: ${n} personal stations from the nightly ${hist.mode === 'h' ? 'hourly ' : ''}archive` +
-      (t ? (tailLive(hist) ? ", plus today so far from each station's live reading" : `, plus ${tailLbl(t)} asked for station by station for the area on screen (not archived until after midnight)`) : '') +
+      (t ? (tailLive(hist) ? ", plus today so far from each station's live reading" : tailLiveHours(hist) ? ", plus today so far from each station's live reading (today's hour-by-hour is read station by station for the area on screen)" : `, plus ${tailLbl(t)} asked for station by station for the area on screen (not archived until after midnight)`) : '') +
       '. Official gauges and SNOTEL are live-only for now.';
     return;
   }
@@ -1926,6 +1926,10 @@ const EVENTS = [
   { id: 'oct21', label: 'Oct 21–25 storm', title: 'Remnants of Hurricane Trudy: Oct 21, 12 AM to Oct 25, 11 PM, 2026, hour by hour', from: '2026-10-21T00', to: '2026-10-25T23' },
 ];
 let hrIndex = null, hrIndexAt = 0, hrTzfix = {};
+const archTz = {};   // station address -> the zone its archived hours are on (tzfix applied)
+// Hours ending now: today's part of each station's total comes from its live reading (rain since its
+// midnight) until its hour-by-hour detail has been read, so the map is complete at once.
+const tailLiveHours = h => !!(h && h.mode === 'h' && h.arch && h.arch.tail && h.arch.tail.day === todayDenver());
 const hrFiles = new Map();        // day -> Promise of hourly file
 const hrStarts = new Map();       // zone|day -> [ms each of its 24 hours starts]
 const zFmt = new Map();
@@ -1959,7 +1963,8 @@ const tailLive = h => !!(h && h.arch && h.arch.tail && h.mode !== 'h' && h.arch.
 const tailLbl = h => h.mode === 'h' ? `${fmtHourMs(h.start)} to ${h.end >= Date.now() - 60e3 ? 'now' : fmtHourMs(h.end)}` : `${fmtDay(h.from)}${h.from === h.to ? '' : '–' + fmtDay(h.to)}`;
 function histHoursHtml(e) {
   const rainy = e.days.filter(([, v]) => v >= 0.005);
-  return (e.have < e.need ? `<div class="hist-gap">Readings for ${e.have} of ${e.need} hours.</div>` : '') +
+  return (e.todayLive != null ? `<div class="hist-gap">Today so far: ${fmtV(e.todayLive)} in from the live reading; today's hours are still being read.</div>` : '') +
+    (e.have < e.need ? `<div class="hist-gap">Readings for ${e.have} of ${e.need} hours.</div>` : '') +
     (rainy.length ? rainy.slice(-31).map(([t, v]) => `<div class="row"><span>${fmtHourMs(t)}</span><span>${fmtV(v)} in</span></div>`).join('') + `<div class="hist-gap">${rainy.length > 31 ? 'Last 31 hours with rain shown.' : 'Hours with no rain not listed.'}</div>`
       : '<div class="hist-gap">No rain in any hour.</div>');
 }
@@ -1972,9 +1977,11 @@ async function archHourFor(h) {
   } catch (e) { return null; }
   const days = (hrIndex.days || []).filter(d => d >= HR_FIRST_DAY).sort();
   if (!days.length) return null;
-  const archEnd = localHourMs(TZ, addDays(days[days.length - 1], 1), 0), aEnd = Math.min(h.end, archEnd);
+  const nextDay = addDays(days[days.length - 1], 1);   // the first day the archive lacks (today, usually)
+  const archEnd = localHourMs(TZ, nextDay, 0), aEnd = Math.min(h.end, archEnd);
   if (aEnd <= h.start) return null;           // nothing archived in the range: all live
-  const tail = h.end > archEnd ? { mode: 'h', start: archEnd, end: h.end, key: 'htail_' + archEnd + '_' + h.end } : null;
+  // The tail is the rest of the period, from each station's own midnight of that day (archTz has the zone).
+  const tail = h.end > archEnd ? { mode: 'h', start: archEnd, end: h.end, day: nextDay, key: 'htail_' + archEnd + '_' + h.end } : null;
   try {
     if (!archStations) {
       const sj = await archJSON('stations.json');
@@ -1984,20 +1991,23 @@ async function archHourFor(h) {
     const d0 = addDays(dayStr(dParts(h.start)), -1), d1 = addDays(dayStr(dParts(aEnd - 1)), 1);
     const want = days.filter(d => d >= d0 && d <= d1);
     const files = await Promise.all(want.map(d => { if (!hrFiles.has(d)) hrFiles.set(d, archJSON('hourly/' + d + '.json').catch(e => { hrFiles.delete(d); throw e; })); return hrFiles.get(d); }));
-    const lo = h.start - 1800e3, needH = Math.round((aEnd - h.start) / 3600e3);
-    const sums = new Map();
+    const lo = h.start - 1800e3;
+    const sums = new Map(), endBy = new Map();   // endBy: a zone's archived-part end (its midnight of nextDay, or the period's end)
     for (const f of files) {
       if (!f || f.v !== 2) continue;
       // rows: [station number, rain in hour 0 ... hour 23 of the station's local day, peak rate], hundredths of an inch
       for (const row of f.rows || []) {
         const st = archList[row[0]]; if (!st) continue;
-        const hs = hourStarts(hrTzfix[row[0]] || st[5] || TZ, f.date);
-        if (hs[23] < lo || hs[0] >= aEnd) continue;
+        const tz = hrTzfix[row[0]] || st[5] || TZ;
+        let stEnd = endBy.get(tz); if (stEnd === undefined) { stEnd = Math.min(h.end, localHourMs(tz, nextDay, 0)); endBy.set(tz, stEnd); }
+        archTz[st[0]] = tz;
+        const hs = hourStarts(tz, f.date);
+        if (hs[23] < lo || hs[0] >= stEnd) continue;
         let e = sums.get(st[0]);
         for (let i = 0; i < 24; i++) {
           const t = hs[i], v = row[1 + i];
-          if (t < lo || t >= aEnd || v == null) continue;
-          if (!e) sums.set(st[0], e = { total: 0, days: [], have: 0, need: needH });
+          if (t < lo || t >= stEnd || v == null) continue;
+          if (!e) sums.set(st[0], e = { total: 0, days: [], have: 0, need: Math.max(1, Math.round((stEnd - h.start) / 3600e3)) });
           e.have++; e.total += v / 100; if (v > 0) e.days.push([t, v / 100]);
         }
       }
@@ -2010,9 +2020,10 @@ async function archHourFor(h) {
 async function fetchHourTail(st, h) {
   const k = h.key + '|' + st.mac;
   histCache.set(k, { busy: true });
+  const start = h.day ? localHourMs(archTz[st.mac] || st.tz || TZ, h.day, 0) : h.start;   // this station's part begins at its own midnight, where its archived hours end
   try {
     const rs = [];
-    for (let s = h.start - 20 * 60e3; s < h.end; s += 6.5 * 86400e3) {
+    for (let s = start - 20 * 60e3; s < h.end; s += 6.5 * 86400e3) {
       const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 25000);
       const r = await fetch('https://lightning.ambientweather.net/device-data?' + new URLSearchParams({
         macAddress: st.mac, dataKey: st.key, start: Math.round(s), end: Math.round(Math.min(h.end, s + 6.5 * 86400e3)), limit: 2000, res: 5 }), { signal: ctl.signal });
@@ -2022,19 +2033,19 @@ async function fetchHourTail(st, h) {
       for (const x of arr) if (x.dailyrainin != null && x.dateutc != null) rs.push([+x.dateutc, +x.dailyrainin]);
     }
     rs.sort((a, b) => a[0] - b[0]);
-    if (!rs.length || rs[rs.length - 1][0] < h.start) { histCache.set(k, { none: true }); return; }
+    if (!rs.length || rs[rs.length - 1][0] < start) { histCache.set(k, { none: true }); return; }
     const byHour = new Map(); let total = 0;
     for (let i = 1; i < rs.length; i++) {
       const [t0, v0] = rs[i - 1], [t1, v1] = rs[i]; if (t1 <= t0) continue;
       let rise = v1 >= v0 ? v1 - v0 : v1;            // a drop: the counter reset at the station's midnight
-      const a = Math.max(t0, h.start), b = Math.min(t1, h.end);
+      const a = Math.max(t0, start), b = Math.min(t1, h.end);
       if (b <= a || rise <= 0) continue;
       rise *= (b - a) / (t1 - t0);
       total += rise;
       const hk = Math.floor((b - 1) / 3600e3) * 3600e3; byHour.set(hk, (byHour.get(hk) || 0) + rise);
     }
-    const need = Math.max(1, Math.round((h.end - h.start) / 3600e3));
-    const covered = Math.min(rs[rs.length - 1][0], h.end) - Math.max(rs[0][0], h.start);
+    const need = Math.max(1, Math.round((h.end - start) / 3600e3));
+    const covered = Math.min(rs[rs.length - 1][0], h.end) - Math.max(rs[0][0], start);
     histCache.set(k, { total: +total.toFixed(2), days: [...byHour.entries()].sort((a, b) => a[0] - b[0]).map(([t, v]) => [t, +v.toFixed(2)]),
       have: Math.min(need, Math.max(0, Math.round(covered / 3600e3))), need });
   } catch (e) { histCache.set(k, { err: true }); }
@@ -2329,8 +2340,8 @@ function playApply() {
     pt = fmtDay(day);
     sub = `${play.mode === 'total' ? 'Rain so far, from ' + fmtDay(play.A) : 'Rain on this day'} · day ${i + 1} of ${play.n}`;
   }
-  const f = play.playing ? play.f : 1;
-  for (const s of stations) { if (!s.hist) continue; const v = frameValue(s, i, f); s.p = v; s.v.hist = v; }
+  const f = play.playing ? play.f : 1, whole = play.mode === 'total' && i === play.n - 1 && f >= 1;
+  for (const s of stations) { if (!s.hist) continue; const v = whole ? s.hist.total : frameValue(s, i, f); s.p = v; s.v.hist = v; }
   // playing: pins near the screen only, repainted in place; paused or scrubbing: every pin
   if (pinsMode !== (play.playing ? 'vb' : 'full') || !playPaint()) render();
   const bar = document.getElementById('play-bar');
@@ -2581,18 +2592,20 @@ function rebuild() {
   const hash = new Map();
   if (hist && hist.arch) {
     const live = new Map(); for (const s of ambient.values()) if (s.mac) live.set(s.mac, s);
-    const t = hist.arch.tail, liveT = tailLive(hist);
+    const t = hist.arch.tail, liveT = tailLive(hist), liveH = tailLiveHours(hist);
     for (const [mac, a] of hist.arch.sums) {
       const m = archStations[mac]; if (!m) continue;
       let total = a.total, days = a.days, have = a.have, need = a.need ?? hist.days;
       const L = live.get(mac);
+      let todayLive = null;
       if (t) {
         const tc = histCache.get(t.key + '|' + mac);
         if (tc && tc.total != null) { total = +(total + tc.total).toFixed(2); days = days.concat(tc.days); have += tc.have; if (hist.mode === 'h') need += tc.need; }
         else if (liveT && L && L.v.day != null) { total = +(total + L.v.day).toFixed(2); days = days.concat([[t.to, L.v.day]]); have += 1; }
+        else if (liveH && L && L.v.day != null) { total = +(total + L.v.day).toFixed(2); todayLive = L.v.day; }   // hours: the total is complete now; the hours of today follow
       }
       amb.push({ src: 'A', net: 'Ambient', name: L ? L.name : m[2], area: L ? L.area : '', lat: m[0], lon: m[1], slug: m[3], mac, key: m[3], tz: m[4],
-        v: { ...(L ? L.v : {}), hist: total }, time: L ? L.time : 'not reporting now', hist: { total, days, have, need } });
+        v: { ...(L ? L.v : {}), hist: total }, time: L ? L.time : 'not reporting now', hist: { total, days, have, need, todayLive } });
     }
   } else
   for (const s of ambient.values()) {

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>4 Corners Precip Map</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
@@ -283,6 +283,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   #play-bar{left:8px;right:8px;transform:none;width:auto;min-width:0;bottom:calc(70px + env(safe-area-inset-bottom,0px))}
   .has-play .leaflet-bottom.leaflet-right .leaflet-control.legend{margin-bottom:calc(190px + env(safe-area-inset-bottom,0px))}
   .has-play.play-min .leaflet-bottom.leaflet-right .leaflet-control.legend{margin-bottom:calc(132px + env(safe-area-inset-bottom,0px))}
+  .legend .panel-body{max-height:calc(100dvh - 150px)}
+  .has-play .legend .panel-body{max-height:calc(100dvh - 335px)}
+  .has-play.play-min .legend .panel-body{max-height:calc(100dvh - 277px)}
   #play-btn{width:40px;height:40px}
   #play-bar .step-btn{padding:6px 10px}
   .leaflet-control-attribution{font-size:9.5px;max-width:calc(100vw - 70px)}
@@ -300,7 +303,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.58';
+const APP_VERSION = '1.59';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -632,7 +635,8 @@ function initMap() {
   addLegend();
   // keep the open panel inside the map on shorter screens (it scrolls instead)
   const fitObs = new ResizeObserver(() => fitPanels());
-  fitObs.observe(document.getElementById('info-panel')); fitObs.observe(leafletMap.getContainer());
+  fitObs.observe(document.getElementById('info-panel')); fitObs.observe(legendEl); fitObs.observe(leafletMap.getContainer());
+  legendEl.addEventListener('click', () => setTimeout(fitLegend, 0));
   document.getElementById('info-panel').addEventListener('click', () => setTimeout(fitPanels, 0));
 
   ringLayer = L.layerGroup().addTo(leafletMap);
@@ -1206,7 +1210,7 @@ function addFilterBar() {
             <button class="filter-btn active" type="button" id="hh-go">Show</button>
           </div>
           </div>
-          <div id="h-msg">Past rain for personal (Ambient) stations, up to a year back. Each day is the station's end-of-day daily total; a period is the sum of its days. One or two days use 5-minute readings, longer periods hourly. Loads station by station for the area on screen.</div>
+          <div id="h-msg">Past rain for personal (Ambient) stations and SNOTEL sites, up to a year back. Each day is the station's end-of-day daily total; a period is the sum of its days. One or two days use 5-minute readings, longer periods hourly. Loads station by station for the area on screen.</div>
         </div>
         <span class="opt-l">Events</span>
         <div class="seg-ctrl wrap">${EVENTS.map(e => `<button class="seg-btn" data-ev="${e.id}" title="${e.title}">${e.label}</button>`).join('')}</div>
@@ -1370,7 +1374,7 @@ function addFilterBar() {
       setHist(a, z);
     });
     // hours
-    const HMSG_D = hm.textContent, HMSG_H = 'Hourly rain for personal (Ambient) stations, back to Oct 19, 2026, when the hourly archive began. Times are Mountain Time. Hours before today come from the nightly hourly archive; today\'s hours are read live, station by station, for the area on screen.';
+    const HMSG_D = hm.textContent, HMSG_H = 'Hourly rain for personal (Ambient) stations and SNOTEL sites, back to Oct 19, 2026, when the hourly archive began. Times are Mountain Time. Hours before today come from the nightly hourly archive; today\'s hours are read live, station by station, for the area on screen.';
     const fd = el.querySelector('#hh-fd'), fh = el.querySelector('#hh-fh'), td = el.querySelector('#hh-td'), th = el.querySelector('#hh-th');
     for (const sel of [fh, th]) sel.innerHTML = Array.from({ length: 24 }, (_, i) => `<option value="${i}">${hourLbl(i)}</option>`).join('');
     for (const inp of [fd, td]) { inp.max = today; inp.min = HR_FIRST_DAY; }
@@ -1471,8 +1475,8 @@ function addFilterBar() {
 function legendHtml() {
   const M = METRICS[metric];
   const notes = [];
-  if (metric === 'hist' && hist && hist.mode === 'h') notes.push('History shows personal (Ambient) stations only for now. Hours are the station\'s 5-minute readings added up by hour.');
-  else if (metric === 'hist') notes.push('History shows personal (Ambient) stations only for now. Each day is the station\'s end-of-day daily total.');
+  if (metric === 'hist' && hist && hist.mode === 'h') notes.push('History shows personal (Ambient) stations and SNOTEL sites; NWS and RAWS gauges are live-only (Year). Hours are the station\'s 5-minute readings added up by hour; SNOTEL hours are in tenths of an inch.');
+  else if (metric === 'hist') notes.push('History shows personal (Ambient) stations and SNOTEL sites; NWS and RAWS gauges are live-only (Year). Each day is the station\'s end-of-day daily total.');
   else if (metric === 'event') notes.push('Official gauges and SNOTEL sites don\'t report this value, so only personal stations show.');
   else if (metric === 'rate') notes.push('SNOTEL sites don\'t report Rate.');
   else if (metric === 'year') notes.push('SNOTEL Year is January 1 to now, worked out from the water-year total.');
@@ -1509,6 +1513,19 @@ function fitPanels() {
   if (ip.classList.contains('collapsed')) return;
   const room = leafletMap.getContainer().getBoundingClientRect().bottom - 44 - b.getBoundingClientRect().top;
   if (b.scrollHeight > room) { b.style.maxHeight = Math.max(120, room) + 'px'; b.style.overflowY = 'auto'; }
+  fitLegend();
+}
+// The legend hangs from the bottom right; when the play bar lifts it, its head must stay on
+// screen (below the top-right buttons on desktop), so its body shrinks and scrolls instead.
+function fitLegend() {
+  const lg = legendEl, lb = lg && lg.querySelector(':scope > .panel-body');
+  if (!lb || !leafletMap) return;
+  if (lg.classList.contains('collapsed')) { lb.style.maxHeight = ''; lb.style.overflowY = ''; return; }
+  const floor = leafletMap.getContainer().getBoundingClientRect().top + (IS_PHONE ? 12 : 150);
+  const extra = lg.offsetHeight - lb.offsetHeight;   // head and padding
+  const allowed = Math.max(90, lg.getBoundingClientRect().bottom - floor - extra);   // the bottom is anchored, so this doesn't depend on the body's current height
+  if (lb.scrollHeight > allowed + 1) { lb.style.maxHeight = allowed + 'px'; lb.style.overflowY = 'auto'; }
+  else { lb.style.maxHeight = ''; lb.style.overflowY = ''; }
 }
 function addLegend() {
   const c = L.control({ position: 'bottomright' });
@@ -1848,9 +1865,10 @@ function histStatus() {
     const msg = document.getElementById('refresh-msg'), n = stations.length;
     const t = hist.arch.tail;
     msg.className = 'refresh-msg';
-    msg.textContent = `History, ${hist.label}: ${n} personal stations from the nightly ${hist.mode === 'h' ? 'hourly ' : ''}archive` +
+    const sn = hist.snotel ? `, and ${hist.snotel.length} SNOTEL sites from NRCS` : hist.snotelErr ? ', SNOTEL could not be loaded' : ', SNOTEL on its way';
+    msg.textContent = `History, ${hist.label}: ${n - (hist.snotel ? hist.snotel.length : 0)} personal stations from the nightly ${hist.mode === 'h' ? 'hourly ' : ''}archive` +
       (t ? (tailLive(hist) ? ", plus today so far from each station's live reading" : tailLiveHours(hist) ? ", plus today so far from each station's live reading (today's hour-by-hour is read station by station for the area on screen)" : `, plus ${tailLbl(t)} asked for station by station for the area on screen (not archived until after midnight)`) : '') +
-      '. Official gauges and SNOTEL are live-only for now.';
+      sn + '. NWS and RAWS gauges are live-only (Year).';
     return;
   }
   const vals = [...histCache.entries()].filter(([k]) => k.startsWith(hist.key + '|')).map(([, v]) => v);
@@ -1858,7 +1876,7 @@ function histStatus() {
   const msg = document.getElementById('refresh-msg');
   msg.className = 'refresh-msg' + (err && !ok ? ' err' : '');
   msg.textContent = `History, ${hist.label}: ${ok} personal stations with readings` + (none ? `, ${none} with none for these dates` : '') + (err ? `, ${err} could not be loaded` : '') +
-    '. Pan or zoom to load more. Official gauges and SNOTEL are live-only for now.';
+    (hist.snotel ? `, and ${hist.snotel.length} SNOTEL sites from NRCS` : '') + '. Pan or zoom to load more. NWS and RAWS gauges are live-only (Year).';
 }
 // Nightly archive: daily totals collected on GitHub's servers into history/
 // (see .github/workflows/history.yml). Days in the archive load from a few
@@ -2100,12 +2118,21 @@ function setHourHist(start, end, label, preset, extra) {
   markShow();
   const h = hist, msg = document.getElementById('refresh-msg');
   msg.className = 'refresh-msg'; msg.textContent = 'Loading…';
+  snotelFor(h);
   archHourFor(h).then(a => {
     if (hist !== h) return;
     h.arch = a;
     updateLegend(); rebuild(); ensureHist();
     playOn();
   });
+}
+// SNOTEL sites for the period, added to the map when they arrive (and to the status line)
+function snotelFor(h) {
+  loadSnotelHist(h).then(list => {
+    if (hist !== h) return;
+    h.snotel = list;
+    if ('arch' in h) { rebuild(); if (!/…\s*$/.test(document.getElementById('refresh-msg').textContent)) histStatus(); }
+  }).catch(e => { if (hist === h) { h.snotelErr = true; console.warn('SNOTEL history', e); } });
 }
 
 function setHist(from, to, label, preset, extra) {
@@ -2121,6 +2148,7 @@ function setHist(from, to, label, preset, extra) {
   markShow();
   const h = hist, msg = document.getElementById('refresh-msg');
   msg.className = 'refresh-msg'; msg.textContent = 'Loading…';
+  snotelFor(h);
   (h.mode === 'h' ? archHourFor(h) : archFor(h)).then(a => {
     if (hist !== h) return;
     h.arch = a;
@@ -2223,6 +2251,7 @@ function addPlayBar() {
   el.querySelector('#play-min').addEventListener('click', e => {
     const min = el.classList.toggle('min');
     leafletMap.getContainer().classList.toggle('play-min', min);
+    setTimeout(fitLegend, 0);
     e.currentTarget.setAttribute('aria-label', min ? 'Expand' : 'Shrink'); e.currentTarget.title = min ? 'Expand' : 'Shrink';
   });
   el.querySelectorAll('[data-step]').forEach(b => b.addEventListener('click', () => { if (!play) return; playPause(); playGo(play.i + +b.dataset.step); }));
@@ -2269,6 +2298,7 @@ function playOff() {
   clearTimeout(play.timer); play = null;
   const bar = document.getElementById('play-bar'); if (bar) bar.classList.remove('on');
   leafletMap.getContainer().classList.remove('has-play');
+  setTimeout(fitLegend, 0);
   legendSig = '';
   for (const s of stations) if (s.hist && s.hist.total != null) { s.p = s.hist.total; s.v.hist = s.hist.total; }
 }
@@ -2524,10 +2554,34 @@ function rise(seq) {
   if (seq.length < 2) return seq.length ? 0 : null;
   let base = seq[0], peak = base, carried = 0;
   for (const v of seq.slice(1)) {
-    if (peak - v > 0.5) { carried += peak - base; base = 0; peak = v; }
-    else if (v > peak) peak = v;
+    if (peak - v > Math.max(2, peak / 2)) { carried += peak - base; base = 0; peak = v; }   // the reset: the total drops to near zero
+    else if (v > peak) peak = v;                                                           // smaller dips are the gauge's wobble (evaporation, temperature), not rain
   }
   return +(carried + peak - base).toFixed(2);
+}
+// Rain in each step of a running total: a rise above the running peak counts, a dip is wobble,
+// a drop to near zero is the reset. items: [{k, v}], the first being the base reading.
+function stepRises(items) {
+  const out = []; let P = items[0].v;
+  for (let i = 1; i < items.length; i++) {
+    const v = items[i].v;
+    if (P - v > Math.max(2, P / 2)) { if (v > 0) out.push([items[i].k, +v.toFixed(2)]); P = v; }
+    else if (v > P) { out.push([items[i].k, +(v - P).toFixed(2)]); P = v; }
+  }
+  return out;
+}
+// Transient glitches dropped: a jump of more than 0.5 either way that is undone within 6 readings.
+function cleanSeries(arr, get = x => x.v) {
+  const out = [];
+  for (let i = 0; i < arr.length; i++) {
+    const v = get(arr[i]), prev = out.length ? get(out[out.length - 1]) : null;
+    if (prev != null && Math.abs(v - prev) > 0.5) {
+      const j = arr.slice(i + 1, i + 7).findIndex(x => Math.abs(get(x) - prev) <= 0.5);
+      if (j >= 0) { i += j; out.push(arr[i]); continue; }
+    }
+    out.push(arr[i]);
+  }
+  return out;
 }
 async function awdb(trips, elements, duration, begin, end) {
   const r = await fetch(`${AWDB}data?stationTriplets=${trips.join(',')}&elements=${elements}&duration=${duration}&beginDate=${encodeURIComponent(begin)}&endDate=${encodeURIComponent(end)}`);
@@ -2557,7 +2611,7 @@ async function loadSnotel() {
       awdb(trips, 'PREC', 'MONTHLY', `${p.y - 1}-12-01`, `${p.y}-${String(p.m).padStart(2, '0')}-01`),
     ]);
     for (const s of group) {
-      const h = H[s.stationTriplet] || {}, prec = (h.PREC || []).filter(x => x.value != null);
+      const h = H[s.stationTriplet] || {}, prec = cleanSeries((h.PREC || []).filter(x => x.value != null), x => x.value);
       if (!prec.length) continue;
       const last = prec[prec.length - 1], lastMs = pstMs(last.date);
       if (now - lastMs > 6 * 3600e3) continue;                       // not reporting
@@ -2566,7 +2620,7 @@ async function loadSnotel() {
       const startDay = atOrBefore(prec, dayStart);
       const day = rise([startDay, ...prec.filter(x => pstMs(x.date) > dayStart).map(x => x.value)]);
       // Week and Month: from the daily total that closed the day before, then on to the latest hour
-      const dv = ((D[s.stationTriplet] || {}).PREC || []).filter(x => x.value != null);
+      const dv = cleanSeries(((D[s.stationTriplet] || {}).PREC || []).filter(x => x.value != null), x => x.value);
       const fromDaily = start => {
         const before = dv.filter(x => pstMs(x.date) + 86400e3 <= start + 3 * 3600e3);
         if (!before.length) return null;
@@ -2588,6 +2642,83 @@ async function loadSnotel() {
     snotel = out.slice();
     rebuild();
   }
+}
+
+// SNOTEL for a past period (v1.59): each site's running total is read from NRCS for the
+// period, hour by hour (Hours) or day by day (Whole days), and its rise is the rain.
+// Hourly values are in tenths of an inch, so an hour reads 0.1 or 0.
+let snotelSites = null;
+async function snotelSiteList() {
+  if (snotelSites) return snotelSites;
+  const r = await fetch(AWDB + 'stations?stationTriplets=' + encodeURIComponent(['CO', 'UT', 'NM', 'AZ', 'WY', 'ID', 'NV'].map(s => `*:${s}:SNTL`).join(',')) + '&returnStationElements=false&activeOnly=true');
+  if (!r.ok) throw new Error('NRCS HTTP ' + r.status);
+  snotelSites = (await r.json()).filter(s => miles(DATA_CENTER.lat, DATA_CENTER.lon, s.latitude, s.longitude) <= MAX_RADIUS);
+  return snotelSites;
+}
+async function loadSnotelHist(h) {
+  const sites = await snotelSiteList();
+  const hourMode = h.mode === 'h', now = Date.now();
+  const start = hourMode ? h.start : localHourMs(TZ, h.from, 0), end = hourMode ? h.end : Math.min(now, localHourMs(TZ, addDays(h.to, 1), 0));
+  const todayPst = pstDay(now);
+  const out = [], groups = [];
+  for (let i = 0; i < sites.length; i += 50) groups.push(sites.slice(i, i + 50));
+  await Promise.all(groups.map(async g => {
+    const trips = g.map(x => x.stationTriplet);
+    const needHourly = hourMode || end > now - 26 * 3600e3;   // today's part comes from the hours
+    const [H, P, D] = await Promise.all([
+      needHourly ? awdb(trips, 'PREC', 'HOURLY', pstHour((hourMode ? start : end - 30 * 3600e3) - 3600e3), pstHour(end + 3600e3)) : Promise.resolve({}),
+      awdb(trips, 'PRCP', 'DAILY', pstDay(start - 86400e3), pstDay(end)),        // NRCS's own rain for each day
+      awdb(trips, 'PREC', 'DAILY', pstDay(start - 3 * 86400e3), pstDay(end)),    // the running total at each day's close
+    ]);
+    for (const site of g) {
+      const T = site.stationTriplet;
+      const hv = cleanSeries(((H[T] || {}).PREC || []).filter(x => x.value != null).map(x => ({ t: pstMs(x.date), v: x.value })).filter(x => x.t <= end));
+      const dv = cleanSeries(((D[T] || {}).PREC || []).filter(x => x.value != null).map(x => ({ d: x.date.slice(0, 10), v: x.value })));
+      const pv = new Map(((P[T] || {}).PRCP || []).filter(x => x.value != null).map(x => [x.date.slice(0, 10), x.value]));
+      // rain on a (PST) day: NRCS's increment, else the rise of the running total from the day before's close
+      const dayRain = d => { if (pv.has(d)) return pv.get(d); const i = dv.findIndex(x => x.d === d); return i > 0 ? rise([dv[i - 1].v, dv[i].v]) : null; };
+      let total = 0, days = [], have = 0, need, lastMs = 0;
+      if (hourMode) {
+        let bi = -1; for (let i = 0; i < hv.length; i++) if (hv[i].t <= start) bi = i;   // base: the reading at or before the start
+        if (bi < 0 || hv.length - 1 <= bi) continue;
+        lastMs = hv[hv.length - 1].t;
+        if (end - lastMs > 3 * 3600e3 && end < now - 3600e3) continue;   // stopped reporting partway through
+        if (now - lastMs > 6 * 3600e3 && end >= now - 3600e3) continue;   // not reporting now
+        const items = hv.slice(bi).map(x => ({ k: x.t - 3600e3, v: x.v }));   // a reading at T is the total through the hour that ends at T
+        const rises = stepRises(items);
+        // The gauge's daily wobble (it reads high on warm afternoons and settles back by night) would count as
+        // rain hour by hour, so each day's hours are held to NRCS's rain for that day; today's hours stand as read.
+        const byDay = new Map();
+        for (const r of rises) { const d = pstDay(r[0]); (byDay.get(d) || byDay.set(d, []).get(d)).push(r); }
+        for (const [d, rs] of byDay) {
+          if (d >= todayPst) continue;
+          const cap = dayRain(d); if (cap == null) continue;
+          const sum = rs.reduce((a, r) => a + r[1], 0);
+          if (sum > cap + 1e-9) { const f = sum > 0 ? cap / sum : 0; for (const r of rs) r[1] = +(r[1] * f).toFixed(2); }
+        }
+        days = rises.filter(r => r[1] > 0);
+        total = +rises.reduce((a, r) => a + r[1], 0).toFixed(2);
+        have = items.length - 1; need = Math.max(1, Math.round((end - start) / 3600e3));
+      } else {
+        for (let d = h.from; d <= h.to; d = addDays(d, 1)) {
+          let v;
+          if (d < todayPst) { v = dayRain(d); if (v != null) lastMs = Math.max(lastMs, pstMs(d) + 86400e3); }
+          else if (hv.length) {   // today so far: the rise since yesterday's close
+            const y = dv.find(x => x.d === addDays(d, -1)); const last = hv[hv.length - 1];
+            if (now - last.t > 6 * 3600e3) continue;
+            v = y ? rise([y.v, last.v]) : null; lastMs = Math.max(lastMs, last.t);
+          }
+          if (v == null) continue;
+          have++; total = +(total + v).toFixed(2); if (v > 0) days.push([d, v]);
+        }
+        if (!have) continue;
+        need = dayCount(h.from, h.to);
+      }
+      out.push({ src: 'S', net: 'SNOTEL', name: `${site.name} SNOTEL`, area: site.stateCode, lat: site.latitude, lon: site.longitude, elev: site.elevation,
+        snotel: site.stationId, time: fmtTime(Math.min(lastMs || now, now)), v: { hist: total }, hist: { total, days, have, need } });
+    }
+  }));
+  return out;
 }
 
 // Combine, de-duplicate and redraw ------------------------------------------
@@ -2622,7 +2753,7 @@ function rebuild() {
     const k = hkey(Math.floor(c.lat / HASH), Math.floor(c.lon / HASH));
     (hash.get(k) || hash.set(k, []).get(k)).push(c);
   }
-  stations = [...amb, ...(hist ? [] : official), ...(hist ? [] : snotel)].filter(s => s.v[metric] != null).map((s, i) => ({ ...s, p: s.v[metric], id: i }));
+  stations = [...amb, ...(hist ? [] : official), ...(hist ? (hist.snotel || []) : snotel)].filter(s => s.v[metric] != null).map((s, i) => ({ ...s, p: s.v[metric], id: i }));
   computeDerived();
   pinsMode = 'none';   // the pins on the map still point at the old station objects, so the next frame redraws them
   if (play) playApply(); else render();

@@ -303,7 +303,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.70';
+const APP_VERSION = '1.71';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -571,7 +571,7 @@ let pinsHidden = false;          // hide pins and clusters, e.g. to see contours
 let activeBBox = null, drawMode = false, drawRect = null, drawStart = null;
 let polyMode = false, polyDrawing = false, activePoly = null, polyVertices = [], polyPreviewLayer = null, polyLayer = null;
 const markersById = {};
-let contourMode = 'filled';        // 'off' | 'lines' | 'filled'
+let contourMode = 'surface';        // 'off' | 'lines' | 'filled' | 'surface'
 let contourLayer = null;
 let conReachMi = 13;            // contours reach this far from each gauge; the map is blank beyond it (typed in Contours ⚙)
 let conAuto = true;             // Auto: the reach follows the view, as far as it takes to leave no blank spot inside the radius
@@ -696,8 +696,8 @@ function drawRings() {
 let conMethod = 'idw';      // 'idw' | 'smooth' | 'krige' | 'elev'
 let conEdge = 'hard';       // 'hard' | 'soft' | 'three'
 let conSurfShade = 'smooth'; // Surface: 'smooth' (colors blend between brackets) | 'steps' (one color per bracket)
-let conSurfLines = false;    // contour lines over the surface
-let conSurfOp = 0.7;         // surface opacity
+let conSurfLines = true;     // contour lines over the surface
+let conSurfOp = 1;           // surface opacity
 let conGrid = 'screen';     // 'screen' | 'map'
 let conLabels = false;
 let conNote = '';
@@ -1297,8 +1297,8 @@ function addFilterBar() {
           <div class="seg-ctrl">
             <button class="seg-btn" data-con="off">Off</button>
             <button class="seg-btn" data-con="lines">Lines</button>
-            <button class="seg-btn active" data-con="filled">Filled</button>
-            <button class="seg-btn" data-con="surface" title="The estimate painted as a continuous surface (raster)">Surface</button>
+            <button class="seg-btn" data-con="filled">Filled</button>
+            <button class="seg-btn active" data-con="surface" title="The estimate painted as a continuous surface (raster)">Surface</button>
           </div>
           <button class="info-btn gear" id="con-set-btn" type="button" aria-expanded="false" aria-controls="con-set" title="Contour settings">⚙</button>
         </div>
@@ -1332,8 +1332,8 @@ function addFilterBar() {
                 <button class="seg-btn active" data-cs="smooth" title="Colors blend between the legend brackets">Smooth</button>
                 <button class="seg-btn" data-cs="steps" title="One color per legend bracket">Steps</button>
               </div>
-              <button class="toggle-btn" id="con-sl-btn" type="button" title="Contour lines over the surface"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Lines</span></button>
-              <span class="leg-num-wrap"><input type="number" class="leg-num" id="con-op" min="30" max="100" step="5" inputmode="numeric" value="70" aria-label="Surface opacity, percent" title="How solid the surface is over the map">% solid</span>
+              <button class="toggle-btn active" id="con-sl-btn" type="button" title="Contour lines over the surface"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Lines</span></button>
+              <span class="leg-num-wrap"><input type="number" class="leg-num" id="con-op" min="30" max="100" step="5" inputmode="numeric" value="100" aria-label="Surface opacity, percent" title="How solid the surface is over the map">% solid</span>
             </div>
           </div>
           <div class="con-desc" id="con-desc"></div>

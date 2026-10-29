@@ -297,7 +297,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.51';
+const APP_VERSION = '1.52';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1045,8 +1045,8 @@ function createMarkerLayer() {
           const vals = cluster.getAllChildMarkers().map(m => m.options.rain).filter(v => v != null);
           const med = median(vals) ?? 0, c = rainClass(med);
           return L.divIcon({
-            html: `<div style="width:40px;height:40px;border-radius:50%;background:${c.bg};color:${c.fg};font-size:11px;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:center;border:3px solid rgba(255,255,255,.85);box-shadow:0 2px 6px rgba(0,0,0,.35);line-height:1.05"><span>${med.toFixed(2)}</span><span style="font-size:9px;font-weight:600;opacity:.85">n=${vals.length}</span></div>`,
-            className: '', iconSize: [40, 40], iconAnchor: [20, 20],
+            html: `<div style="width:30px;height:30px;border-radius:50%;background:${c.bg};color:${c.fg};font-size:10px;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.6);box-shadow:0 1px 2px rgba(0,0,0,.2);line-height:1.05"><span>${med.toFixed(2)}</span><span style="font-size:8px;font-weight:600;opacity:.85">n=${vals.length}</span></div>`,
+            className: '', iconSize: [30, 30], iconAnchor: [15, 15],
           });
         },
       })
@@ -2334,12 +2334,13 @@ function playApply() {
       ? (dParts(play.A).d === dParts(e).d ? `${fmtHourMs(play.A)} – ${fmtHourMs(e, false)}` : `${fmtHourMs(play.A)} – ${fmtHourMs(e)}`)
       : `${fmtHourMs(play.A + i * 3600e3)} – ${fmtHourMs(e, false)}`;
     pt = play.mode === 'total' ? fmtHourMs(e) : `${fmtHourMs(play.A + i * 3600e3)} – ${fmtHourMs(e, false)}`;
-    sub = `${play.mode === 'total' ? 'Rain so far, from ' + fmtHourMs(play.A) : 'Rain in this hour'} · hour ${i + 1} of ${play.n}`;
+    const z = play.end;
+    sub = `${dParts(play.A).d === dParts(z).d ? `${fmtHourMs(play.A)} – ${fmtHourMs(z, false)}` : `${fmtHourMs(play.A)} – ${fmtHourMs(z)}`} · hour ${i + 1} of ${play.n}`;
   } else {
     const day = addDays(play.A, i);
     play.label = play.mode === 'total' ? (i === 0 ? fmtDay(day) : `${fmtDay(play.A)} – ${fmtDay(day)}`) : fmtDay(day);
     pt = fmtDay(day);
-    sub = `${play.mode === 'total' ? 'Rain so far, from ' + fmtDay(play.A) : 'Rain on this day'} · day ${i + 1} of ${play.n}`;
+    sub = `${play.n === 1 ? fmtDay(play.A) : `${fmtDay(play.A)} – ${fmtDay(addDays(play.A, play.n - 1))}`} · day ${i + 1} of ${play.n}`;
   }
   const f = play.playing ? play.f : 1, whole = play.mode === 'total' && i === play.n - 1 && f >= 1;
   for (const s of stations) { if (!s.hist) continue; const v = whole ? s.hist.total : frameValue(s, i, f); s.p = v; s.v.hist = v; }

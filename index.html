@@ -303,7 +303,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.66';
+const APP_VERSION = '1.67';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1909,7 +1909,7 @@ function histStatus() {
     const msg = document.getElementById('refresh-msg'), n = stations.length;
     const t = hist.arch.tail;
     msg.className = 'refresh-msg';
-    const sn = hist.snotel ? `, ${hist.snotel.length} SNOTEL sites from NRCS${hist.snotelPartial ? ' (NRCS did not answer for some)' : ''}` : hist.snotelErr ? ', SNOTEL not loaded yet (NRCS did not answer; trying again)' : ', SNOTEL on its way';
+    const sn = hist.snotel ? `, ${hist.snotel.length} SNOTEL sites from NRCS${hist.snotelPartial ? ' (NRCS is limiting requests; the rest are asked for again shortly)' : ''}` : hist.snotelErr ? ', SNOTEL not loaded yet (NRCS is limiting requests; trying again)' : ', SNOTEL on its way';
     const off = hist.official ? (hist.officialSkip ? '' : `, and ${hist.official.length} NWS and RAWS gauges from the Iowa Environmental Mesonet`) : hist.officialErr ? ', NWS/RAWS could not be loaded' : ', NWS/RAWS on their way';
     msg.textContent = `History, ${hist.label}: ${n - (hist.snotel ? hist.snotel.length : 0) - (hist.official ? hist.official.length : 0)} personal stations from the nightly ${hist.mode === 'h' ? 'hourly ' : ''}archive` +
       (t ? (tailLive(hist) ? ", plus today so far from each station's live reading" : tailLiveHours(hist) ? ", plus today so far from each station's live reading (today's hour-by-hour is read station by station for the area on screen)" : `, plus ${tailLbl(t)} asked for station by station for the area on screen (not archived until after midnight)`) : '') +
@@ -2172,16 +2172,23 @@ function setHourHist(start, end, label, preset, extra) {
   });
 }
 // SNOTEL sites for the period, added to the map when they arrive (and to the status line)
-function snotelFor(h) {
-  loadSnotelHist(h).then(list => {
+function snotelFor(h, only) {
+  const k = snCacheKey(h);
+  const show = () => { if ('arch' in h) { rebuild(); if (!/…\s*$/.test(document.getElementById('refresh-msg').textContent)) histStatus(); } };
+  if (!only && k) { const c = snCacheGet(k); if (c) { h.snotel = c; h.snotelPartial = false; show(); return; } }
+  loadSnotelHist(h, only).then(list => {
     if (hist !== h) return;
-    h.snotel = list; h.snotelPartial = !!list.partial; delete h.snotelErr;
-    if ('arch' in h) { rebuild(); if (!/…\s*$/.test(document.getElementById('refresh-msg').textContent)) histStatus(); }
+    h.snotel = only && h.snotel ? h.snotel.concat(list) : list;
+    h.snotelPartial = list.failed.length > 0; delete h.snotelErr;
+    if (k && !h.snotelPartial) snCachePut(k, h.snotel);
+    show();
+    // the groups NRCS refused: asked for again in 45 s, up to twice
+    if (list.failed.length && (h.snotelFills = (h.snotelFills || 0) + 1) <= 2) setTimeout(() => { if (hist === h) snotelFor(h, list.failed); }, 45000);
   }).catch(e => {
     if (hist !== h) return;
     h.snotelErr = true; console.warn('SNOTEL history', e);
-    if ('arch' in h && !/…\s*$/.test(document.getElementById('refresh-msg').textContent)) histStatus();
-    if (!h.snotelRetried) { h.snotelRetried = true; setTimeout(() => { if (hist === h && !h.snotel) snotelFor(h); }, 20000); }   // one more try in 20 s
+    if (!h.snotel) show();
+    if (!h.snotelRetried) { h.snotelRetried = true; setTimeout(() => { if (hist === h && !h.snotel) snotelFor(h); }, 30000); }   // the whole set once more in 30 s
   });
 }
 
@@ -2583,6 +2590,9 @@ async function loadOfficial() {
 // Rain for a period = how far that total rose since the period began.
 let snotel = [];
 const AWDB = 'https://wcc.sc.egov.usda.gov/awdbRestApi/services/v1/';
+const SN_GROUP = 100;                       // sites per NRCS request (fewer, bigger requests: NRCS limits how many arrive in a few minutes)
+const AWDB_WAITS = [4000, 10000, 25000];    // waits before the second, third and fourth try of one request
+const SN_CACHE_MS = 12 * 3600e3;            // a finished period's SNOTEL figures are kept in the browser this long
 const TZ = 'America/Denver';
 function dParts(ms) {
   const o = {};
@@ -2633,28 +2643,30 @@ function cleanSeries(arr, get = x => x.v) {
   }
   return out;
 }
-async function awdb(trips, elements, duration, begin, end) {
-  const url = `${AWDB}data?stationTriplets=${trips.join(',')}&elements=${elements}&duration=${duration}&beginDate=${encodeURIComponent(begin)}&endDate=${encodeURIComponent(end)}`;
+// NRCS answers 403 when too many requests arrive from one address within a few minutes, and drops one now and
+// then: each request gets up to four tries, with growing waits, before it is given up.
+async function awdbJson(url) {
   let last = null;
-  for (let i = 0; i < 3; i++) {   // NRCS drops or refuses a request now and then: try again, twice
+  for (let i = 0; ; i++) {
     try {
       const r = await fetch(url);
-      if (r.ok) {
-        const out = {};
-        for (const st of await r.json()) for (const el of st.data || []) (out[st.stationTriplet] ||= {})[el.stationElement.elementCode] = el.values || [];
-        return out;
-      }
+      if (r.ok) return await r.json();
       last = new Error('NRCS HTTP ' + r.status);
-      if (r.status < 500 && r.status !== 429) break;
+      if (r.status < 500 && r.status !== 403 && r.status !== 429) break;
     } catch (e) { last = e; }
-    await new Promise(x => setTimeout(x, 1500 * (i + 1)));
+    if (i >= AWDB_WAITS.length) break;
+    await new Promise(x => setTimeout(x, AWDB_WAITS[i]));
   }
   throw last || new Error('NRCS');
 }
+async function awdb(trips, elements, duration, begin, end) {
+  const out = {};
+  for (const st of await awdbJson(`${AWDB}data?stationTriplets=${trips.join(',')}&elements=${elements}&duration=${duration}&beginDate=${encodeURIComponent(begin)}&endDate=${encodeURIComponent(end)}`))
+    for (const el of st.data || []) (out[st.stationTriplet] ||= {})[el.stationElement.elementCode] = el.values || [];
+  return out;
+}
 async function loadSnotel() {
-  const r = await fetch(AWDB + 'stations?stationTriplets=' + encodeURIComponent(['CO', 'UT', 'NM', 'AZ', 'WY', 'ID', 'NV'].map(s => `*:${s}:SNTL`).join(',')) + '&returnStationElements=false&activeOnly=true');
-  if (!r.ok) throw new Error('NRCS HTTP ' + r.status);
-  const sites = (await r.json()).filter(s => miles(DATA_CENTER.lat, DATA_CENTER.lon, s.latitude, s.longitude) <= MAX_RADIUS);
+  const sites = await snotelSiteList();
   const now = Date.now(), p = dParts(now);
   const dayStart = denverMidnight(p.y, p.m, p.d);
   const weekStart = dayStart - p.wd * 86400e3;            // week starts Sunday
@@ -2663,7 +2675,7 @@ async function loadSnotel() {
   const daily0 = pstDay(Math.min(weekStart, monthStart) - 2 * 86400e3), daily1 = pstDay(now);
   const out = [];
   const chunks = [];
-  for (let i = 0; i < sites.length; i += 50) chunks.push(sites.slice(i, i + 50));
+  for (let i = 0; i < sites.length; i += SN_GROUP) chunks.push(sites.slice(i, i + SN_GROUP));
   const one = async group => {
     const trips = group.map(s => s.stationTriplet);
     const [H, D, M] = await Promise.all([
@@ -2709,29 +2721,30 @@ async function loadSnotel() {
 // period, hour by hour (Hours) or day by day (Whole days), and its rise is the rain.
 // Hourly values are in tenths of an inch, so an hour reads 0.1 or 0.
 let snotelSites = null;
-async function snotelSiteList() {
-  if (snotelSites) return snotelSites;
-  const r = await fetch(AWDB + 'stations?stationTriplets=' + encodeURIComponent(['CO', 'UT', 'NM', 'AZ', 'WY', 'ID', 'NV'].map(s => `*:${s}:SNTL`).join(',')) + '&returnStationElements=false&activeOnly=true');
-  if (!r.ok) throw new Error('NRCS HTTP ' + r.status);
-  snotelSites = (await r.json()).filter(s => miles(DATA_CENTER.lat, DATA_CENTER.lon, s.latitude, s.longitude) <= MAX_RADIUS);
-  return snotelSites;
+let snotelSitesP = null;
+function snotelSiteList() {   // one request, shared by the live and history loaders
+  if (snotelSites) return Promise.resolve(snotelSites);
+  if (!snotelSitesP) snotelSitesP = awdbJson(AWDB + 'stations?stationTriplets=' + encodeURIComponent(['CO', 'UT', 'NM', 'AZ', 'WY', 'ID', 'NV'].map(s => `*:${s}:SNTL`).join(',')) + '&returnStationElements=false&activeOnly=true')
+    .then(list => snotelSites = list.filter(s => miles(DATA_CENTER.lat, DATA_CENTER.lon, s.latitude, s.longitude) <= MAX_RADIUS))
+    .catch(e => { snotelSitesP = null; throw e; });
+  return snotelSitesP;
 }
-async function loadSnotelHist(h) {
+async function loadSnotelHist(h, only) {   // only: indexes of the site groups to (re)load
   const sites = await snotelSiteList();
   const hourMode = h.mode === 'h', now = Date.now();
   const start = hourMode ? h.start : localHourMs(TZ, h.from, 0), end = hourMode ? h.end : Math.min(now, localHourMs(TZ, addDays(h.to, 1), 0));
   const todayPst = pstDay(now);
-  const out = [], groups = [];
-  let failed = 0;
-  for (let i = 0; i < sites.length; i += 50) groups.push(sites.slice(i, i + 50));
-  await inBatches(groups, 3, async g => { try {   // three groups at a time; a group that fails is skipped, not the whole set
+  const out = [], groups = [], failed = [];
+  for (let i = 0; i < sites.length; i += SN_GROUP) groups.push(sites.slice(i, i + SN_GROUP));
+  const todo = groups.map((g, i) => [g, i]).filter(([, i]) => !only || only.includes(i));
+  await inBatches(todo, 3, async ([g, gi]) => { try {   // three groups at a time; a group that fails is skipped, not the whole set
     const trips = g.map(x => x.stationTriplet);
     const needHourly = hourMode || end > now - 26 * 3600e3;   // today's part comes from the hours
-    const [H, P, D] = await Promise.all([
+    const [H, PD] = await Promise.all([
       needHourly ? awdb(trips, 'PREC', 'HOURLY', pstHour((hourMode ? start : end - 30 * 3600e3) - 3600e3), pstHour(end + 3600e3)) : Promise.resolve({}),
-      awdb(trips, 'PRCP', 'DAILY', pstDay(start - 86400e3), pstDay(end)),        // NRCS's own rain for each day
-      awdb(trips, 'PREC', 'DAILY', pstDay(start - 3 * 86400e3), pstDay(end)),    // the running total at each day's close
+      awdb(trips, 'PRCP,PREC', 'DAILY', pstDay(start - 3 * 86400e3), pstDay(end)),   // NRCS's own rain for each day, and the running total at each day's close
     ]);
+    const P = PD, D = PD;
     for (const site of g) {
       const T = site.stationTriplet;
       const hv = cleanSeries(((H[T] || {}).PREC || []).filter(x => x.value != null).map(x => ({ t: pstMs(x.date), v: x.value })).filter(x => x.t <= end));
@@ -2779,10 +2792,22 @@ async function loadSnotelHist(h) {
       out.push({ src: 'S', net: 'SNOTEL', name: `${site.name} SNOTEL`, area: site.stateCode, lat: site.latitude, lon: site.longitude, elev: site.elevation,
         snotel: site.stationId, time: fmtTime(Math.min(lastMs || now, now)), v: { hist: total }, hist: { total, days, have, need } });
     }
-  } catch (e) { failed++; console.warn('SNOTEL group', e); } });
-  if (failed && failed === groups.length) throw new Error('NRCS unreachable');
-  out.partial = failed > 0;
+  } catch (e) { failed.push(gi); console.warn('SNOTEL group', gi, e); } });
+  if (failed.length && failed.length === todo.length) throw new Error('NRCS unreachable');
+  out.failed = failed;
   return out;
+}
+// A period that ended more than two hours ago reads the same every time: its SNOTEL figures are kept in the browser.
+function snCacheKey(h) {
+  const now = Date.now(), end = h.mode === 'h' ? h.end : Math.min(now, localHourMs(TZ, addDays(h.to, 1), 0));
+  return end > now - 2 * 3600e3 ? null : 'sn2|' + (h.mode === 'h' ? h.start + '|' + h.end : h.from + '|' + h.to);
+}
+function snCacheGet(k) { try { const j = JSON.parse(localStorage.getItem(k) || 'null'); if (j && Date.now() - j.t < SN_CACHE_MS && Array.isArray(j.list)) return j.list; } catch (e) {} return null; }
+function snCachePut(k, list) {
+  const v = JSON.stringify({ t: Date.now(), list });
+  try { localStorage.setItem(k, v); } catch (e) {
+    try { for (const key of Object.keys(localStorage)) if (key.startsWith('sn2|')) localStorage.removeItem(key); localStorage.setItem(k, v); } catch (e2) {}
+  }
 }
 
 // NWS ASOS/AWOS and RAWS for a past period (v1.60), from the Iowa Environmental Mesonet.

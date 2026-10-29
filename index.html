@@ -303,7 +303,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.62';
+const APP_VERSION = '1.63';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1216,13 +1216,10 @@ function addFilterBar() {
         <div class="opt-row">
           <span class="leg-num-wrap"><input type="number" class="leg-num" id="win-hours" min="1" step="1" inputmode="numeric" aria-label="The last how many hours" title="The last N hours, ending now, back to October 19, 2026, when the hourly archive began"> hours</span>
           <span class="leg-num-wrap"><input type="number" class="leg-num" id="win-days" min="1" max="${HIST_MAX_DAYS - 1}" step="1" inputmode="numeric" aria-label="The last how many days" title="The last N days, ending now: hour by hour as far back as the hourly archive reaches (about a week), whole days beyond that"> days</span>
-          <div class="seg-ctrl">
-            ${['year'].map(k => `<button class="seg-btn${k === metric ? ' active' : ''}" data-metric="${k}" title="${METRICS[k].title.replace(/ \(.*\)$/, '')}, as the gauges report it now">${METRICS[k].label}</button>`).join('')}
-            <button class="seg-btn" data-hist="pick" title="Any dates or hours">Choose dates</button>
-          </div>
+          <div class="seg-ctrl"><button class="seg-btn" data-hist="pick" title="Any dates or hours, or the year to date">Choose dates</button></div>
         </div>
         <div class="info-pop" id="hist-pop" hidden>
-          <div class="hist-row"><div class="seg-ctrl"><button class="seg-btn active" type="button" data-hmode="d">Whole days</button><button class="seg-btn" type="button" data-hmode="h">Hours</button></div></div>
+          <div class="hist-row"><div class="seg-ctrl"><button class="seg-btn active" type="button" data-hmode="d">Whole days</button><button class="seg-btn" type="button" data-hmode="h">Hours</button></div><div class="seg-ctrl"><button class="seg-btn${metric === 'year' ? ' active' : ''}" type="button" data-metric="year" title="Rain this year to date, as the gauges report it now (live)">Year</button></div></div>
           <div id="h-days">
           <div class="hist-row"><label>From <input type="date" id="h-from"></label><label>To <input type="date" id="h-to"></label></div>
           <div class="hist-row">
@@ -2111,7 +2108,7 @@ function markShow() {
   const wh = document.getElementById('win-hours'); if (wh) { wh.classList.toggle('active', w === 'nhours'); wh.value = w === 'nhours' ? hist.nhours : ''; }
   const wd = document.getElementById('win-days'); if (wd) { wd.classList.toggle('active', w === 'ndays'); wd.value = w === 'ndays' ? hist.ndays : ''; }
   document.querySelectorAll('[data-ev]').forEach(x => x.classList.toggle('active', w === 'ev:' + x.dataset.ev));
-  document.querySelectorAll('[data-hist]').forEach(x => x.classList.toggle('active', w === 'pick'));
+  document.querySelectorAll('[data-hist]').forEach(x => x.classList.toggle('active', w === 'pick' || (!hist && metric === 'year')));
 }
 // A named event: its hours, with the pickers set to match
 function showEvent(id) {

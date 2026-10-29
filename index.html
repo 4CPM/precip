@@ -58,7 +58,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   background:rgba(255,255,255,.94);color:#1e293b;
   padding:12px 16px 13px;border-radius:10px;
   box-shadow:0 4px 20px rgba(0,0,0,.15);
-  width:392px;max-width:calc(100vw - 20px);font-size:13px;line-height:1.5;
+  width:362px;max-width:calc(100vw - 20px);font-size:13px;line-height:1.5;
   backdrop-filter:blur(8px);
 }
 .info-panel .filters{margin-top:10px;padding-top:9px;border-top:1px solid rgba(0,0,0,.08)}
@@ -303,7 +303,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.63';
+const APP_VERSION = '1.64';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1219,7 +1219,7 @@ function addFilterBar() {
           <div class="seg-ctrl"><button class="seg-btn" data-hist="pick" title="Any dates or hours, or the year to date">Choose dates</button></div>
         </div>
         <div class="info-pop" id="hist-pop" hidden>
-          <div class="hist-row"><div class="seg-ctrl"><button class="seg-btn active" type="button" data-hmode="d">Whole days</button><button class="seg-btn" type="button" data-hmode="h">Hours</button></div><div class="seg-ctrl"><button class="seg-btn${metric === 'year' ? ' active' : ''}" type="button" data-metric="year" title="Rain this year to date, as the gauges report it now (live)">Year</button></div></div>
+          <div class="hist-row"><div class="seg-ctrl"><button class="seg-btn active" type="button" data-hmode="d">Whole days</button><button class="seg-btn" type="button" data-hmode="h">Hours</button></div><div class="seg-ctrl"><button class="seg-btn${metric === 'year' ? ' active' : ''}" type="button" data-metric="year" title="Rain this year to date, as the gauges report it now (live)">Year</button></div><button class="info-btn" id="h-info-btn" type="button" aria-expanded="false" aria-controls="h-msg" title="About past dates">i</button></div>
           <div id="h-days">
           <div class="hist-row"><label>From <input type="date" id="h-from"></label><label>To <input type="date" id="h-to"></label></div>
           <div class="hist-row">
@@ -1241,7 +1241,7 @@ function addFilterBar() {
             <button class="filter-btn active" type="button" id="hh-go">Show</button>
           </div>
           </div>
-          <div id="h-msg">Past rain for personal (Ambient) stations and SNOTEL sites, up to a year back, with NWS and RAWS gauges for periods up to 10 days. Each day is the station's end-of-day daily total; a period is the sum of its days. One or two days use 5-minute readings, longer periods hourly. Loads station by station for the area on screen.</div>
+          <div id="h-msg" hidden>Past rain for personal (Ambient) stations and SNOTEL sites, up to a year back, with NWS and RAWS gauges for periods up to 10 days. Each day is the station's end-of-day daily total; a period is the sum of its days. One or two days use 5-minute readings, longer periods hourly. Loads station by station for the area on screen.</div>
         </div>
         <span class="opt-l">Events</span>
         <div class="seg-ctrl wrap">${EVENTS.map(e => `<button class="seg-btn" data-ev="${e.id}" title="${e.title}">${e.label}</button>`).join('')}</div>
@@ -1385,6 +1385,10 @@ function addFilterBar() {
     wd.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); wd.blur(); } });
     el.querySelectorAll('[data-ev]').forEach(b => b.addEventListener('click', () => { el.querySelector('#hist-pop').hidden = true; showEvent(b.dataset.ev); }));
     const hf = el.querySelector('#h-from'), ht = el.querySelector('#h-to'), hm = el.querySelector('#h-msg');
+    el.querySelector('#h-info-btn').addEventListener('click', e => {
+      const open = hm.hidden; hm.hidden = !open;
+      e.currentTarget.setAttribute('aria-expanded', String(open)); e.currentTarget.classList.toggle('active', open);
+    });
     const today = todayDenver(), minDay = addDays(today, -(HIST_MAX_DAYS - 1));
     for (const inp of [hf, ht]) { inp.max = today; inp.min = minDay; }
     hf.value = ht.value = addDays(today, -1);
@@ -1397,7 +1401,7 @@ function addFilterBar() {
     }));
     el.querySelector('#h-go').addEventListener('click', () => {
       let a = hf.value, z = ht.value;
-      if (!a || !z) { hm.textContent = 'Pick both dates.'; return; }
+      if (!a || !z) { hm.hidden = false; hm.textContent = 'Pick both dates.'; return; }
       if (a > z) [a, z] = [z, a];
       if (a < minDay) a = minDay;
       if (z > todayDenver()) z = todayDenver();
@@ -1419,12 +1423,12 @@ function addFilterBar() {
     }));
     el.querySelectorAll('[data-hh]').forEach(b => b.addEventListener('click', () => showHours(+b.dataset.hh)));
     el.querySelector('#hh-go').addEventListener('click', () => {
-      if (!fd.value || !td.value) { hm.textContent = 'Pick both dates.'; return; }
+      if (!fd.value || !td.value) { hm.hidden = false; hm.textContent = 'Pick both dates.'; return; }
       let a = localHourMs(TZ, fd.value, +fh.value), z = localHourMs(TZ, td.value, +th.value);
       if (a > z) [a, z] = [z, a];
       if (z > Date.now()) z = Date.now();
       if (a < hrFirstMs()) a = hrFirstMs();
-      if (z - a < 3600e3) { hm.textContent = 'Pick at least one hour.'; return; }
+      if (z - a < 3600e3) { hm.hidden = false; hm.textContent = 'Pick at least one hour.'; return; }
       hm.textContent = HMSG_H;
       setHourHist(a, z);
     });

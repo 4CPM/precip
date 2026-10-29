@@ -306,7 +306,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.55';
+const APP_VERSION = '1.56';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1134,7 +1134,7 @@ function addInfoPanel() {
     el.id = 'info-panel';
     el.innerHTML = `
       <div class="app-name">4 Corners Precip Map <span id="app-ver"></span></div>
-      <button class="panel-head" type="button"><h2 id="info-title">Rain Today</h2><span class="summary" id="st-summary">Loading…</span><span class="chev">▾</span></button>
+      <button class="panel-head" type="button"><h2 id="info-title">Rain Today</h2><span class="chev">▾</span></button>
       <div class="panel-body">
         <div class="asof" id="asof"></div>
         <div class="stat"><span>Gauges shown</span><span class="val" id="st-n"></span></div>
@@ -1171,7 +1171,6 @@ function updateStats() {
   document.getElementById('info-title').textContent = metric === 'day' ? 'Rain Today' : metric === 'hist' && hist ? `Rain: ${play ? play.label : hist.label}` : `Rain: ${METRICS[metric].label}`;
   document.getElementById('st-rng').textContent = good.length ? `${fmtV(Math.min(...good))} – ${fmtV(Math.max(...good))} ${U}` : '—';
   document.getElementById('st-sus').textContent = `${inRadius.filter(s => s.suspect).length}${suspectFilter === 'exclude' ? ' (hidden)' : ''}`;
-  document.getElementById('st-summary').textContent = stations.length ? `${vis.length} gauges` : 'Loading…';
 }
 
 // ── Filter bar ───────────────────────────────────────────────────────────────

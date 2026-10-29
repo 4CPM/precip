@@ -303,7 +303,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.59';
+const APP_VERSION = '1.60';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -330,11 +330,19 @@ const METRICS = {
   hist:  { label: 'Period', title: 'Rain for the dates picked (in)',    unit: 'in',                                              breaks: [0.01, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00], scale: 1.5,  check: true },
   year:  { label: 'Year',  title: 'Rain this year (in)',               unit: 'in',    amb: 'yearlyrainin',              breaks: [0.01, 2, 4, 6, 8, 10, 12, 15],                   scale: 10,   check: false, max: 80 },
 };
-const COLORS = [   // lowest class first
-  { bg: '#e5f5e0', fg: '#0f172a' }, { bg: '#a1d99b', fg: '#0f172a' }, { bg: '#31a354', fg: '#fff' }, { bg: '#41b6c4', fg: '#0f172a' },
-  { bg: '#2c7fb8', fg: '#fff' },    { bg: '#253494', fg: '#fff' },    { bg: '#7a0177', fg: '#fff' }, { bg: '#c51b8a', fg: '#fff' },
-  { bg: '#e31a1c', fg: '#fff' },    { bg: '#a50f15', fg: '#fff' },    { bg: '#f16913', fg: '#fff' }, { bg: '#1f1f1f', fg: '#fff' },
-];
+// Color schemes (legend → Adjust → Colors), lowest class first; text color follows the shade.
+const SCHEMES = {
+  classic: { label: 'Classic', hex: ['#e5f5e0', '#a1d99b', '#31a354', '#41b6c4', '#2c7fb8', '#253494', '#7a0177', '#c51b8a', '#e31a1c', '#a50f15', '#f16913', '#1f1f1f'] },
+  blues:   { label: 'Blues',   hex: ['#eff6ff', '#dbeafe', '#bfdbfe', '#93c5fd', '#60a5fa', '#3b82f6', '#2563eb', '#1d4ed8', '#1e40af', '#1e3a8a', '#172554', '#0b1130'] },
+  heat:    { label: 'Heat',    hex: ['#ffffcc', '#ffeda0', '#fed976', '#feb24c', '#fd8d3c', '#fc4e2a', '#e31a1c', '#bd0026', '#800026', '#4a0012', '#2a000a', '#000000'] },
+  viridis: { label: 'Viridis', hex: ['#fde725', '#c2df23', '#86d549', '#52c569', '#2ab07f', '#1e9b8a', '#25858e', '#2d708e', '#38588c', '#433e85', '#482173', '#440154'] },
+  gray:    { label: 'Gray',    hex: ['#f5f5f5', '#e5e5e5', '#d4d4d4', '#c0c0c0', '#a8a8a8', '#8f8f8f', '#777777', '#5f5f5f', '#484848', '#333333', '#1f1f1f', '#000000'] },
+};
+function schemeColors(k) {
+  return SCHEMES[k].hex.map(bg => { const [r, g, b] = [1, 3, 5].map(i => parseInt(bg.slice(i, i + 2), 16)); return { bg, fg: (r * 299 + g * 587 + b * 114) / 1000 >= 142 ? '#0f172a' : '#fff' }; });
+}
+let colorScheme = 'classic';
+let COLORS = schemeColors(colorScheme);
 let metric = 'day';
 const fmtV = v => v >= 100 ? v.toFixed(0) : v.toFixed(2);
 // Build legend classes from a list of lower bounds. The fixed brackets keep their
@@ -405,7 +413,7 @@ function updateScale() {
   if (play) {   // playback: brackets held for the whole run so colors can be compared frame to frame
     BREAKS = play.breaks; CLASSES = makeClasses(BREAKS, false);
     scaleInfo = play.mode === 'total' ? 'Brackets fit the totals for the whole period, held while playing.' : 'Brackets fit single hours, up to the wettest 1% of rainy hours in the period, held while playing.';
-    const sig = ['play', play.mode, BREAKS.join(','), legendAdjOpen, contourMode, conMethod, conEdge].join('|');
+    const sig = ['play', play.mode, BREAKS.join(','), legendAdjOpen, contourMode, conMethod, conEdge, colorScheme].join('|');
     if (!legendEl) return false;
     if (sig !== legendSig) { legendSig = sig; updateLegend(); }
     const info = legendEl.querySelector('#leg-info'); if (info) info.textContent = scaleInfo;
@@ -426,7 +434,7 @@ function updateScale() {
   }
   BREAKS = b || METRICS[metric].breaks;
   CLASSES = makeClasses(BREAKS, !b);
-  const sig = [metric, BREAKS.join(','), legendRange, legendMethod, legendSteps, legendAdjOpen, contourMode, conMethod, conEdge].join('|');
+  const sig = [metric, BREAKS.join(','), legendRange, legendMethod, legendSteps, legendAdjOpen, contourMode, conMethod, conEdge, colorScheme].join('|');
   if (!legendEl) return false;
   if (sig !== legendSig) { legendSig = sig; updateLegend(); return true; }
   const info = legendEl.querySelector('#leg-info');
@@ -1210,7 +1218,7 @@ function addFilterBar() {
             <button class="filter-btn active" type="button" id="hh-go">Show</button>
           </div>
           </div>
-          <div id="h-msg">Past rain for personal (Ambient) stations and SNOTEL sites, up to a year back. Each day is the station's end-of-day daily total; a period is the sum of its days. One or two days use 5-minute readings, longer periods hourly. Loads station by station for the area on screen.</div>
+          <div id="h-msg">Past rain for personal (Ambient) stations and SNOTEL sites, up to a year back, with NWS and RAWS gauges for periods up to 10 days. Each day is the station's end-of-day daily total; a period is the sum of its days. One or two days use 5-minute readings, longer periods hourly. Loads station by station for the area on screen.</div>
         </div>
         <span class="opt-l">Events</span>
         <div class="seg-ctrl wrap">${EVENTS.map(e => `<button class="seg-btn" data-ev="${e.id}" title="${e.title}">${e.label}</button>`).join('')}</div>
@@ -1374,7 +1382,7 @@ function addFilterBar() {
       setHist(a, z);
     });
     // hours
-    const HMSG_D = hm.textContent, HMSG_H = 'Hourly rain for personal (Ambient) stations and SNOTEL sites, back to Oct 19, 2026, when the hourly archive began. Times are Mountain Time. Hours before today come from the nightly hourly archive; today\'s hours are read live, station by station, for the area on screen.';
+    const HMSG_D = hm.textContent, HMSG_H = 'Hourly rain for personal (Ambient) stations, SNOTEL sites and NWS and RAWS gauges, back to Oct 19, 2026, when the hourly archive began. Times are Mountain Time. Hours before today come from the nightly hourly archive; today\'s hours are read live, station by station, for the area on screen.';
     const fd = el.querySelector('#hh-fd'), fh = el.querySelector('#hh-fh'), td = el.querySelector('#hh-td'), th = el.querySelector('#hh-th');
     for (const sel of [fh, th]) sel.innerHTML = Array.from({ length: 24 }, (_, i) => `<option value="${i}">${hourLbl(i)}</option>`).join('');
     for (const inp of [fd, td]) { inp.max = today; inp.min = HR_FIRST_DAY; }
@@ -1475,8 +1483,8 @@ function addFilterBar() {
 function legendHtml() {
   const M = METRICS[metric];
   const notes = [];
-  if (metric === 'hist' && hist && hist.mode === 'h') notes.push('History shows personal (Ambient) stations and SNOTEL sites; NWS and RAWS gauges are live-only (Year). Hours are the station\'s 5-minute readings added up by hour; SNOTEL hours are in tenths of an inch.');
-  else if (metric === 'hist') notes.push('History shows personal (Ambient) stations and SNOTEL sites; NWS and RAWS gauges are live-only (Year). Each day is the station\'s end-of-day daily total.');
+  if (metric === 'hist' && hist && hist.mode === 'h') notes.push('History shows personal (Ambient) stations, SNOTEL sites, and NWS and RAWS gauges (periods up to 10 days). Hours are the station\'s 5-minute readings added up by hour; SNOTEL hours are in tenths of an inch.');
+  else if (metric === 'hist') notes.push('History shows personal (Ambient) stations, SNOTEL sites, and NWS and RAWS gauges (periods up to 10 days). Each day is the station\'s end-of-day daily total.');
   else if (metric === 'event') notes.push('Official gauges and SNOTEL sites don\'t report this value, so only personal stations show.');
   else if (metric === 'rate') notes.push('SNOTEL sites don\'t report Rate.');
   else if (metric === 'year') notes.push('SNOTEL Year is January 1 to now, worked out from the water-year total.');
@@ -1500,6 +1508,7 @@ function legendAdjHtml(notes) {
     <div class="leg-adj"${legendAdjOpen ? '' : ' hidden'}>
       <span class="opt-l">Brackets</span>${seg('lr', legendRange, [['loaded', 'All loaded', 'Fit to every gauge loaded within the radius'], ['screen', 'On screen', 'Fit to the gauges on screen; changes as you pan and zoom'], ['fixed', 'Fixed', 'The set brackets, the same every time']])}
       <span class="opt-l">Steps</span>${seg('lm', legendMethod, [['equal', 'Equal', 'Equal steps with round edges'], ['count', 'Equal counts', 'Each color holds about the same number of gauges']], fixed)}
+      <span class="opt-l">Colors</span>${seg('cs', colorScheme, Object.entries(SCHEMES).map(([k, v]) => [k, v.label]))}
       <span class="opt-l">Number</span><span class="leg-num-wrap"><input type="number" class="leg-num" id="leg-steps" min="${LEG_MIN}" max="${LEG_MAX}" step="1" inputmode="numeric" value="${legendSteps}"${fixed ? ' disabled' : ''} aria-label="Number of steps" title="How many colors, ${LEG_MIN} to ${LEG_MAX}"> ${LEG_MIN}–${LEG_MAX}</span>
     </div>`;
 }
@@ -1547,6 +1556,7 @@ function addLegend() {
       if (t.id === 'leg-adj') legendAdjOpen = !legendAdjOpen;
       else if (t.dataset.lr) legendRange = t.dataset.lr;
       else if (t.dataset.lm) legendMethod = t.dataset.lm;
+      else if (t.dataset.cs) { colorScheme = t.dataset.cs; COLORS = schemeColors(colorScheme); }
       else return;
       legendSig = '';
       if (play) play.breaks = playBreaks();
@@ -1865,10 +1875,11 @@ function histStatus() {
     const msg = document.getElementById('refresh-msg'), n = stations.length;
     const t = hist.arch.tail;
     msg.className = 'refresh-msg';
-    const sn = hist.snotel ? `, and ${hist.snotel.length} SNOTEL sites from NRCS` : hist.snotelErr ? ', SNOTEL could not be loaded' : ', SNOTEL on its way';
-    msg.textContent = `History, ${hist.label}: ${n - (hist.snotel ? hist.snotel.length : 0)} personal stations from the nightly ${hist.mode === 'h' ? 'hourly ' : ''}archive` +
+    const sn = hist.snotel ? `, ${hist.snotel.length} SNOTEL sites from NRCS` : hist.snotelErr ? ', SNOTEL could not be loaded' : ', SNOTEL on its way';
+    const off = hist.official ? (hist.officialSkip ? '' : `, and ${hist.official.length} NWS and RAWS gauges from the Iowa Environmental Mesonet`) : hist.officialErr ? ', NWS/RAWS could not be loaded' : ', NWS/RAWS on their way';
+    msg.textContent = `History, ${hist.label}: ${n - (hist.snotel ? hist.snotel.length : 0) - (hist.official ? hist.official.length : 0)} personal stations from the nightly ${hist.mode === 'h' ? 'hourly ' : ''}archive` +
       (t ? (tailLive(hist) ? ", plus today so far from each station's live reading" : tailLiveHours(hist) ? ", plus today so far from each station's live reading (today's hour-by-hour is read station by station for the area on screen)" : `, plus ${tailLbl(t)} asked for station by station for the area on screen (not archived until after midnight)`) : '') +
-      sn + '. NWS and RAWS gauges are live-only (Year).';
+      sn + off + '.' + (hist.officialSkip ? ` NWS and RAWS cover periods up to ${OFF_MAX_DAYS} days.` : '');
     return;
   }
   const vals = [...histCache.entries()].filter(([k]) => k.startsWith(hist.key + '|')).map(([, v]) => v);
@@ -1876,7 +1887,7 @@ function histStatus() {
   const msg = document.getElementById('refresh-msg');
   msg.className = 'refresh-msg' + (err && !ok ? ' err' : '');
   msg.textContent = `History, ${hist.label}: ${ok} personal stations with readings` + (none ? `, ${none} with none for these dates` : '') + (err ? `, ${err} could not be loaded` : '') +
-    (hist.snotel ? `, and ${hist.snotel.length} SNOTEL sites from NRCS` : '') + '. Pan or zoom to load more. NWS and RAWS gauges are live-only (Year).';
+    (hist.snotel ? `, ${hist.snotel.length} SNOTEL sites from NRCS` : '') + (hist.official && !hist.officialSkip ? `, and ${hist.official.length} NWS and RAWS gauges from the Iowa Environmental Mesonet` : '') + '. Pan or zoom to load more.';
 }
 // Nightly archive: daily totals collected on GitHub's servers into history/
 // (see .github/workflows/history.yml). Days in the archive load from a few
@@ -2118,7 +2129,7 @@ function setHourHist(start, end, label, preset, extra) {
   markShow();
   const h = hist, msg = document.getElementById('refresh-msg');
   msg.className = 'refresh-msg'; msg.textContent = 'Loading…';
-  snotelFor(h);
+  snotelFor(h); officialFor(h);
   archHourFor(h).then(a => {
     if (hist !== h) return;
     h.arch = a;
@@ -2148,7 +2159,7 @@ function setHist(from, to, label, preset, extra) {
   markShow();
   const h = hist, msg = document.getElementById('refresh-msg');
   msg.className = 'refresh-msg'; msg.textContent = 'Loading…';
-  snotelFor(h);
+  snotelFor(h); officialFor(h);
   (h.mode === 'h' ? archHourFor(h) : archFor(h)).then(a => {
     if (hist !== h) return;
     h.arch = a;
@@ -2721,6 +2732,125 @@ async function loadSnotelHist(h) {
   return out;
 }
 
+// NWS ASOS/AWOS and RAWS for a past period (v1.60), from the Iowa Environmental Mesonet.
+// ASOS: the routine hourly observations' past-hour precipitation. RAWS: the SHEF hourly increment (PPH),
+// else the precipitation accumulator (PC) differenced. Periods up to 10 days; longer ones go without them.
+const IEM = 'https://mesonet.agron.iastate.edu/';
+const IEM_STATES = ['CO', 'UT', 'NM', 'AZ', 'WY', 'NV', 'ID', 'TX', 'OK', 'KS', 'NE', 'CA'];
+const OFF_MAX_DAYS = 10;
+let iemNets = null;   // station lists within the radius: { asos: {net: [...]}, raws: {net: [...]} }
+async function iemNetworks() {
+  if (iemNets) return iemNets;
+  const asos = {}, raws = {};
+  await Promise.all(IEM_STATES.flatMap(st => ['ASOS', 'DCP'].map(async kind => {
+    const net = st + '_' + kind;
+    try {
+      const r = await fetch(IEM + 'geojson/network/' + net + '.geojson'); if (!r.ok) return;
+      const list = [];
+      for (const f of (await r.json()).features || []) {
+        const [lon, lat] = f.geometry.coordinates, id = f.properties.sid || f.id, name = f.properties.sname || String(id);
+        if (miles(DATA_CENTER.lat, DATA_CENTER.lon, lat, lon) > MAX_RADIUS) continue;
+        if (kind === 'DCP' && !/RAWS/i.test(name)) continue;
+        list.push({ id: String(id), name, lat, lon, st });
+      }
+      if (list.length) (kind === 'ASOS' ? asos : raws)[net] = list;
+    } catch (e) { console.warn('IEM network', net, e); }
+  })));
+  iemNets = { asos, raws };
+  return iemNets;
+}
+const utcQ = (ms, n) => { const x = new Date(ms); return `year${n}=${x.getUTCFullYear()}&month${n}=${x.getUTCMonth() + 1}&day${n}=${x.getUTCDate()}&hour${n}=${x.getUTCHours()}&minute${n}=${x.getUTCMinutes()}`; };
+async function inBatches(items, n, fn) { for (let i = 0; i < items.length; i += n) await Promise.all(items.slice(i, i + n).map(fn)); }
+async function loadOfficialHist(h) {
+  const hourMode = h.mode === 'h', now = Date.now();
+  const start = hourMode ? h.start : localHourMs(TZ, h.from, 0), end = Math.min(now, hourMode ? h.end : localHourMs(TZ, addDays(h.to, 1), 0));
+  if (end - start > OFF_MAX_DAYS * 86400e3 + 1) return { list: [], skipped: true };
+  const nets = await iemNetworks();
+  const A = Math.floor(start / 3600e3) * 3600e3, nH = Math.max(1, Math.ceil((end - A) / 3600e3));
+  const hourOf = ms => Math.floor((ms - A) / 3600e3);
+  const out = [];
+  const mk = (s, net, kind, e) => {
+    if (end >= now - 3600e3 && now - e.last > 6 * 3600e3) return null;   // not reporting now
+    let total = 0, have = 0; const hours = [];
+    for (let k = 0; k < nH; k++) { if (e.seen[k]) have++; const v = e.hours[k]; if (v > 0.005) { total += v; hours.push([A + k * 3600e3, +v.toFixed(2)]); } }
+    if (!have) return null;
+    total = +total.toFixed(2);
+    let days = hours, need = nH;
+    if (!hourMode) {
+      const m = new Map(); for (const [t, v] of hours) { const d = dayStr(dParts(t)); m.set(d, +((m.get(d) || 0) + v).toFixed(2)); }
+      days = [...m]; need = dayCount(h.from, h.to);
+      const seenDays = new Set(); for (let k = 0; k < nH; k++) if (e.seen[k]) seenDays.add(dayStr(dParts(A + k * 3600e3))); have = seenDays.size;
+    }
+    const name = kind === 'NWS ASOS' ? titleCase(s.name) + ` (${/^[A-Z0-9]{3}$/.test(s.id) ? 'K' + s.id : s.id})` : titleCase(s.name);
+    return { src: 'O', net: kind, name, area: s.st, lat: s.lat, lon: s.lon, iem: { net, id: s.id }, time: fmtTime(Math.min(e.last || now, now)), v: { hist: total }, hist: { total, days, have, need } };
+  };
+  const push = x => { if (x) out.push(x); };
+  // ASOS/AWOS: one request per state network for its stations within the radius; the routine hourly
+  // observations (near real time), each carrying the past hour's precipitation
+  const dayQ = (ms, n) => { const x = new Date(ms); return `year${n}=${x.getUTCFullYear()}&month${n}=${x.getUTCMonth() + 1}&day${n}=${x.getUTCDate()}`; };
+  await inBatches(Object.entries(nets.asos), 4, async ([net, list]) => {
+    try {
+      const url = IEM + 'cgi-bin/request/asos.py?' + list.map(x => 'station=' + encodeURIComponent(x.id)).join('&') + '&data=p01i&' + dayQ(A, 1) + '&' + dayQ(end + 86400e3, 2) + '&tz=Etc/UTC&format=onlycomma&latlon=no&elev=no&missing=empty&trace=0.0001&direct=no&report_type=3';
+      const r = await fetch(url); if (!r.ok) return;
+      const byId = new Map();
+      for (const line of (await r.text()).trim().split('\n').slice(1)) {
+        const c = line.split(','); if (c.length < 3) continue;
+        const t = Date.parse(c[1].replace(' ', 'T') + ':00Z'); if (!Number.isFinite(t) || t > end + 1800e3) continue;
+        const k = hourOf(t - 1800e3); if (k < 0 || k >= nH) continue;   // an observation at :53 carries the hour before it
+        let v = +c[2]; if (!(v > 0.005)) v = 0;
+        let e = byId.get(c[0]); if (!e) byId.set(c[0], e = { hours: new Float32Array(nH), seen: new Uint8Array(nH), last: 0 });
+        e.hours[k] += v; e.seen[k] = 1; if (t > e.last) e.last = t;
+      }
+      for (const x of list) { const e = byId.get(x.id); if (e) push(mk(x, net, 'NWS ASOS', e)); }
+    } catch (e) { console.warn('IEM hourly', net, e); }
+  });
+  // RAWS: one request per state network for its RAWS sites
+  await inBatches(Object.entries(nets.raws), 4, async ([net, list]) => {
+    try {
+      const url = IEM + 'cgi-bin/request/hads.py?network=' + net + '&' + list.map(x => 'stations=' + encodeURIComponent(x.id)).join('&') + '&' + utcQ(A - 3600e3, 1) + '&' + utcQ(end + 1800e3, 2) + '&what=txt&delim=comma';
+      const r = await fetch(url); if (!r.ok) return;
+      const lines = (await r.text()).trim().split('\n'); if (lines.length < 2) return;
+      const head = lines[0].split(','), iPP = head.indexOf('PPHRGZZ'), iPC = head.indexOf('PCIRGZZ');
+      if (iPP < 0 && iPC < 0) return;
+      const obs = new Map();
+      for (const line of lines.slice(1)) {
+        const c = line.split(','), t = Date.parse((c[1] || '').replace(' ', 'T') + 'Z'); if (!Number.isFinite(t)) continue;
+        const pp = iPP >= 0 && c[iPP] !== '' && c[iPP] != null ? +c[iPP] : null, pc = iPC >= 0 && c[iPC] !== '' && c[iPC] != null ? +c[iPC] : null;
+        if (pp == null && pc == null) continue;
+        (obs.get(c[0]) || obs.set(c[0], []).get(c[0])).push({ t, pp, pc });
+      }
+      for (const x of list) {
+        const rows = obs.get(x.id); if (!rows) continue;
+        rows.sort((a, b) => a.t - b.t);
+        const e = { hours: new Float32Array(nH), seen: new Uint8Array(nH), last: 0 };
+        const usePP = rows.some(o => o.pp != null);
+        let prevPc = null;
+        for (const o of rows) {
+          const k = hourOf(o.t - 1800e3);   // a reading at :27 is mostly the hour before it
+          let v = 0;
+          if (usePP) { if (o.pp == null) continue; v = o.pp; }
+          else { if (prevPc != null) { const d = o.pc - prevPc; v = d >= 0 && d < 2 ? d : 0; } prevPc = o.pc; }
+          if (k < 0 || k >= nH) continue;
+          if (v > 0.005) e.hours[k] += v;
+          e.seen[k] = 1; if (o.t > e.last) e.last = o.t;
+        }
+        push(mk(x, net, 'RAWS', e));
+      }
+    } catch (e) { console.warn('IEM RAWS', net, e); }
+  });
+  // the same site in two networks: keep the first
+  const kept = [], hash = new Map();
+  for (const x of out) { if (near(hash, x, 0.3).length) continue; kept.push(x); const k = hkey(Math.floor(x.lat / HASH), Math.floor(x.lon / HASH)); (hash.get(k) || hash.set(k, []).get(k)).push(x); }
+  return { list: kept, skipped: false };
+}
+function officialFor(h) {
+  loadOfficialHist(h).then(({ list, skipped }) => {
+    if (hist !== h) return;
+    h.official = list; h.officialSkip = skipped;
+    if ('arch' in h) { rebuild(); if (!/…\s*$/.test(document.getElementById('refresh-msg').textContent)) histStatus(); }
+  }).catch(e => { if (hist === h) { h.officialErr = true; console.warn('NWS/RAWS history', e); } });
+}
+
 // Combine, de-duplicate and redraw ------------------------------------------
 function rebuild() {
   const amb = [];
@@ -2753,7 +2883,7 @@ function rebuild() {
     const k = hkey(Math.floor(c.lat / HASH), Math.floor(c.lon / HASH));
     (hash.get(k) || hash.set(k, []).get(k)).push(c);
   }
-  stations = [...amb, ...(hist ? [] : official), ...(hist ? (hist.snotel || []) : snotel)].filter(s => s.v[metric] != null).map((s, i) => ({ ...s, p: s.v[metric], id: i }));
+  stations = [...amb, ...(hist ? (hist.official || []) : official), ...(hist ? (hist.snotel || []) : snotel)].filter(s => s.v[metric] != null).map((s, i) => ({ ...s, p: s.v[metric], id: i }));
   computeDerived();
   pinsMode = 'none';   // the pins on the map still point at the old station objects, so the next frame redraws them
   if (play) playApply(); else render();

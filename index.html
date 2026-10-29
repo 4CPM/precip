@@ -303,7 +303,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.65';
+const APP_VERSION = '1.66';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1909,7 +1909,7 @@ function histStatus() {
     const msg = document.getElementById('refresh-msg'), n = stations.length;
     const t = hist.arch.tail;
     msg.className = 'refresh-msg';
-    const sn = hist.snotel ? `, ${hist.snotel.length} SNOTEL sites from NRCS` : hist.snotelErr ? ', SNOTEL could not be loaded' : ', SNOTEL on its way';
+    const sn = hist.snotel ? `, ${hist.snotel.length} SNOTEL sites from NRCS${hist.snotelPartial ? ' (NRCS did not answer for some)' : ''}` : hist.snotelErr ? ', SNOTEL not loaded yet (NRCS did not answer; trying again)' : ', SNOTEL on its way';
     const off = hist.official ? (hist.officialSkip ? '' : `, and ${hist.official.length} NWS and RAWS gauges from the Iowa Environmental Mesonet`) : hist.officialErr ? ', NWS/RAWS could not be loaded' : ', NWS/RAWS on their way';
     msg.textContent = `History, ${hist.label}: ${n - (hist.snotel ? hist.snotel.length : 0) - (hist.official ? hist.official.length : 0)} personal stations from the nightly ${hist.mode === 'h' ? 'hourly ' : ''}archive` +
       (t ? (tailLive(hist) ? ", plus today so far from each station's live reading" : tailLiveHours(hist) ? ", plus today so far from each station's live reading (today's hour-by-hour is read station by station for the area on screen)" : `, plus ${tailLbl(t)} asked for station by station for the area on screen (not archived until after midnight)`) : '') +
@@ -2175,9 +2175,14 @@ function setHourHist(start, end, label, preset, extra) {
 function snotelFor(h) {
   loadSnotelHist(h).then(list => {
     if (hist !== h) return;
-    h.snotel = list;
+    h.snotel = list; h.snotelPartial = !!list.partial; delete h.snotelErr;
     if ('arch' in h) { rebuild(); if (!/…\s*$/.test(document.getElementById('refresh-msg').textContent)) histStatus(); }
-  }).catch(e => { if (hist === h) { h.snotelErr = true; console.warn('SNOTEL history', e); } });
+  }).catch(e => {
+    if (hist !== h) return;
+    h.snotelErr = true; console.warn('SNOTEL history', e);
+    if ('arch' in h && !/…\s*$/.test(document.getElementById('refresh-msg').textContent)) histStatus();
+    if (!h.snotelRetried) { h.snotelRetried = true; setTimeout(() => { if (hist === h && !h.snotel) snotelFor(h); }, 20000); }   // one more try in 20 s
+  });
 }
 
 function setHist(from, to, label, preset, extra) {
@@ -2629,11 +2634,22 @@ function cleanSeries(arr, get = x => x.v) {
   return out;
 }
 async function awdb(trips, elements, duration, begin, end) {
-  const r = await fetch(`${AWDB}data?stationTriplets=${trips.join(',')}&elements=${elements}&duration=${duration}&beginDate=${encodeURIComponent(begin)}&endDate=${encodeURIComponent(end)}`);
-  if (!r.ok) throw new Error('NRCS HTTP ' + r.status);
-  const out = {};
-  for (const st of await r.json()) for (const el of st.data || []) (out[st.stationTriplet] ||= {})[el.stationElement.elementCode] = el.values || [];
-  return out;
+  const url = `${AWDB}data?stationTriplets=${trips.join(',')}&elements=${elements}&duration=${duration}&beginDate=${encodeURIComponent(begin)}&endDate=${encodeURIComponent(end)}`;
+  let last = null;
+  for (let i = 0; i < 3; i++) {   // NRCS drops or refuses a request now and then: try again, twice
+    try {
+      const r = await fetch(url);
+      if (r.ok) {
+        const out = {};
+        for (const st of await r.json()) for (const el of st.data || []) (out[st.stationTriplet] ||= {})[el.stationElement.elementCode] = el.values || [];
+        return out;
+      }
+      last = new Error('NRCS HTTP ' + r.status);
+      if (r.status < 500 && r.status !== 429) break;
+    } catch (e) { last = e; }
+    await new Promise(x => setTimeout(x, 1500 * (i + 1)));
+  }
+  throw last || new Error('NRCS');
 }
 async function loadSnotel() {
   const r = await fetch(AWDB + 'stations?stationTriplets=' + encodeURIComponent(['CO', 'UT', 'NM', 'AZ', 'WY', 'ID', 'NV'].map(s => `*:${s}:SNTL`).join(',')) + '&returnStationElements=false&activeOnly=true');
@@ -2706,8 +2722,9 @@ async function loadSnotelHist(h) {
   const start = hourMode ? h.start : localHourMs(TZ, h.from, 0), end = hourMode ? h.end : Math.min(now, localHourMs(TZ, addDays(h.to, 1), 0));
   const todayPst = pstDay(now);
   const out = [], groups = [];
+  let failed = 0;
   for (let i = 0; i < sites.length; i += 50) groups.push(sites.slice(i, i + 50));
-  await Promise.all(groups.map(async g => {
+  await inBatches(groups, 3, async g => { try {   // three groups at a time; a group that fails is skipped, not the whole set
     const trips = g.map(x => x.stationTriplet);
     const needHourly = hourMode || end > now - 26 * 3600e3;   // today's part comes from the hours
     const [H, P, D] = await Promise.all([
@@ -2762,7 +2779,9 @@ async function loadSnotelHist(h) {
       out.push({ src: 'S', net: 'SNOTEL', name: `${site.name} SNOTEL`, area: site.stateCode, lat: site.latitude, lon: site.longitude, elev: site.elevation,
         snotel: site.stationId, time: fmtTime(Math.min(lastMs || now, now)), v: { hist: total }, hist: { total, days, have, need } });
     }
-  }));
+  } catch (e) { failed++; console.warn('SNOTEL group', e); } });
+  if (failed && failed === groups.length) throw new Error('NRCS unreachable');
+  out.partial = failed > 0;
   return out;
 }
 
@@ -2880,9 +2899,13 @@ async function loadOfficialHist(h) {
 function officialFor(h) {
   loadOfficialHist(h).then(({ list, skipped }) => {
     if (hist !== h) return;
-    h.official = list; h.officialSkip = skipped;
+    h.official = list; h.officialSkip = skipped; delete h.officialErr;
     if ('arch' in h) { rebuild(); if (!/…\s*$/.test(document.getElementById('refresh-msg').textContent)) histStatus(); }
-  }).catch(e => { if (hist === h) { h.officialErr = true; console.warn('NWS/RAWS history', e); } });
+  }).catch(e => {
+    if (hist !== h) return;
+    h.officialErr = true; console.warn('NWS/RAWS history', e);
+    if (!h.officialRetried) { h.officialRetried = true; setTimeout(() => { if (hist === h && !h.official) officialFor(h); }, 20000); }
+  });
 }
 
 // Combine, de-duplicate and redraw ------------------------------------------

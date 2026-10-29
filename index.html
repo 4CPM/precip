@@ -303,7 +303,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.60';
+const APP_VERSION = '1.61';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -574,6 +574,8 @@ const markersById = {};
 let contourMode = 'filled';        // 'off' | 'lines' | 'filled'
 let contourLayer = null;
 let conReachMi = 13;            // contours reach this far from each gauge; the map is blank beyond it (typed in Contours ⚙)
+let conAuto = true;             // Auto: the reach follows the view, as far as it takes to leave no blank spot inside the radius
+let syncReachUi = () => {};     // set by the Filters panel: shows the reach in its box and the notes
 const REACH_MIN = 1, REACH_MAX = 100;
 const fmtReach = () => String(conReachMi);
 const conText = t => t.replace(/\{R\}/g, fmtReach());   // '{R}' in the contour texts is the reach in miles
@@ -789,12 +791,36 @@ let demRun = 0, terrCredited = false;
 // Which grid points see which gauges depends only on the view, not the readings,
 // so it is worked out once per view and reused frame after frame during playback.
 let conNb = null;   // { sig, start: Int32Array(cells+1), idx: Int32Array, d2: Float32Array } — per cell, nearby gauges nearest first
+// Auto reach: the farthest any point on screen (inside the data radius) is from its nearest gauge,
+// so nothing is left blank; worked out once per view.
+let autoReachSig = '', autoReachVal = null;
+function autoReach(pts) {
+  const size = leafletMap.getSize(), c = leafletMap.getCenter();
+  const sig = [leafletMap.getZoom(), c.lat.toFixed(5), c.lng.toFixed(5), size.x, size.y, pts.length, radius].join('|');
+  if (sig === autoReachSig) return autoReachVal;
+  const pxPerMile = Math.abs(leafletMap.latLngToContainerPoint([c.lat + 1 / 69, c.lng]).y - leafletMap.latLngToContainerPoint(c).y);
+  const n = pts.length, xs = new Float64Array(n), ys = new Float64Array(n);
+  for (let i = 0; i < n; i++) { const q = leafletMap.latLngToContainerPoint([pts[i].lat, pts[i].lon]); xs[i] = q.x; ys[i] = q.y; }
+  const step = Math.max(20, Math.min(size.x, size.y) / 28);
+  let worst = 0;
+  for (let y = step / 2; y < size.y; y += step) for (let x = step / 2; x < size.x; x += step) {
+    const ll = leafletMap.containerPointToLatLng([x, y]);
+    if (miles(CENTER.lat, CENTER.lon, ll.lat, ll.lng) > radius) continue;   // outside the data ring: blank by design
+    let best = Infinity;
+    for (let i = 0; i < n; i++) { const dx = xs[i] - x, dy = ys[i] - y, d = dx * dx + dy * dy; if (d < best) best = d; }
+    if (best > worst) worst = best;
+  }
+  autoReachSig = sig;
+  autoReachVal = worst > 0 && pxPerMile > 0 ? Math.max(REACH_MIN, Math.min(REACH_MAX, Math.ceil((Math.sqrt(worst) / pxPerMile) * 2) / 2 + 0.5)) : null;
+  return autoReachVal;
+}
 function drawContours() {
   if (contourLayer) { leafletMap.removeLayer(contourLayer); contourLayer = null; }
   conNote = '';
   if (contourMode === 'off' || !window.d3 || !d3.contours) return updateConNote();
   const pts = stations.filter(s => visible(s, true) && !s.suspect && s.p != null);
   if (pts.length < 3) return updateConNote();
+  if (conAuto) { const r = autoReach(pts); if (r != null && r !== conReachMi) { conReachMi = r; syncReachUi(); } }
   const size = leafletMap.getSize(), STEP = (IS_PHONE ? 5 : 6) * (conMethod === 'krige' ? 1.5 : 1);
   // Map grid: grid points sit on fixed world-pixel multiples, so panning doesn't move them.
   let ox = 0, oy = 0;
@@ -1267,7 +1293,7 @@ function addFilterBar() {
               <button class="seg-btn" data-ce="three" title="Only where 3 or more gauges are within 10 mi">3+ gauges</button>
             </div>
             <span class="opt-l">Reach</span>
-            <span class="leg-num-wrap"><input type="number" class="leg-num" id="con-reach" min="${REACH_MIN}" max="${REACH_MAX}" step="0.5" inputmode="decimal" value="${conReachMi}" aria-label="Reach in miles" title="Contours reach this far from each gauge; the map is blank beyond it"> mi from each gauge, ${REACH_MIN}–${REACH_MAX}</span>
+            <div class="opt-row"><button class="toggle-btn active" id="con-auto-btn" type="button" title="The reach follows the view: as far as it takes to leave no blank spot inside the radius"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Auto</span></button><span class="leg-num-wrap"><input type="number" class="leg-num" id="con-reach" min="${REACH_MIN}" max="${REACH_MAX}" step="0.5" inputmode="decimal" value="${conReachMi}" disabled aria-label="Reach in miles" title="Contours reach this far from each gauge; the map is blank beyond it. Turn Auto off to set it by hand."> mi from each gauge, ${REACH_MIN}–${REACH_MAX}</span></div>
             <span class="opt-l">Grid</span>
             <div class="seg-ctrl">
               <button class="seg-btn active" data-cg="screen" title="Grid follows the screen">Screen</button>
@@ -1438,6 +1464,12 @@ function addFilterBar() {
       conReachMi = r; reachTitles(); conDesc(); drawContours(); updateLegend();
     });
     reachInp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); reachInp.blur(); } });
+    syncReachUi = () => { reachInp.value = conReachMi; reachTitles(); conDesc(); updateLegend(); };
+    el.querySelector('#con-auto-btn').addEventListener('click', e => {
+      conAuto = !conAuto;
+      e.currentTarget.classList.toggle('active', conAuto); reachInp.disabled = conAuto;
+      if (conAuto) { autoReachSig = ''; drawContours(); }
+    });
     el.querySelector('#con-set-btn').addEventListener('click', e => {
       const box = el.querySelector('#con-set'), open = box.hidden;
       box.hidden = !open; e.currentTarget.setAttribute('aria-expanded', String(open));

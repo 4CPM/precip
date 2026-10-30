@@ -303,7 +303,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.71';
+const APP_VERSION = '1.72';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -801,7 +801,7 @@ function autoReach(pts) {
   const size = leafletMap.getSize(), c = leafletMap.getCenter();
   const sig = [leafletMap.getZoom(), c.lat.toFixed(5), c.lng.toFixed(5), size.x, size.y, pts.length, radius].join('|');
   if (sig === autoReachSig) return autoReachVal;
-  const pxPerMile = Math.abs(leafletMap.latLngToContainerPoint([c.lat + 1 / 69, c.lng]).y - leafletMap.latLngToContainerPoint(c).y);
+  const pxPerMile = pxPerMileAt(c);
   const n = pts.length, xs = new Float64Array(n), ys = new Float64Array(n);
   for (let i = 0; i < n; i++) { const q = leafletMap.latLngToContainerPoint([pts[i].lat, pts[i].lon]); xs[i] = q.x; ys[i] = q.y; }
   const step = Math.max(20, Math.min(size.x, size.y) / 28);
@@ -817,6 +817,9 @@ function autoReach(pts) {
   autoReachVal = worst > 0 && pxPerMile > 0 ? Math.max(REACH_MIN, Math.min(REACH_MAX, Math.ceil((Math.sqrt(worst) / pxPerMile) * 2) / 2 + 0.5)) : null;
   return autoReachVal;
 }
+// Pixels per mile at the view's center, unrounded (container points are rounded to whole pixels, which
+// read as 0 px per mile once zoomed out past zoom 6 and left the contours undrawn there).
+function pxPerMileAt(c) { return Math.abs(leafletMap.project([c.lat + 0.5, c.lng]).y - leafletMap.project([c.lat - 0.5, c.lng]).y) / 69; }
 function drawContours() {
   if (contourLayer) { leafletMap.removeLayer(contourLayer); contourLayer = null; }
   conNote = '';
@@ -833,7 +836,7 @@ function drawContours() {
   }
   const W = Math.ceil((size.x - ox) / STEP) + 1, H = Math.ceil((size.y - oy) / STEP) + 1;
   const c = leafletMap.getCenter();
-  const pxPerMile = Math.abs(leafletMap.latLngToContainerPoint([c.lat + 1 / 69, c.lng]).y - leafletMap.latLngToContainerPoint(c).y);
+  const pxPerMile = pxPerMileAt(c);
   const maskPx = conReachMi * pxPerMile, mask2 = maskPx * maskPx;
   // project the gauges within reach of the screen
   const P = [];

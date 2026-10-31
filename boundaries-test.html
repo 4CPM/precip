@@ -166,6 +166,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 
 /* ── Boundaries (v1.73) ─────────────────────────────────── */
 .opt-l[hidden],.opt-row[hidden]{display:none}
+#bnd-row{gap:4px 5px}#bnd-row .toggle-btn{gap:4px;padding:1px 0}
 .bnd-label{font:600 10px/1.15 system-ui,-apple-system,"Segoe UI",sans-serif;color:#1e3a8a;text-align:center;white-space:normal;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 2px #fff,0 0 1px #fff;pointer-events:none;letter-spacing:.01em}
 .bnd-label.county{color:#334155;font-weight:500;font-size:9.5px}
 .bnd-chip{display:inline-flex;align-items:center;gap:2px;background:#e0e7ff;color:#1e3a8a;border-radius:999px;padding:1px 4px 1px 8px;font-size:11px;max-width:100%}
@@ -321,7 +322,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.73 test 2';
+const APP_VERSION = '1.73 test 3';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -626,6 +627,7 @@ function initMap() {
   leafletMap.on('moveend', refreshBounds);
   leafletMap.on('mousemove', bndHover);
   leafletMap.on('mouseout', () => bndHoverClear());
+  leafletMap.on('preclick', () => { bndHadPopup = !!leafletMap._popup; });
   leafletMap.on('click', bndClick);
   const lightBase = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Tiles &copy; Esri', maxZoom: 16 });
@@ -871,11 +873,10 @@ const bndIndex = { state: new Map(), county: new Map(), huc: new Map() };   // f
 const bndAbort = {}, bndNotes = {};
 let bndSel = [];           // picked boundaries: { kind, id, name, sub, level, geom, bbox }
 let bndIso = false;        // keep only the gauges inside every picked boundary
-let bndSelLayer = null, isoSig = 0, isoMaskCache = null, bndTip = null, bndHovered = [];
+let bndSelLayer = null, isoSig = 0, isoMaskCache = null, bndTip = null, bndHovered = [], bndHadPopup = false;
 const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-function hucAuto(z) { return z <= 4 ? 2 : z <= 5 ? 4 : z <= 8 ? 6 : z <= 10 ? 8 : z <= 11 ? 10 : 12; }
+function hucAuto(z) { return z <= 4 ? 2 : z <= 5 ? 4 : z <= 7 ? 6 : z <= 9 ? 8 : z <= 11 ? 10 : 12; }
 function hucLevel() { return hucLevelPick === 'auto' ? hucAuto(leafletMap.getZoom()) : +hucLevelPick; }
-function bndKey(kind) { const z = Math.round(leafletMap.getZoom()); return kind === 'huc' ? `huc|${hucLevel()}|${z}` : `${kind}|${z}`; }
 function viewBox(pad) { const b = leafletMap.getBounds().pad(pad); return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]; }
 function boxIn(a, b) { return a[0] >= b[0] && a[1] >= b[1] && a[2] <= b[2] && a[3] <= b[3]; }
 function degPerPx() { return 360 / (256 * Math.pow(2, leafletMap.getZoom())); }
@@ -925,23 +926,61 @@ async function bndFetch(kind, level, bbox, offsetDeg, signal) {
   if (j.error) throw new Error(j.error.message || 'service error');
   return j;
 }
-let bndTimer;
-function refreshBounds() { clearTimeout(bndTimer); bndTimer = setTimeout(refreshBoundsNow, 200); }
+// The boundary files built into the repo (boundaries/, by .github/scripts/boundaries.mjs): every unit, county
+// and state within the 500-mile region, generalized for drawing. HUC2–HUC8, counties and states are one file
+// each; HUC10 comes in a file per HUC4 subregion and HUC12 in a file per HUC6 basin, fetched as the view needs
+// them. When the files are missing the services are asked for the view instead (slow).
+const BND_BASE = 'https://raw.githubusercontent.com/4CPM/precip/main/boundaries/';
+let bndCatP = null, bndCat = null;
+const bndFiles = new Map();
+function bndCatalog() {
+  if (!bndCatP) bndCatP = fetch(BND_BASE + 'index.json').then(r => r.ok ? r.json() : null).catch(() => null).then(j => (bndCat = j));
+  return bndCatP;
+}
+function prepFeats(feats, kind, level) {
+  const def = BND[kind];
+  for (const f of feats) if (!f._bbox) { f._kind = kind; f._level = level; f._id = def.id(f, level); f._name = def.name(f, level); f._bbox = geomBbox(f.geometry); }
+  return feats;
+}
+function bndFile(path, kind, level) {
+  if (!bndFiles.has(path)) bndFiles.set(path, fetch(BND_BASE + path).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(fc => prepFeats(fc.features || [], kind, level)).catch(e => { bndFiles.delete(path); throw e; }));
+  return bndFiles.get(path);
+}
+const boxTouch = (a, b) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+// The features of a kind and level from the files, for a view box; null when there are no files
+async function bndStaticFeatures(kind, level, box) {
+  const cat = await bndCatalog(); if (!cat) return null;
+  if (kind === 'state') return bndFile('states.json', kind, level);
+  if (kind === 'county') return bndFile('counties.json', kind, level);
+  if (level <= 8) return bndFile(`huc${level}.json`, kind, level);
+  const pl = level === 10 ? 4 : 6, parents = await bndFile(`huc${pl}.json`, 'huc', pl);
+  const avail = new Set((level === 10 ? cat.huc10 : cat.huc12 || []).map(t => level === 10 ? t.huc4 : t.huc6));
+  const need = parents.filter(p => boxTouch(p._bbox, box) && avail.has(p._id)).map(p => p._id);
+  const lists = await Promise.all(need.map(id => bndFile(`huc${level}/${id}.json`, kind, level)));
+  return lists.flat();
+}
+let bndTimer; const bndReq = { state: 0, county: 0, huc: 0 };
+function refreshBounds() { clearTimeout(bndTimer); bndTimer = setTimeout(refreshBoundsNow, 150); }
 function refreshBoundsNow() { clearTimeout(bndTimer); for (const kind of ['state', 'county', 'huc']) loadBounds(kind); }
 async function loadBounds(kind) {
   if (!bndOn[kind]) { if (bndLayers[kind]) { leafletMap.removeLayer(bndLayers[kind]); bndLayers[kind] = null; } if (bndAbort[kind]) bndAbort[kind].abort(); bndNotes[kind] = ''; bndBadge(kind); return; }
-  const key = bndKey(kind), want = viewBox(0.05), cur = bndState[kind];
-  if (cur && cur.key === key && boxIn(want, cur.bbox)) { if (!bndLayers[kind]) drawBoundLayer(kind); return; }
-  if (bndAbort[kind]) bndAbort[kind].abort();
-  const ac = bndAbort[kind] = new AbortController();
-  const bbox = viewBox(0.15), level = hucLevel();
+  const level = hucLevel(), key = kind === 'huc' ? 'huc|' + level : kind, cur = bndState[kind];
+  if (cur && cur.key === key && boxIn(viewBox(0.02), cur.box)) { if (!bndLayers[kind]) drawBoundLayer(kind); return; }
+  const req = ++bndReq[kind], box = viewBox(0.25);
   bndNotes[kind] = 'loading'; bndDesc(); bndBadge(kind);
   try {
-    const fc = await bndFetch(kind, level, bbox, degPerPx() * 1.5, ac.signal);
-    if (ac.signal.aborted) return;
-    bndState[kind] = { key, bbox, level, fc, more: !!(fc.properties && fc.properties.exceededTransferLimit) };
+    let feats = await bndStaticFeatures(kind, level, box), live = false;
+    if (feats == null) {   // no files: ask the service for the view
+      if (bndAbort[kind]) bndAbort[kind].abort();
+      const ac = bndAbort[kind] = new AbortController();
+      const fc = await bndFetch(kind, level, viewBox(0.15), degPerPx() * 1.5, ac.signal);
+      feats = prepFeats(fc.features || [], kind, level); live = true;
+    }
+    if (req !== bndReq[kind] || !bndOn[kind]) return;   // the view moved on
+    bndState[kind] = { key, box, level, feats: feats.filter(f => boxTouch(f._bbox, box)), live };
     bndNotes[kind] = ''; drawBoundLayer(kind); bndBadge(kind);
-  } catch (e) { if (e.name !== 'AbortError') { console.warn('boundaries', kind, e); bndNotes[kind] = 'error'; bndDesc(); bndBadge(kind); } }
+  } catch (e) { if (e.name !== 'AbortError' && req === bndReq[kind]) { console.warn('boundaries', kind, e); bndNotes[kind] = 'error'; bndDesc(); bndBadge(kind); } }
 }
 // The toggle itself says when its lines are on their way or did not come
 function bndBadge(kind) {
@@ -953,11 +992,10 @@ function drawBoundLayer(kind) {
   if (bndLayers[kind]) { leafletMap.removeLayer(bndLayers[kind]); bndLayers[kind] = null; }
   const st = bndState[kind]; if (!st || !bndOn[kind]) return;
   const def = BND[kind], idx = bndIndex[kind]; idx.clear();
-  const feats = st.fc.features || [];
-  for (const f of feats) { f._kind = kind; f._level = st.level; f._id = def.id(f, st.level); f._name = def.name(f, st.level); f._bbox = geomBbox(f.geometry); }
+  const feats = st.feats;
   const group = L.layerGroup();
-  group.addLayer(L.geoJSON(st.fc, { pane: 'bounds', interactive: false, style: () => def.style, onEachFeature: (f, l) => idx.set(f._id, l) }));
-  if (bndLabels && def.label && feats.length <= 90) for (const f of feats) {
+  group.addLayer(L.geoJSON({ type: 'FeatureCollection', features: feats }, { pane: 'bounds', interactive: false, style: () => def.style, onEachFeature: (f, l) => idx.set(f._id, l) }));
+  if (bndLabels && def.label && feats.length <= 120) for (const f of feats) {
     const ll = labelPoint(f.geometry); if (!ll) continue;
     group.addLayer(L.marker(ll, { pane: 'boundsLabel', interactive: false, keyboard: false,
       icon: L.divIcon({ className: '', html: `<div class="bnd-label ${kind}">${esc(f._name)}</div>`, iconSize: [110, 24], iconAnchor: [55, 12] }) }));
@@ -970,18 +1008,18 @@ function bndDesc() {
   const z = leafletMap ? leafletMap.getZoom() : 9, L = hucLevel();
   const parts = [];
   if (bndOn.huc) {
-    const st = bndState.huc, n = st && st.key === bndKey('huc') ? (st.fc.features || []).length : null;
-    parts.push(`Watersheds: HUC${L} ${HUC_NAME[L]}s${hucLevelPick === 'auto' ? ' at this zoom (Auto)' : ''}` + (bndNotes.huc === 'loading' ? ', loading…' : bndNotes.huc === 'error' ? ' — could not be loaded (USGS service not answering)' : n != null ? `, ${n} on screen${st.more ? ' (only the first 2,000; zoom in or pick a higher level)' : ''}` : '') + '.');
+    const st = bndState.huc, n = st && st.key === 'huc|' + L ? st.feats.length : null;
+    parts.push(`Watersheds: HUC${L} ${HUC_NAME[L]}s${hucLevelPick === 'auto' ? ' at this zoom (Auto)' : ''}` + (bndNotes.huc === 'loading' ? ', loading…' : bndNotes.huc === 'error' ? ' — could not be loaded' : n != null ? `, ${n} near the screen${st.live ? ' (asked of the USGS service; the map’s own boundary files are not built yet)' : ''}` : '') + '.');
   } else parts.push(`Watersheds off; Auto would show HUC${hucAuto(z)} ${HUC_NAME[hucAuto(z)]}s at this zoom.`);
-  for (const [kind, lbl] of [['county', 'Counties'], ['state', 'States']]) if (bndOn[kind] && bndNotes[kind]) parts.push(lbl + (bndNotes[kind] === 'loading' ? ' loading…' : ' could not be loaded (Census service not answering).'));
-  el.textContent = parts.join(' ') + ' Boundaries load for the area on screen as you pan. Watersheds are the USGS hydrologic units; states and counties are the Census Bureau’s generalized lines. Click the map to pick a boundary; Isolate keeps only the gauges inside every picked boundary, and the contours stop at its edge.';
+  for (const [kind, lbl] of [['county', 'Counties'], ['state', 'States']]) if (bndOn[kind] && bndNotes[kind]) parts.push(lbl + (bndNotes[kind] === 'loading' ? ' loading…' : ' could not be loaded.'));
+  el.textContent = parts.join(' ') + ' Watersheds are the USGS hydrologic units (HUC2 regions down to HUC12 subwatersheds); states and counties are the Census Bureau’s generalized lines. Hover for names; click the map to pick a boundary. Isolate keeps only the gauges inside every picked boundary, and the contours stop at its edge.';
 }
 // What lies under a point, smallest kind first
 function bndAt(ll) {
   const out = [];
   for (const kind of ['huc', 'county', 'state']) {
     const st = bndState[kind]; if (!bndOn[kind] || !st || !bndLayers[kind]) continue;
-    for (const f of st.fc.features || []) if (geomHas(ll.lat, ll.lng, f.geometry, f._bbox)) out.push({ kind, f, level: st.level });
+    for (const f of st.feats) if (geomHas(ll.lat, ll.lng, f.geometry, f._bbox)) out.push({ kind, f, level: st.level });
   }
   return out;
 }
@@ -1015,6 +1053,7 @@ function bndHoverClear() {
 }
 function bndClick(e) {
   if (drawMode || polyMode || !(bndOn.state || bndOn.county || bndOn.huc)) return;
+  if (bndHadPopup) { bndHadPopup = false; return; }   // that click closed a popup; the next one picks
   if (e.originalEvent && e.originalEvent.target && e.originalEvent.target.closest && e.originalEvent.target.closest('.leaflet-marker-icon, .leaflet-popup, .leaflet-control')) return;
   const hits = bndAt(e.latlng);
   if (!hits.length) return;
@@ -1641,7 +1680,7 @@ function addFilterBar() {
           <div class="con-desc" id="con-desc"></div>
         </div>
         <span class="opt-l">Boundaries</span>
-        <div class="opt-row">
+        <div class="opt-row" id="bnd-row">
           <button class="toggle-btn" id="bnd-state-btn" type="button" title="State lines (Census Bureau)"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">States</span></button>
           <button class="toggle-btn" id="bnd-county-btn" type="button" title="County lines (Census Bureau)"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Counties</span></button>
           <button class="toggle-btn" id="bnd-huc-btn" type="button" title="Watershed boundaries from the USGS hydrologic units; the level follows the zoom unless set in the settings"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Watersheds</span></button>

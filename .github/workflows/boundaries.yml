@@ -1,0 +1,42 @@
+# Boundary files for the 4 Corners Precip Map: watersheds (USGS hydrologic units), counties and states,
+# generalized for drawing, written to boundaries/. Run by hand from the Actions tab ("Run workflow");
+# the lines change rarely, so once a year is plenty. Takes 20–40 minutes (the USGS service is slow to generalize).
+name: Boundaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      levels:
+        description: 'Hydrologic unit levels to build (comma-separated)'
+        required: true
+        default: '2,4,6,8,10,12'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: boundaries
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build boundary files
+        run: node .github/scripts/boundaries.mjs
+        env:
+          LEVELS: ${{ github.event.inputs.levels || '2,4,6,8,10,12' }}
+      - name: Save to the repo
+        run: |
+          git config user.name "4CPM boundaries"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add boundaries
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+          git commit -m "Boundaries: watersheds, counties and states ($(TZ=America/Denver date +%F))"
+          git pull --rebase
+          git push

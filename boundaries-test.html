@@ -322,7 +322,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.73 test 3';
+const APP_VERSION = '1.73 test 4';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -867,6 +867,8 @@ const BND = {
 let bndOn = { state: false, county: false, huc: false };
 let hucLevelPick = 'auto';   // 'auto' or a HUC level
 let bndLabels = true;
+let bndFill = false;        // a light fill inside the boundaries (off: lines only)
+function bndStyle(kind) { const st = BND[kind].style; return { ...st, fill: bndFill, fillColor: st.color, fillOpacity: 0.07 }; }
 const bndState = { state: null, county: null, huc: null };    // what is loaded: { key, bbox, level, fc, more }
 const bndLayers = { state: null, county: null, huc: null };
 const bndIndex = { state: new Map(), county: new Map(), huc: new Map() };   // feature id → its Leaflet layer
@@ -994,7 +996,7 @@ function drawBoundLayer(kind) {
   const def = BND[kind], idx = bndIndex[kind]; idx.clear();
   const feats = st.feats;
   const group = L.layerGroup();
-  group.addLayer(L.geoJSON({ type: 'FeatureCollection', features: feats }, { pane: 'bounds', interactive: false, style: () => def.style, onEachFeature: (f, l) => idx.set(f._id, l) }));
+  group.addLayer(L.geoJSON({ type: 'FeatureCollection', features: feats }, { pane: 'bounds', interactive: false, style: () => bndStyle(kind), onEachFeature: (f, l) => idx.set(f._id, l) }));
   if (bndLabels && def.label && feats.length <= 120) for (const f of feats) {
     const ll = labelPoint(f.geometry); if (!ll) continue;
     group.addLayer(L.marker(ll, { pane: 'boundsLabel', interactive: false, keyboard: false,
@@ -1037,7 +1039,7 @@ function bndHover(e) {
   if (!hits.length) return bndHoverClear();
   const same = hits.length === bndHovered.length && hits.every((h, i) => bndHovered[i].f === h.f);
   if (!same) {
-    for (const h of bndHovered) { const l = bndIndex[h.kind].get(h.f._id); if (l) l.setStyle(BND[h.kind].style); }
+    for (const h of bndHovered) { const l = bndIndex[h.kind].get(h.f._id); if (l) l.setStyle(bndStyle(h.kind)); }
     bndHovered = hits;
     for (const h of hits) { const l = bndIndex[h.kind].get(h.f._id); if (l) l.setStyle({ weight: BND[h.kind].style.weight + 1.6, opacity: 1 }); }
   }
@@ -1047,7 +1049,7 @@ function bndHover(e) {
   if (!leafletMap.hasLayer(bndTip)) bndTip.addTo(leafletMap);
 }
 function bndHoverClear() {
-  for (const h of bndHovered) { const l = bndIndex[h.kind].get(h.f._id); if (l) l.setStyle(BND[h.kind].style); }
+  for (const h of bndHovered) { const l = bndIndex[h.kind].get(h.f._id); if (l) l.setStyle(bndStyle(h.kind)); }
   bndHovered = [];
   if (bndTip && leafletMap.hasLayer(bndTip)) leafletMap.removeLayer(bndTip);
 }
@@ -1100,7 +1102,7 @@ function drawBndSel() {
   if (!bndSel.length) return;
   bndSelLayer = L.layerGroup();
   for (const b of bndSel) bndSelLayer.addLayer(L.geoJSON({ type: 'Feature', geometry: b.geom, properties: {} }, { pane: 'boundsSel', interactive: false,
-    style: { color: b.kind === 'huc' ? '#1d4ed8' : '#0f172a', weight: 3, opacity: 1, fillColor: '#2563eb', fillOpacity: bndIso ? 0 : .06 } }));
+    style: { color: b.kind === 'huc' ? '#1d4ed8' : '#0f172a', weight: 3, opacity: 1, fillColor: '#2563eb', fillOpacity: bndFill && !bndIso ? .06 : 0 } }));
   bndSelLayer.addTo(leafletMap);
 }
 function renderBndChips() {
@@ -1700,6 +1702,11 @@ function addFilterBar() {
             </div>
             <span class="opt-l">Labels</span>
             <div class="opt-row"><button class="toggle-btn active" id="bnd-lab-btn" type="button" title="Names on the counties and watersheds"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">On</span></button></div>
+            <span class="opt-l">Fill</span>
+            <div class="seg-ctrl">
+              <button class="seg-btn active" data-bf="off" title="Lines only">Off</button>
+              <button class="seg-btn" data-bf="light" title="A light tint inside each boundary">Light</button>
+            </div>
           </div>
           <div class="con-desc" id="bnd-desc"></div>
         </div>
@@ -1923,6 +1930,12 @@ function addFilterBar() {
       hucLevelPick = b.dataset.huc;
       el.querySelectorAll('[data-huc]').forEach(x => x.classList.toggle('active', x === b));
       bndDesc(); refreshBoundsNow();
+    }));
+    el.querySelectorAll('[data-bf]').forEach(b => b.addEventListener('click', () => {
+      bndFill = b.dataset.bf === 'light';
+      el.querySelectorAll('[data-bf]').forEach(x => x.classList.toggle('active', x === b));
+      for (const kind of ['state', 'county', 'huc']) if (bndLayers[kind]) drawBoundLayer(kind);
+      drawBndSel();
     }));
     el.querySelector('#bnd-lab-btn').addEventListener('click', e => {
       bndLabels = !bndLabels;

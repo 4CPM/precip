@@ -347,7 +347,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.75';
+const APP_VERSION = '1.76';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -423,6 +423,10 @@ let legendRange = 'loaded';     // 'fixed' | 'loaded' | 'screen'
 let legendMethod = 'equal';     // 'equal' | 'count'
 let legendSteps = 16;
 const LEG_MIN = 4, LEG_MAX = 30;
+let legendTop = null;    // a set top for the scale (inches): equal steps from 0.01 to it, the same for any period
+let legendLock = null;   // brackets held exactly as they were when locked
+function topBreaks(top, n) { const st = top / (n - 1), b = [0.01]; for (let i = 1; i < n; i++) { const v = r2(i * st); if (v > b[b.length - 1]) b.push(v); } return b; }
+const breaksDesc = b => `${fmtV(b[0])} to ${fmtV(b[b.length - 1])}+ in ${b.length} steps`;
 let legendAdjOpen = false, legendInfoOpen = false;
 let scaleInfo = '', legendSig = '';
 let BREAKS = METRICS[metric].breaks;
@@ -456,14 +460,18 @@ function updateScale() {
   scaleInfo = '';
   if (play) {   // playback: brackets held for the whole run so colors can be compared frame to frame
     BREAKS = play.breaks; CLASSES = makeClasses(BREAKS, false);
-    scaleInfo = play.mode === 'total' ? 'Brackets fit the totals for the whole period, held while playing.' : 'Brackets fit single hours, up to the wettest 1% of rainy hours in the period, held while playing.';
+    scaleInfo = legendLock ? `Brackets locked, ${breaksDesc(BREAKS)}; they stay through any period or playback until unlocked in Adjust.`
+      : legendTop ? `Brackets set to run from 0.01 to ${fmtV(legendTop)} ${METRICS[metric].unit} in ${BREAKS.length} equal steps, the same for any period.`
+      : play.mode === 'total' ? 'Brackets fit the totals for the whole period, held while playing.' : 'Brackets fit single hours, up to the wettest 1% of rainy hours in the period, held while playing.';
     const sig = ['play', play.mode, BREAKS.join(','), legendAdjOpen, contourMode, conMethod, conEdge, colorScheme].join('|');
     if (!legendEl) return false;
     if (sig !== legendSig) { legendSig = sig; updateLegend(); }
     const info = legendEl.querySelector('#leg-info'); if (info) info.textContent = scaleInfo;
     return false;
   }
-  if (legendRange !== 'fixed') {
+  if (legendLock) { b = legendLock; scaleInfo = `Brackets locked, ${breaksDesc(b)}; they stay through any period or playback until unlocked in Adjust.`; }
+  else if (legendTop) { b = topBreaks(legendTop, legendSteps); scaleInfo = `Brackets set to run from 0.01 to ${fmtV(legendTop)} ${METRICS[metric].unit} in ${b.length} equal steps, the same for any period.`; }
+  else if (legendRange !== 'fixed') {
     const vb = legendRange === 'screen' && leafletMap ? leafletMap.getBounds() : null;
     const vals = [];
     for (const s of stations) {
@@ -478,7 +486,7 @@ function updateScale() {
   }
   BREAKS = b || METRICS[metric].breaks;
   CLASSES = makeClasses(BREAKS, !b);
-  const sig = [metric, BREAKS.join(','), legendRange, legendMethod, legendSteps, legendAdjOpen, contourMode, conMethod, conEdge, colorScheme].join('|');
+  const sig = [metric, BREAKS.join(','), legendRange, legendMethod, legendSteps, legendTop, !!legendLock, legendAdjOpen, contourMode, conMethod, conEdge, colorScheme].join('|');
   if (!legendEl) return false;
   if (sig !== legendSig) { legendSig = sig; updateLegend(); return true; }
   const info = legendEl.querySelector('#leg-info');
@@ -2156,15 +2164,17 @@ function legendHtml() {
 function legendAdjHtml(notes) {
   const seg = (attr, cur, opts, off) => `<div class="seg-ctrl">${opts.map(([v, t, tip]) =>
     `<button class="seg-btn${String(v) === String(cur) ? ' active' : ''}" type="button" data-${attr}="${v}"${tip ? ` title="${tip}"` : ''}${off ? ' disabled' : ''}>${t}</button>`).join('')}</div>`;
-  const fixed = legendRange === 'fixed';
+  const locked = !!legendLock, topSet = !!legendTop, fixed = locked || topSet || legendRange === 'fixed';
   return `<div class="leg-foot"><button class="info-btn${legendInfoOpen ? ' active' : ''}" id="leg-info-btn" type="button" aria-expanded="${legendInfoOpen}" aria-controls="leg-notes" title="About the brackets and contours">i</button>
       <button class="leg-adj-btn" id="leg-adj" type="button" aria-expanded="${legendAdjOpen}">Adjust ${legendAdjOpen ? '▴' : '▾'}</button></div>
     <div class="info-pop leg-notes" id="leg-notes"${legendInfoOpen ? '' : ' hidden'}><div id="leg-info">${scaleInfo || 'Fixed brackets, the same every time.'}</div>${notes.map(n => `<div>${n}</div>`).join('')}</div>
     <div class="leg-adj"${legendAdjOpen ? '' : ' hidden'}>
-      <span class="opt-l">Brackets</span>${seg('lr', legendRange, [['loaded', 'All loaded', 'Fit to every gauge loaded within the radius'], ['screen', 'On screen', 'Fit to the gauges on screen; changes as you pan and zoom'], ['fixed', 'Fixed', 'The set brackets, the same every time']])}
+      <span class="opt-l">Brackets</span>${seg('lr', legendRange, [['loaded', 'All loaded', 'Fit to every gauge loaded within the radius'], ['screen', 'On screen', 'Fit to the gauges on screen; changes as you pan and zoom'], ['fixed', 'Fixed', 'The set brackets, the same every time']], locked || topSet)}
       <span class="opt-l">Steps</span>${seg('lm', legendMethod, [['equal', 'Equal', 'Equal steps with round edges'], ['count', 'Equal counts', 'Each color holds about the same number of gauges']], fixed)}
       <span class="opt-l">Colors</span>${seg('cs', colorScheme, Object.entries(SCHEMES).map(([k, v]) => [k, v.label]))}
-      <span class="opt-l">Number</span><span class="leg-num-wrap"><input type="number" class="leg-num" id="leg-steps" min="${LEG_MIN}" max="${LEG_MAX}" step="1" inputmode="numeric" value="${legendSteps}"${fixed ? ' disabled' : ''} aria-label="Number of steps" title="How many colors, ${LEG_MIN} to ${LEG_MAX}"> ${LEG_MIN}–${LEG_MAX}</span>
+      <span class="opt-l">Number</span><span class="leg-num-wrap"><input type="number" class="leg-num" id="leg-steps" min="${LEG_MIN}" max="${LEG_MAX}" step="1" inputmode="numeric" value="${legendSteps}"${locked || (legendRange === 'fixed' && !topSet) ? ' disabled' : ''} aria-label="Number of steps" title="How many colors, ${LEG_MIN} to ${LEG_MAX}"> ${LEG_MIN}–${LEG_MAX}</span>
+      <span class="opt-l">Top</span><span class="leg-num-wrap"><input type="number" class="leg-num" id="leg-top" min="0.1" max="100" step="0.5" inputmode="decimal" value="${legendTop ?? ''}" placeholder="fit"${locked ? ' disabled' : ''} aria-label="Top of the scale, inches" title="Set the top of the scale: the brackets run from 0.01 to this in equal steps (Number of them) and stay the same for any period. Blank fits them to the readings."> ${METRICS[metric].unit}, blank fits</span>
+      <span class="opt-l">Lock</span><div class="opt-row"><button class="toggle-btn${locked ? ' active' : ''}" id="leg-lock" type="button" title="Hold the brackets exactly as they are now, through any period, event or playback, until unlocked"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">${locked ? 'Locked' : 'Off'}</span></button></div>
     </div>`;
 }
 let legendEl;
@@ -2219,6 +2229,7 @@ function addLegend() {
       else if (t.dataset.lr) legendRange = t.dataset.lr;
       else if (t.dataset.lm) legendMethod = t.dataset.lm;
       else if (t.dataset.cs) { colorScheme = t.dataset.cs; COLORS = schemeColors(colorScheme); }
+      else if (t.id === 'leg-lock') legendLock = legendLock ? null : BREAKS.slice();
       else return;
       legendSig = '';
       if (play) play.breaks = playBreaks();
@@ -2227,6 +2238,16 @@ function addLegend() {
     // number of steps: typed, held to 4–30
     legendEl.addEventListener('change', e => {
       const t = e.target;
+      if (t && t.id === 'leg-top') {   // the top of the scale: blank fits again
+        const v = parseFloat(t.value);
+        const top = Number.isFinite(v) && v > 0 ? Math.max(0.1, Math.min(100, r2(v))) : null;
+        t.value = top ?? '';
+        if (top === legendTop) return;
+        legendTop = top; legendSig = '';
+        if (play) play.breaks = playBreaks();
+        render();
+        return;
+      }
       if (!t || t.id !== 'leg-steps') return;
       let n = Math.round(+t.value);
       if (!Number.isFinite(n)) n = legendSteps;
@@ -2237,7 +2258,7 @@ function addLegend() {
       if (play) play.breaks = playBreaks();
       render();
     });
-    legendEl.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'leg-steps') { e.preventDefault(); e.target.blur(); } });
+    legendEl.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.target.id === 'leg-steps' || e.target.id === 'leg-top')) { e.preventDefault(); e.target.blur(); } });
     return legendEl;
   };
   c.addTo(leafletMap);
@@ -3032,6 +3053,8 @@ function playPaint() {
   return true;
 }
 function playBreaks() {
+  if (legendLock) return legendLock;
+  if (legendTop) return topBreaks(legendTop, legendSteps);
   const vals = [];
   for (const s of stations) {
     if (s.suspect || !s.hist || s.dist > radius + 1e-9) continue;

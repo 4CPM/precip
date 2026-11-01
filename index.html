@@ -164,6 +164,26 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .draw-active{cursor:crosshair !important}
 .draw-active .leaflet-interactive{pointer-events:none}
 
+/* ── Measure (v1.75) ────────────────────────────────────── */
+.measure-ctl a{display:flex;align-items:center;justify-content:center;width:30px;height:30px;color:#1e293b;cursor:pointer}
+.measure-ctl a svg{width:18px;height:18px}
+.measure-ctl a.active{background:#0e7490;color:#fff}
+.measure-ctl a.active:hover{background:#0c667e}
+.measuring .leaflet-container,.measuring .leaflet-interactive,.measuring .leaflet-marker-icon{cursor:crosshair !important}
+.measuring .leaflet-marker-pane,.measuring .leaflet-popup-pane{pointer-events:none}
+.m-label{background:rgba(255,255,255,.95);border:1px solid #0e7490;color:#0f172a;border-radius:5px;padding:1px 5px;font-size:11px;font-weight:600;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.2);font-variant-numeric:tabular-nums;line-height:1.3}
+.m-label.total{background:#0e7490;color:#fff;border-color:#0e7490;font-size:12px;padding:2px 7px}
+.m-label small{font-weight:500;color:#475569;margin-left:4px}
+.m-label.total small{color:rgba(255,255,255,.8)}
+.m-dot{width:8px;height:8px;border-radius:50%;background:#fff;border:2px solid #0e7490;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+#measure-hint{
+  position:absolute;left:50%;transform:translateX(-50%);top:62px;z-index:1001;
+  display:none;align-items:center;gap:10px;
+  background:#0e7490;color:#fff;font-size:13px;font-weight:600;
+  padding:8px 8px 8px 14px;border-radius:20px;box-shadow:0 4px 16px rgba(0,0,0,.3);white-space:nowrap;
+}
+#measure-hint.on{display:flex}
+#measure-hint button{border:none;background:rgba(255,255,255,.2);color:#fff;font:inherit;font-size:12px;padding:5px 10px;border-radius:14px;cursor:pointer}
 /* ── Movable boxes (v1.74) ──────────────────────────────── */
 .drag-handle{cursor:move;touch-action:none}
 .drag-handle:active{cursor:grabbing}
@@ -302,6 +322,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   .sel-list .r{padding:8px 0}
   .sel-copy{padding:10px 0;font-size:14px}
   #draw-hint{top:calc(62px + env(safe-area-inset-top,0px))}
+  #measure-hint{top:calc(62px + env(safe-area-inset-top,0px));font-size:12px;max-width:calc(100vw - 16px);white-space:normal;text-align:center}
   #zoom-hint{bottom:calc(78px + env(safe-area-inset-bottom,0px))}
   #play-bar{left:8px;right:8px;transform:none;width:auto;min-width:0;bottom:calc(70px + env(safe-area-inset-bottom,0px))}
   .has-play .leaflet-bottom.leaflet-right .leaflet-control.legend{margin-bottom:calc(190px + env(safe-area-inset-bottom,0px))}
@@ -326,7 +347,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.74';
+const APP_VERSION = '1.75';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -669,6 +690,7 @@ function initMap() {
     'USGS Topo': usgsTopo, 'USGS Imagery + topo': usgsImgTopo, 'USGS Shaded relief': usgsRelief,
     'Esri World Topo': esriTopo, 'Esri Terrain': esriTerrain, 'Esri National Geographic': esriNatGeo, 'Imagery (Esri)': imagery,
   }, { 'USGS Hydrography': usgsHydro }, { position: 'topright' }).addTo(leafletMap);
+  addMeasureControl();
   L.control.scale({ imperial: true, metric: false, position: 'bottomleft' }).addTo(leafletMap);
 
   addInfoPanel();
@@ -850,6 +872,108 @@ function autoReach(pts) {
   autoReachVal = worst > 0 && pxPerMile > 0 ? Math.max(REACH_MIN, Math.min(REACH_MAX, Math.ceil((Math.sqrt(worst) / pxPerMile) * 2) / 2 + 0.5)) : null;
   return autoReachVal;
 }
+// ── Measure (v1.75) ───────────────────────────────────────────────────────────
+// A ruler under the basemap button. Click points on the map; each point shows the distance so far and the
+// last leg's length and bearing follow the pointer. Double-click, Enter or Done finishes and leaves the line
+// on the map; the ruler button (or Esc) clears it. Feet under a fifth of a mile; kilometers alongside.
+let measureOn = false, mPts = [], mLayer = null, mTemp = null, mBtn = null;
+const fmtMi = mi => mi < 0.19 ? `${Math.round(mi * 5280).toLocaleString('en-US')} ft` : mi < 10 ? `${mi.toFixed(2)} mi` : `${mi.toFixed(1)} mi`;
+const fmtKm = mi => { const km = mi * 1.609344; return km < 0.3 ? `${Math.round(km * 1000)} m` : `${km.toFixed(km < 10 ? 2 : 1)} km`; };
+function bearingDeg(a1, o1, a2, o2) {
+  const y = Math.sin(toRad(o2 - o1)) * Math.cos(toRad(a2));
+  const x = Math.cos(toRad(a1)) * Math.sin(toRad(a2)) - Math.sin(toRad(a1)) * Math.cos(toRad(a2)) * Math.cos(toRad(o2 - o1));
+  return Math.round((Math.atan2(y, x) * 180 / Math.PI + 360) % 360);
+}
+function addMeasureControl() {
+  const c = L.control({ position: 'topright' });
+  c.onAdd = () => {
+    const div = L.DomUtil.create('div', 'leaflet-bar measure-ctl');
+    mBtn = L.DomUtil.create('a', '', div);
+    mBtn.href = '#'; mBtn.setAttribute('role', 'button'); mBtn.setAttribute('aria-label', 'Measure distance'); mBtn.title = 'Measure distance';
+    mBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17 17 3l4 4L7 21z"/><path d="m7 13 2 2M10 10l2 2M13 7l2 2"/></svg>';
+    L.DomEvent.disableClickPropagation(div);
+    L.DomEvent.on(mBtn, 'click', e => { L.DomEvent.preventDefault(e); measureToggle(); });
+    const hint = document.createElement('div');
+    hint.id = 'measure-hint';
+    hint.innerHTML = `<span>${IS_PHONE ? 'Tap points to measure' : 'Click points to measure · double-click to finish · Esc clears'}</span><button type="button" id="measure-done">Done</button><button type="button" id="measure-clear">Clear</button>`;
+    leafletMap.getContainer().appendChild(hint);
+    L.DomEvent.disableClickPropagation(hint);
+    hint.querySelector('#measure-done').addEventListener('click', measureFinish);
+    hint.querySelector('#measure-clear').addEventListener('click', () => measureStop(true));
+    leafletMap.createPane('measure').style.zIndex = 650;
+    return div;
+  };
+  c.addTo(leafletMap);
+  document.addEventListener('keydown', e => {
+    if (!measureOn && !(mLayer && mPts.length)) return;
+    if (e.key === 'Escape') { e.preventDefault(); measureStop(true); }
+    else if (e.key === 'Enter' && measureOn) { e.preventDefault(); measureFinish(); }
+  });
+}
+function measureToggle() { if (measureOn || (mLayer && mPts.length)) measureStop(true); else measureStart(); }
+function measureStart() {
+  if (drawMode) toggleDrawMode(); if (polyMode) togglePolyMode();
+  measureOn = true; mPts = [];
+  if (mLayer) leafletMap.removeLayer(mLayer);
+  mLayer = L.layerGroup().addTo(leafletMap);
+  leafletMap.getContainer().classList.add('measuring');
+  leafletMap.doubleClickZoom.disable();
+  leafletMap.on('click', measureClick); leafletMap.on('mousemove', measureMove); leafletMap.on('dblclick', measureFinish);
+  mBtn.classList.add('active');
+  document.getElementById('measure-hint').classList.add('on');
+  bndHoverClear();
+}
+function measureStop(clear) {   // leave measuring; clear = take the line off the map too
+  measureOn = false;
+  leafletMap.getContainer().classList.remove('measuring');
+  leafletMap.doubleClickZoom.enable();
+  leafletMap.off('click', measureClick); leafletMap.off('mousemove', measureMove); leafletMap.off('dblclick', measureFinish);
+  if (mTemp) { mLayer && mLayer.removeLayer(mTemp); mTemp = null; }
+  document.getElementById('measure-hint').classList.remove('on');
+  if (clear || mPts.length < 2) { if (mLayer) leafletMap.removeLayer(mLayer); mLayer = null; mPts = []; mBtn.classList.remove('active'); }
+}
+function measureFinish() {
+  if (!measureOn) return;
+  // a double-click is two clicks on one spot, then this: drop the repeated point
+  if (mPts.length >= 2 && mPts[mPts.length - 1].equals(mPts[mPts.length - 2])) mPts.pop();
+  measureStop(false);
+  if (mPts.length >= 2) { measureDraw(); mBtn.title = 'Clear the measurement'; }
+}
+function measureClick(e) {
+  if (e.originalEvent && e.originalEvent.target && e.originalEvent.target.closest && e.originalEvent.target.closest('.leaflet-control, #measure-hint')) return;
+  mPts.push(e.latlng);
+  measureDraw();
+}
+function measureMove(e) {
+  if (!mPts.length) return;
+  const a = mPts[mPts.length - 1], b = e.latlng;
+  const leg = miles(a.lat, a.lng, b.lat, b.lng), total = measureTotal() + leg;
+  if (mTemp) mLayer.removeLayer(mTemp);
+  mTemp = L.layerGroup();
+  mTemp.addLayer(L.polyline([a, b], { pane: 'measure', color: '#0e7490', weight: 2, dashArray: '6 5', interactive: false }));
+  mTemp.addLayer(L.marker(b, { pane: 'measure', interactive: false, keyboard: false,
+    icon: L.divIcon({ className: '', html: `<div class="m-label">${fmtMi(leg)} · ${bearingDeg(a.lat, a.lng, b.lat, b.lng)}°${mPts.length > 1 ? `<small>total ${fmtMi(total)}</small>` : ''}</div>`, iconSize: [0, 0], iconAnchor: [-12, 22] }) }));
+  mLayer.addLayer(mTemp);
+}
+function measureTotal() { let t = 0; for (let i = 1; i < mPts.length; i++) t += miles(mPts[i - 1].lat, mPts[i - 1].lng, mPts[i].lat, mPts[i].lng); return t; }
+function measureDraw() {
+  if (!mLayer) return;
+  mLayer.clearLayers(); mTemp = null;
+  if (mPts.length >= 2) {
+    mLayer.addLayer(L.polyline(mPts, { pane: 'measure', color: '#fff', weight: 5, opacity: .9, interactive: false }));
+    mLayer.addLayer(L.polyline(mPts, { pane: 'measure', color: '#0e7490', weight: 2.5, interactive: false }));
+  }
+  let run = 0;
+  mPts.forEach((p, i) => {
+    mLayer.addLayer(L.marker(p, { pane: 'measure', interactive: false, keyboard: false, icon: L.divIcon({ className: '', html: '<div class="m-dot"></div>', iconSize: [8, 8], iconAnchor: [4, 4] }) }));
+    if (!i) return;
+    const q = mPts[i - 1]; run += miles(q.lat, q.lng, p.lat, p.lng);
+    const last = i === mPts.length - 1 && !measureOn;
+    mLayer.addLayer(L.marker(p, { pane: 'measure', interactive: false, keyboard: false,
+      icon: L.divIcon({ className: '', html: `<div class="m-label${last ? ' total' : ''}">${fmtMi(run)}<small>${fmtKm(run)}</small></div>`, iconSize: [0, 0], iconAnchor: [-10, last ? 24 : 20] }) }));
+  });
+}
+
 // ── Movable boxes (v1.74) ─────────────────────────────────────────────────────
 // The info panel, legend, play bar and selection panel can be dragged by their heads when they get in each
 // other's way. The box keeps its own anchor (corner, bottom center) and is offset from it, so the layout
@@ -1087,7 +1211,7 @@ function bndSub(h) {
 }
 let bndHoverT = 0;
 function bndHover(e) {
-  if (IS_PHONE || !(bndOn.state || bndOn.county || bndOn.huc) || drawMode || polyMode) return;
+  if (IS_PHONE || !(bndOn.state || bndOn.county || bndOn.huc) || drawMode || polyMode || measureOn) return;
   const now = performance.now(); if (now - bndHoverT < 60) return; bndHoverT = now;
   if (e.originalEvent && e.originalEvent.target && e.originalEvent.target.closest && e.originalEvent.target.closest('.leaflet-marker-icon, .leaflet-popup, .leaflet-control')) return bndHoverClear();
   const hits = bndAt(e.latlng);
@@ -1109,7 +1233,7 @@ function bndHoverClear() {
   if (bndTip && leafletMap.hasLayer(bndTip)) leafletMap.removeLayer(bndTip);
 }
 function bndClick(e) {
-  if (drawMode || polyMode || !(bndOn.state || bndOn.county || bndOn.huc)) return;
+  if (drawMode || polyMode || measureOn || !(bndOn.state || bndOn.county || bndOn.huc)) return;
   if (bndHadPopup) { bndHadPopup = false; return; }   // that click closed a popup; the next one picks
   if (e.originalEvent && e.originalEvent.target && e.originalEvent.target.closest && e.originalEvent.target.closest('.leaflet-marker-icon, .leaflet-popup, .leaflet-control')) return;
   const hits = bndAt(e.latlng);

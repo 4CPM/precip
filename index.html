@@ -164,6 +164,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .draw-active{cursor:crosshair !important}
 .draw-active .leaflet-interactive{pointer-events:none}
 
+/* ── Movable boxes (v1.74) ──────────────────────────────── */
+.drag-handle{cursor:move;touch-action:none}
+.drag-handle:active{cursor:grabbing}
+.dragging{box-shadow:0 10px 30px rgba(0,0,0,.28) !important;opacity:.96}
 /* ── Boundaries (v1.73) ─────────────────────────────────── */
 .opt-l[hidden],.opt-row[hidden]{display:none}
 #bnd-row{gap:4px 5px}#bnd-row .toggle-btn{gap:4px;padding:1px 0}
@@ -322,7 +326,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.73';
+const APP_VERSION = '1.74';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -687,6 +691,7 @@ function initMap() {
   hint.textContent = 'Zoomed out: showing up to 100 personal stations per 70-mile square. Zoom in to load every station.';
   leafletMap.getContainer().appendChild(hint);
   addPlayBar();
+  enableDragging();
   let t;
   leafletMap.on('moveend', () => { clearTimeout(t); t = setTimeout(() => ensureCells(false).then(() => { if (hist) ensureHist(); }), 350); });
   let st;
@@ -845,6 +850,56 @@ function autoReach(pts) {
   autoReachVal = worst > 0 && pxPerMile > 0 ? Math.max(REACH_MIN, Math.min(REACH_MAX, Math.ceil((Math.sqrt(worst) / pxPerMile) * 2) / 2 + 0.5)) : null;
   return autoReachVal;
 }
+// ── Movable boxes (v1.74) ─────────────────────────────────────────────────────
+// The info panel, legend, play bar and selection panel can be dragged by their heads when they get in each
+// other's way. The box keeps its own anchor (corner, bottom center) and is offset from it, so the layout
+// rules still hold; a double-click on the head puts it back. Positions last for the session.
+const boxOffsets = new Map();
+let boxZ = 0;
+function dragBox(el, handles, base = '') {
+  if (!el || el._dragReady) return; el._dragReady = true;
+  let start = null, moved = false, swallow = false;
+  const place = o => { boxOffsets.set(el, o); el.style.transform = `${base} translate(${o.x}px, ${o.y}px)`.trim(); };
+  const raise = () => { const corner = el.closest('.leaflet-top, .leaflet-bottom'); (corner || el).style.zIndex = String(1001 + (++boxZ)); };
+  for (const h of handles) {
+    if (!h) continue;
+    h.classList.add('drag-handle');
+    h.title = (h.title ? h.title + ' · ' : '') + 'Drag to move; double-click to put back';
+    h.addEventListener('pointerdown', e => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      if (e.target.closest('input, select, textarea, a, .seg-btn, .toggle-btn, .info-btn, .step-btn, #play-btn, #play-min, .sel-close, .draw-btn')) return;
+      const o = boxOffsets.get(el) || { x: 0, y: 0 };
+      start = { x: e.clientX, y: e.clientY, ox: o.x, oy: o.y }; moved = false;
+      try { h.setPointerCapture(e.pointerId); } catch (err) {}
+    });
+    h.addEventListener('pointermove', e => {
+      if (!start) return;
+      const dx = e.clientX - start.x, dy = e.clientY - start.y;
+      if (!moved) { if (Math.hypot(dx, dy) < 4) return; moved = true; el.classList.add('dragging'); raise(); }
+      const o = { x: start.ox + dx, y: start.oy + dy };
+      // keep the box on the map
+      const cur = boxOffsets.get(el) || { x: 0, y: 0 }, r = el.getBoundingClientRect(), m = leafletMap.getContainer().getBoundingClientRect();
+      const left0 = r.left - cur.x, top0 = r.top - cur.y;   // where the box sits with no offset
+      o.x = Math.max(m.left + 4 - left0, Math.min(m.right - 4 - r.width - left0, o.x));
+      o.y = Math.max(m.top + 4 - top0, Math.min(Math.max(m.top + 4 - top0, m.bottom - 4 - r.height - top0), o.y));
+      place(o);
+      e.preventDefault();
+    });
+    const end = () => { if (!start) return; start = null; el.classList.remove('dragging'); if (moved) { swallow = true; setTimeout(() => swallow = false, 0); fitPanels(); } };
+    h.addEventListener('pointerup', end); h.addEventListener('pointercancel', end);
+    h.addEventListener('click', e => { if (swallow) { e.stopImmediatePropagation(); e.preventDefault(); } }, true);   // the end of a drag is not a click
+    h.addEventListener('dblclick', e => { e.preventDefault(); boxOffsets.delete(el); el.style.transform = base; fitPanels(); });
+  }
+}
+function bindLegendDrag() { if (!legendEl) return; legendEl._dragReady = false; dragBox(legendEl, [legendEl.querySelector(':scope > .panel-head') || legendEl.querySelector('h4')]); }
+function enableDragging() {
+  const ip = document.getElementById('info-panel');
+  if (ip) dragBox(ip, [ip.querySelector('.app-name'), ip.querySelector(':scope > .panel-head')]);
+  bindLegendDrag();
+  const pb = document.getElementById('play-bar');
+  if (pb) dragBox(pb, [pb.querySelector('.pb-top')], 'translateX(-50%)');
+}
+
 // ── Boundaries (v1.73): states, counties and watersheds ──────────────────────
 // States and counties come from the Census Bureau's generalized (1:500k) TIGERweb service, watersheds from the
 // USGS Watershed Boundary Dataset (hydrologic units, HUC2 regions down to HUC12 subwatersheds). Each is asked
@@ -2068,6 +2123,7 @@ function updateLegend() {
   legendEl.innerHTML = legendHtml();
   legendEl.classList.remove('collapsed');
   makeCollapsible(legendEl, collapsed);
+  bindLegendDrag();
 }
 
 // ── Draw box / polygon ───────────────────────────────────────────────────────
@@ -2239,6 +2295,7 @@ function buildSelectionPanel() {
     <div class="sel-list"></div>
     <button class="sel-copy" id="sel-copy">Copy table (paste into Excel)</button>`;
   panel.querySelector('#sel-close').addEventListener('click', () => activeBBox ? clearBBox() : activePoly ? clearPoly() : clearBndSel());
+  panel._dragReady = false; dragBox(panel, [panel.querySelector('.sel-header')]);
   if (!IS_PHONE) {
     const ip = document.getElementById('info-panel'), list = panel.querySelector('.sel-list');
     if (ip && list) { const room = leafletMap.getContainer().getBoundingClientRect().bottom - 28 - (ip.getBoundingClientRect().bottom + 10); list.style.maxHeight = Math.max(48, Math.min(180, room - (panel.offsetHeight - list.offsetHeight))) + 'px'; }

@@ -164,6 +164,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .draw-active{cursor:crosshair !important}
 .draw-active .leaflet-interactive{pointer-events:none}
 
+/* ── Boundaries (v1.73) ─────────────────────────────────── */
+.opt-l[hidden],.opt-row[hidden]{display:none}
+#bnd-row{gap:4px 5px}#bnd-row .toggle-btn{gap:4px;padding:1px 0}
+.bnd-label{font:600 10px/1.15 system-ui,-apple-system,"Segoe UI",sans-serif;color:#1e3a8a;text-align:center;white-space:normal;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 2px #fff,0 0 1px #fff;pointer-events:none;letter-spacing:.01em}
+.bnd-label.county{color:#334155;font-weight:500;font-size:9.5px}
+.bnd-chip{display:inline-flex;align-items:center;gap:2px;background:#e0e7ff;color:#1e3a8a;border-radius:999px;padding:1px 4px 1px 8px;font-size:11px;max-width:100%}
+.bnd-chip b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px;cursor:pointer}
+.bnd-chip button{border:none;background:none;color:#1e3a8a;font:inherit;font-size:14px;line-height:1;cursor:pointer;padding:0 3px}
+.bnd-pick{font-size:12px;min-width:210px;max-width:300px}
+.bnd-pick .hd{font-weight:600;color:#475569;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
+.bnd-pick .r{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:4px 0;border-bottom:1px solid #f1f5f9}
+.bnd-pick .r:last-child{border-bottom:none}
+.bnd-pick .r span{line-height:1.25;color:#1e293b}
+.bnd-pick .r small{display:block;color:#64748b;font-size:10.5px}
+.bnd-pick button{border:1px solid #cbd5e1;background:#fff;color:#1e40af;font:inherit;font-size:11px;font-weight:600;border-radius:6px;padding:3px 9px;cursor:pointer;white-space:nowrap}
+.bnd-pick button.on{background:#1d4ed8;color:#fff;border-color:#1d4ed8}
+.leaflet-tooltip.bnd-tip{background:rgba(255,255,255,.96);border:1px solid #cbd5e1;border-radius:6px;padding:3px 8px;font-size:11px;color:#1e293b;box-shadow:0 1px 4px rgba(0,0,0,.15);white-space:nowrap;line-height:1.3}
+.leaflet-tooltip.bnd-tip::before{display:none}
+.leaflet-popup-content:has(.bnd-pick){margin:10px 12px}
 /* ── Selection stats panel ──────────────────────────────── */
 #sel-panel{
   position:absolute;bottom:28px;left:12px;z-index:1000;
@@ -303,7 +322,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.72';
+const APP_VERSION = '1.73';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -588,6 +607,7 @@ function visible(s, ignoreRegion) {
   if (!ignoreRegion) {
     if (activeBBox && (s.lat < activeBBox.minLat || s.lat > activeBBox.maxLat || s.lon < activeBBox.minLon || s.lon > activeBBox.maxLon)) return false;
     if (activePoly && !pointInPolygon(s.lat, s.lon, activePoly)) return false;
+    if (bndIso && bndSel.length && !stationIn(s)) return false;
   }
   return true;
 }
@@ -599,8 +619,16 @@ function initMap() {
   leafletMap.createPane('contourFill').style.zIndex = 350;
   leafletMap.getPane('contourFill').style.opacity = '0.45';
   leafletMap.createPane('contourLine').style.zIndex = 360;
+  leafletMap.createPane('bounds').style.zIndex = 365;        // state, county and watershed lines, over the contours, under the pins
+  leafletMap.createPane('boundsSel').style.zIndex = 366;     // the picked boundaries
+  leafletMap.createPane('boundsLabel').style.zIndex = 367;
   let ct;
   leafletMap.on('moveend', () => { clearTimeout(ct); if (contourMode !== 'off') ct = setTimeout(drawContours, 150); });
+  leafletMap.on('moveend', refreshBounds);
+  leafletMap.on('mousemove', bndHover);
+  leafletMap.on('mouseout', () => bndHoverClear());
+  leafletMap.on('preclick', () => { bndHadPopup = !!leafletMap._popup; });
+  leafletMap.on('click', bndClick);
   const lightBase = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Tiles &copy; Esri', maxZoom: 16 });
   const lightRef = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
@@ -817,6 +845,317 @@ function autoReach(pts) {
   autoReachVal = worst > 0 && pxPerMile > 0 ? Math.max(REACH_MIN, Math.min(REACH_MAX, Math.ceil((Math.sqrt(worst) / pxPerMile) * 2) / 2 + 0.5)) : null;
   return autoReachVal;
 }
+// ── Boundaries (v1.73): states, counties and watersheds ──────────────────────
+// States and counties come from the Census Bureau's generalized (1:500k) TIGERweb service, watersheds from the
+// USGS Watershed Boundary Dataset (hydrologic units, HUC2 regions down to HUC12 subwatersheds). Each is asked
+// for the area on screen, generalized to the zoom, as the map moves. A click on the map lists the boundaries
+// under the pointer; picked ones can isolate the gauges inside them (every picked boundary must contain a gauge),
+// and the contours stop at their edge.
+const TIGER = 'https://tigerweb.geo.census.gov/arcgis/rest/services/Generalized_ACS2025/State_County/MapServer/';
+const WBD = 'https://hydro.nationalmap.gov/arcgis/rest/services/wbd/MapServer/';
+const HUC_LAYER = { 2: 1, 4: 2, 6: 3, 8: 4, 10: 5, 12: 6 };
+const HUC_NAME = { 2: 'region', 4: 'subregion', 6: 'basin', 8: 'subbasin', 10: 'watershed', 12: 'subwatershed' };
+const ST_ABBR = { '04': 'AZ', '06': 'CA', '08': 'CO', '16': 'ID', '20': 'KS', '30': 'MT', '31': 'NE', '32': 'NV', '35': 'NM', '38': 'ND', '40': 'OK', '41': 'OR', '46': 'SD', '48': 'TX', '49': 'UT', '56': 'WY' };
+const BND = {
+  state:  { url: () => TIGER + '7/query', fields: () => 'GEOID,NAME', idField: 'GEOID', id: f => f.properties.GEOID, name: f => f.properties.NAME,
+            style: { color: '#1e293b', weight: 2.2, opacity: .85 }, label: false },
+  county: { url: () => TIGER + '11/query', fields: () => 'GEOID,NAME,BASENAME,STATE', idField: 'GEOID', id: f => f.properties.GEOID, name: f => (f.properties.BASENAME || f.properties.NAME) + ' County',
+            style: { color: '#475569', weight: 1.1, opacity: .85, dashArray: '5 3' }, label: true },
+  huc:    { url: L => WBD + HUC_LAYER[L] + '/query', fields: L => `huc${L},name,areasqkm`, idField: L => 'huc' + L, id: (f, L) => f.properties['huc' + L], name: f => f.properties.name,
+            style: { color: '#1d4ed8', weight: 1.4, opacity: .9 }, label: true },
+};
+let bndOn = { state: false, county: false, huc: false };
+let hucLevelPick = 'auto';   // 'auto' or a HUC level
+let bndLabels = true;
+let bndFill = false;        // a light fill inside the boundaries (off: lines only)
+function bndStyle(kind) { const st = BND[kind].style; return { ...st, fill: bndFill, fillColor: st.color, fillOpacity: 0.07 }; }
+const bndState = { state: null, county: null, huc: null };    // what is loaded: { key, bbox, level, fc, more }
+const bndLayers = { state: null, county: null, huc: null };
+const bndIndex = { state: new Map(), county: new Map(), huc: new Map() };   // feature id → its Leaflet layer
+const bndAbort = {}, bndNotes = {};
+let bndSel = [];           // picked boundaries: { kind, id, name, sub, level, geom, bbox }
+let bndIso = false;        // keep only the gauges inside every picked boundary
+let bndSelLayer = null, isoSig = 0, isoMaskCache = null, bndTip = null, bndHovered = [], bndHadPopup = false;
+const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function hucAuto(z) { return z <= 4 ? 2 : z <= 5 ? 4 : z <= 7 ? 6 : z <= 9 ? 8 : z <= 11 ? 10 : 12; }
+function hucLevel() { return hucLevelPick === 'auto' ? hucAuto(leafletMap.getZoom()) : +hucLevelPick; }
+function viewBox(pad) { const b = leafletMap.getBounds().pad(pad); return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]; }
+function boxIn(a, b) { return a[0] >= b[0] && a[1] >= b[1] && a[2] <= b[2] && a[3] <= b[3]; }
+function degPerPx() { return 360 / (256 * Math.pow(2, leafletMap.getZoom())); }
+function geomRings(g) { return g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : []; }
+function geomBbox(g) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const poly of geomRings(g)) for (const pt of poly[0]) { if (pt[0] < x0) x0 = pt[0]; if (pt[0] > x1) x1 = pt[0]; if (pt[1] < y0) y0 = pt[1]; if (pt[1] > y1) y1 = pt[1]; }
+  return [x0, y0, x1, y1];
+}
+function ringHas(lat, lon, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if ((yi > lat) !== (yj > lat) && lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+function geomHas(lat, lon, g, bbox) {
+  if (bbox && (lon < bbox[0] || lon > bbox[2] || lat < bbox[1] || lat > bbox[3])) return false;
+  for (const poly of geomRings(g)) {
+    if (!ringHas(lat, lon, poly[0])) continue;
+    let hole = false; for (let k = 1; k < poly.length; k++) if (ringHas(lat, lon, poly[k])) { hole = true; break; }
+    if (!hole) return true;
+  }
+  return false;
+}
+function inBounds(lat, lon) { for (const b of bndSel) if (!geomHas(lat, lon, b.geom, b.bbox)) return false; return true; }
+function stationIn(s) { if (s._isoSig !== isoSig) { s._isoSig = isoSig; s._iso = inBounds(s.lat, s.lon); } return s._iso; }
+// Label point: the centroid of the biggest outer ring.
+function labelPoint(g) {
+  let best = null, bestA = -1;
+  for (const poly of geomRings(g)) {
+    const r = poly[0]; let a = 0, cx = 0, cy = 0;
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) { const f = r[j][0] * r[i][1] - r[i][0] * r[j][1]; a += f; cx += (r[j][0] + r[i][0]) * f; cy += (r[j][1] + r[i][1]) * f; }
+    if (Math.abs(a) > bestA) { bestA = Math.abs(a); best = a ? [cy / (3 * a), cx / (3 * a)] : [r[0][1], r[0][0]]; }
+  }
+  return best;
+}
+async function bndFetch(kind, level, bbox, offsetDeg, signal) {
+  const def = BND[kind];
+  const p = new URLSearchParams({ where: '1=1', geometry: bbox.map(v => v.toFixed(4)).join(','), geometryType: 'esriGeometryEnvelope', inSR: '4326', spatialRel: 'esriSpatialRelIntersects',
+    outFields: def.fields(level), returnGeometry: 'true', outSR: '4326', geometryPrecision: offsetDeg >= 0.001 ? '3' : '4', f: 'geojson' });
+  if (offsetDeg) p.set('maxAllowableOffset', offsetDeg.toFixed(5));
+  const r = await fetch(def.url(level) + '?' + p, { signal });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message || 'service error');
+  return j;
+}
+// The boundary files built into the repo (boundaries/, by .github/scripts/boundaries.mjs): every unit, county
+// and state within the 500-mile region, generalized for drawing. HUC2–HUC8, counties and states are one file
+// each; HUC10 comes in a file per HUC4 subregion and HUC12 in a file per HUC6 basin, fetched as the view needs
+// them. When the files are missing the services are asked for the view instead (slow).
+const BND_BASE = 'https://raw.githubusercontent.com/4CPM/precip/main/boundaries/';
+let bndCatP = null, bndCat = null;
+const bndFiles = new Map();
+function bndCatalog() {
+  if (!bndCatP) bndCatP = fetch(BND_BASE + 'index.json').then(r => r.ok ? r.json() : null).catch(() => null).then(j => (bndCat = j));
+  return bndCatP;
+}
+function prepFeats(feats, kind, level) {
+  const def = BND[kind];
+  for (const f of feats) if (!f._bbox) { f._kind = kind; f._level = level; f._id = def.id(f, level); f._name = def.name(f, level); f._bbox = geomBbox(f.geometry); }
+  return feats;
+}
+function bndFile(path, kind, level) {
+  if (!bndFiles.has(path)) bndFiles.set(path, fetch(BND_BASE + path).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(fc => prepFeats(fc.features || [], kind, level)).catch(e => { bndFiles.delete(path); throw e; }));
+  return bndFiles.get(path);
+}
+const boxTouch = (a, b) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+// The features of a kind and level from the files, for a view box; null when there are no files
+async function bndStaticFeatures(kind, level, box) {
+  const cat = await bndCatalog(); if (!cat) return null;
+  if (kind === 'state') return bndFile('states.json', kind, level);
+  if (kind === 'county') return bndFile('counties.json', kind, level);
+  if (level <= 8) return bndFile(`huc${level}.json`, kind, level);
+  const pl = level === 10 ? 4 : 6, parents = await bndFile(`huc${pl}.json`, 'huc', pl);
+  const avail = new Set((level === 10 ? cat.huc10 : cat.huc12 || []).map(t => level === 10 ? t.huc4 : t.huc6));
+  const need = parents.filter(p => boxTouch(p._bbox, box) && avail.has(p._id)).map(p => p._id);
+  const lists = await Promise.all(need.map(id => bndFile(`huc${level}/${id}.json`, kind, level)));
+  return lists.flat();
+}
+let bndTimer; const bndReq = { state: 0, county: 0, huc: 0 };
+function refreshBounds() { clearTimeout(bndTimer); bndTimer = setTimeout(refreshBoundsNow, 150); }
+function refreshBoundsNow() { clearTimeout(bndTimer); for (const kind of ['state', 'county', 'huc']) loadBounds(kind); }
+async function loadBounds(kind) {
+  if (!bndOn[kind]) { if (bndLayers[kind]) { leafletMap.removeLayer(bndLayers[kind]); bndLayers[kind] = null; } if (bndAbort[kind]) bndAbort[kind].abort(); bndNotes[kind] = ''; bndBadge(kind); return; }
+  const level = hucLevel(), key = kind === 'huc' ? 'huc|' + level : kind, cur = bndState[kind];
+  if (cur && cur.key === key && boxIn(viewBox(0.02), cur.box)) { if (!bndLayers[kind]) drawBoundLayer(kind); return; }
+  const req = ++bndReq[kind], box = viewBox(0.25);
+  bndNotes[kind] = 'loading'; bndDesc(); bndBadge(kind);
+  try {
+    let feats = await bndStaticFeatures(kind, level, box), live = false;
+    if (feats == null) {   // no files: ask the service for the view
+      if (bndAbort[kind]) bndAbort[kind].abort();
+      const ac = bndAbort[kind] = new AbortController();
+      const fc = await bndFetch(kind, level, viewBox(0.15), degPerPx() * 1.5, ac.signal);
+      feats = prepFeats(fc.features || [], kind, level); live = true;
+    }
+    if (req !== bndReq[kind] || !bndOn[kind]) return;   // the view moved on
+    bndState[kind] = { key, box, level, feats: feats.filter(f => boxTouch(f._bbox, box)), live };
+    bndNotes[kind] = ''; drawBoundLayer(kind); bndBadge(kind);
+  } catch (e) { if (e.name !== 'AbortError' && req === bndReq[kind]) { console.warn('boundaries', kind, e); bndNotes[kind] = 'error'; bndDesc(); bndBadge(kind); } }
+}
+// The toggle itself says when its lines are on their way or did not come
+function bndBadge(kind) {
+  const b = document.querySelector(`#bnd-${kind}-btn .toggle-label-text`); if (!b) return;
+  const base = { state: 'States', county: 'Counties', huc: 'Watersheds' }[kind];
+  b.textContent = base + (bndOn[kind] && bndNotes[kind] === 'loading' ? '…' : bndOn[kind] && bndNotes[kind] === 'error' ? ' (not answering)' : '');
+}
+function drawBoundLayer(kind) {
+  if (bndLayers[kind]) { leafletMap.removeLayer(bndLayers[kind]); bndLayers[kind] = null; }
+  const st = bndState[kind]; if (!st || !bndOn[kind]) return;
+  const def = BND[kind], idx = bndIndex[kind]; idx.clear();
+  const feats = st.feats;
+  const group = L.layerGroup();
+  group.addLayer(L.geoJSON({ type: 'FeatureCollection', features: feats }, { pane: 'bounds', interactive: false, style: () => bndStyle(kind), onEachFeature: (f, l) => idx.set(f._id, l) }));
+  if (bndLabels && def.label && feats.length <= 120) for (const f of feats) {
+    const ll = labelPoint(f.geometry); if (!ll) continue;
+    group.addLayer(L.marker(ll, { pane: 'boundsLabel', interactive: false, keyboard: false,
+      icon: L.divIcon({ className: '', html: `<div class="bnd-label ${kind}">${esc(f._name)}</div>`, iconSize: [110, 24], iconAnchor: [55, 12] }) }));
+  }
+  bndLayers[kind] = group.addTo(leafletMap);
+  bndDesc();
+}
+function bndDesc() {
+  const el = document.getElementById('bnd-desc'); if (!el) return;
+  const z = leafletMap ? leafletMap.getZoom() : 9, L = hucLevel();
+  const parts = [];
+  if (bndOn.huc) {
+    const st = bndState.huc, n = st && st.key === 'huc|' + L ? st.feats.length : null;
+    parts.push(`Watersheds: HUC${L} ${HUC_NAME[L]}s${hucLevelPick === 'auto' ? ' at this zoom (Auto)' : ''}` + (bndNotes.huc === 'loading' ? ', loading…' : bndNotes.huc === 'error' ? ' — could not be loaded' : n != null ? `, ${n} near the screen${st.live ? ' (asked of the USGS service; the map’s own boundary files are not built yet)' : ''}` : '') + '.');
+  } else parts.push(`Watersheds off; Auto would show HUC${hucAuto(z)} ${HUC_NAME[hucAuto(z)]}s at this zoom.`);
+  for (const [kind, lbl] of [['county', 'Counties'], ['state', 'States']]) if (bndOn[kind] && bndNotes[kind]) parts.push(lbl + (bndNotes[kind] === 'loading' ? ' loading…' : ' could not be loaded.'));
+  el.textContent = parts.join(' ') + ' Watersheds are the USGS hydrologic units (HUC2 regions down to HUC12 subwatersheds); states and counties are the Census Bureau’s generalized lines. Hover for names; click the map to pick a boundary. Isolate keeps only the gauges inside every picked boundary, and the contours stop at its edge.';
+}
+// What lies under a point, smallest kind first
+function bndAt(ll) {
+  const out = [];
+  for (const kind of ['huc', 'county', 'state']) {
+    const st = bndState[kind]; if (!bndOn[kind] || !st || !bndLayers[kind]) continue;
+    for (const f of st.feats) if (geomHas(ll.lat, ll.lng, f.geometry, f._bbox)) out.push({ kind, f, level: st.level });
+  }
+  return out;
+}
+function bndSub(h) {
+  if (h.kind === 'huc') { const a = h.f.properties.areasqkm; return `HUC${h.level} ${HUC_NAME[h.level]} ${h.f._id}` + (a ? ` · ${Math.round(a / 2.58999).toLocaleString('en-US')} sq mi` : ''); }
+  if (h.kind === 'county') return 'County · ' + (ST_ABBR[h.f.properties.STATE] || '');
+  return 'State';
+}
+let bndHoverT = 0;
+function bndHover(e) {
+  if (IS_PHONE || !(bndOn.state || bndOn.county || bndOn.huc) || drawMode || polyMode) return;
+  const now = performance.now(); if (now - bndHoverT < 60) return; bndHoverT = now;
+  if (e.originalEvent && e.originalEvent.target && e.originalEvent.target.closest && e.originalEvent.target.closest('.leaflet-marker-icon, .leaflet-popup, .leaflet-control')) return bndHoverClear();
+  const hits = bndAt(e.latlng);
+  if (!hits.length) return bndHoverClear();
+  const same = hits.length === bndHovered.length && hits.every((h, i) => bndHovered[i].f === h.f);
+  if (!same) {
+    for (const h of bndHovered) { const l = bndIndex[h.kind].get(h.f._id); if (l) l.setStyle(bndStyle(h.kind)); }
+    bndHovered = hits;
+    for (const h of hits) { const l = bndIndex[h.kind].get(h.f._id); if (l) l.setStyle({ weight: BND[h.kind].style.weight + 1.6, opacity: 1 }); }
+  }
+  const html = hits.map(h => `<b>${esc(h.f._name)}</b> <span style="color:#64748b">${esc(bndSub(h))}</span>`).join('<br>');
+  if (!bndTip) { bndTip = L.tooltip({ className: 'bnd-tip', direction: 'top', offset: [0, -14], opacity: 1 }); }
+  bndTip.setLatLng(e.latlng).setContent(html);
+  if (!leafletMap.hasLayer(bndTip)) bndTip.addTo(leafletMap);
+}
+function bndHoverClear() {
+  for (const h of bndHovered) { const l = bndIndex[h.kind].get(h.f._id); if (l) l.setStyle(bndStyle(h.kind)); }
+  bndHovered = [];
+  if (bndTip && leafletMap.hasLayer(bndTip)) leafletMap.removeLayer(bndTip);
+}
+function bndClick(e) {
+  if (drawMode || polyMode || !(bndOn.state || bndOn.county || bndOn.huc)) return;
+  if (bndHadPopup) { bndHadPopup = false; return; }   // that click closed a popup; the next one picks
+  if (e.originalEvent && e.originalEvent.target && e.originalEvent.target.closest && e.originalEvent.target.closest('.leaflet-marker-icon, .leaflet-popup, .leaflet-control')) return;
+  const hits = bndAt(e.latlng);
+  if (!hits.length) return;
+  bndHoverClear();
+  const el = document.createElement('div'); el.className = 'bnd-pick';
+  const isSel = h => bndSel.some(b => b.kind === h.kind && b.id === h.f._id);
+  const draw = () => {
+    el.innerHTML = '<div class="hd">Boundaries here</div>' + hits.map((h, i) => `<div class="r"><span>${esc(h.f._name)}<small>${esc(bndSub(h))}</small></span><button type="button" data-i="${i}" class="${isSel(h) ? 'on' : ''}">${isSel(h) ? 'Picked ✓' : 'Pick'}</button></div>`).join('') +
+      (bndSel.length ? `<div class="r"><span style="color:#64748b">${bndSel.length} picked</span><button type="button" data-iso class="${bndIso ? 'on' : ''}">${bndIso ? 'Isolating ✓' : 'Isolate'}</button></div>` : '');
+    el.querySelectorAll('button[data-i]').forEach(b => b.addEventListener('click', () => { toggleBndSel(hits[+b.dataset.i]); draw(); }));
+    const ib = el.querySelector('button[data-iso]'); if (ib) ib.addEventListener('click', () => { setBndIso(!bndIso); draw(); });
+  };
+  draw();
+  L.popup({ maxWidth: 320, autoPanPaddingTopLeft: [10, IS_PHONE ? 70 : 10] }).setLatLng(e.latlng).setContent(el).openOn(leafletMap);
+}
+function toggleBndSel(h) {
+  const i = bndSel.findIndex(b => b.kind === h.kind && b.id === h.f._id);
+  if (i >= 0) bndSel.splice(i, 1);
+  else { const b = { kind: h.kind, id: h.f._id, name: h.f._name, sub: bndSub(h), level: h.level, geom: h.f.geometry, bbox: h.f._bbox }; bndSel.push(b); refineSel(b); }
+  if (!bndSel.length) bndIso = false;
+  bndSelChanged();
+}
+// A picked boundary is drawn and tested at fine resolution, however coarse the view it was picked from.
+async function refineSel(b) {
+  const def = BND[b.kind], field = typeof def.idField === 'function' ? def.idField(b.level) : def.idField;
+  try {
+    const p = new URLSearchParams({ where: `${field}='${b.id}'`, outFields: def.fields(b.level), returnGeometry: 'true', outSR: '4326', geometryPrecision: '5', maxAllowableOffset: '0.0003', f: 'geojson' });
+    const r = await fetch(def.url(b.level) + '?' + p); if (!r.ok) return;
+    const j = await r.json(); const f = j.features && j.features[0];
+    if (!f || !bndSel.includes(b)) return;
+    b.geom = f.geometry; b.bbox = geomBbox(f.geometry); b.fine = true;
+    bndSelChanged();
+  } catch (e) { console.warn('boundary detail', e); }
+}
+function bndSelChanged() {
+  isoSig++; isoMaskCache = null;
+  drawBndSel(); renderBndChips();
+  if (bndIso || !bndSel.length) render(); else syncSelPanel();
+}
+function setBndIso(on) { bndIso = on && bndSel.length > 0; isoSig++; isoMaskCache = null; renderBndChips(); render(); }
+function clearBndSel() { bndSel = []; bndIso = false; bndSelChanged(); }
+function drawBndSel() {
+  if (bndSelLayer) { leafletMap.removeLayer(bndSelLayer); bndSelLayer = null; }
+  if (!bndSel.length) return;
+  bndSelLayer = L.layerGroup();
+  for (const b of bndSel) bndSelLayer.addLayer(L.geoJSON({ type: 'Feature', geometry: b.geom, properties: {} }, { pane: 'boundsSel', interactive: false,
+    style: { color: b.kind === 'huc' ? '#1d4ed8' : '#0f172a', weight: 3, opacity: 1, fillColor: '#2563eb', fillOpacity: bndFill && !bndIso ? .06 : 0 } }));
+  bndSelLayer.addTo(leafletMap);
+}
+function renderBndChips() {
+  const row = document.getElementById('bnd-sel-row'), lab = document.getElementById('bnd-sel-lab'); if (!row) return;
+  row.hidden = lab.hidden = !bndSel.length;
+  row.innerHTML = '';
+  for (const b of bndSel) {
+    const chip = document.createElement('span'); chip.className = 'bnd-chip';
+    const nm = document.createElement('b'); nm.textContent = b.name; nm.title = b.sub + ' — click to zoom to it';
+    nm.addEventListener('click', () => leafletMap.fitBounds([[b.bbox[1], b.bbox[0]], [b.bbox[3], b.bbox[2]]], { padding: [30, 30] }));
+    const x = document.createElement('button'); x.type = 'button'; x.textContent = '×'; x.title = 'Remove';
+    x.addEventListener('click', () => { bndSel = bndSel.filter(o => o !== b); if (!bndSel.length) bndIso = false; bndSelChanged(); });
+    chip.append(nm, x); row.appendChild(chip);
+  }
+  const iso = document.createElement('button'); iso.type = 'button'; iso.className = 'toggle-btn' + (bndIso ? ' active' : ''); iso.id = 'bnd-iso-btn';
+  iso.title = 'Keep only the gauges inside every picked boundary; the contours stop at its edge';
+  iso.innerHTML = '<span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Isolate</span>';
+  iso.addEventListener('click', () => setBndIso(!bndIso));
+  row.appendChild(iso);
+  const clr = document.createElement('button'); clr.type = 'button'; clr.className = 'draw-btn'; clr.textContent = 'Clear'; clr.title = 'Unpick all';
+  clr.addEventListener('click', clearBndSel);
+  row.appendChild(clr);
+}
+function syncSelPanel() {
+  if (activeBBox || activePoly || (bndIso && bndSel.length)) buildSelectionPanel();
+  else { const p = document.getElementById('sel-panel'); if (p) p.style.display = 'none'; }
+}
+// The contour grid's cells inside every picked boundary, painted with the canvas (fast however many vertices).
+function isoMask(W, H, ox, oy, STEP, sig) {
+  const key = sig + '|' + isoSig;
+  if (isoMaskCache && isoMaskCache.key === key) return isoMaskCache.m;
+  const w00 = leafletMap.containerPointToLayerPoint([0, 0]).add(leafletMap.getPixelOrigin());
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  const m = new Uint8Array(W * H).fill(1);
+  for (const b of bndSel) {
+    ctx.clearRect(0, 0, W, H); ctx.beginPath();
+    for (const poly of geomRings(b.geom)) for (const ring of poly) {
+      for (let i = 0; i < ring.length; i++) {
+        const wp = leafletMap.project([ring[i][1], ring[i][0]]);
+        const x = (wp.x - w00.x - ox) / STEP + 0.5, y = (wp.y - w00.y - oy) / STEP + 0.5;
+        if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+      }
+      ctx.closePath();
+    }
+    ctx.fillStyle = '#000'; ctx.fill('evenodd');
+    const d = ctx.getImageData(0, 0, W, H).data;
+    for (let i = 0; i < W * H; i++) if (d[i * 4 + 3] < 128) m[i] = 0;
+  }
+  isoMaskCache = { key, m };
+  return m;
+}
+
 // Pixels per mile at the view's center, unrounded (container points are rounded to whole pixels, which
 // read as 0 px per mile once zoomed out past zoom 6 and left the contours undrawn there).
 function pxPerMileAt(c) { return Math.abs(leafletMap.project([c.lat + 0.5, c.lng]).y - leafletMap.project([c.lat - 0.5, c.lng]).y) / 69; }
@@ -995,7 +1334,8 @@ function drawContours() {
   // estimated cell, then get trimmed to the estimated area, so the edge of the
   // blank area doesn't draw a stack of false lines.
   const inside = new Uint8Array(W * H), ext = Float64Array.from(vals), queue = [];
-  for (let i = 0; i < W * H; i++) if (vals[i] >= 0 && (conEdge !== 'three' || cnt[i] >= 3)) { inside[i] = 1; queue.push(i); }
+  const iso = bndIso && bndSel.length ? isoMask(W, H, ox, oy, STEP, sig) : null;   // picked boundaries: the estimate stops at their edge
+  for (let i = 0; i < W * H; i++) if (vals[i] >= 0 && (conEdge !== 'three' || cnt[i] >= 3) && (!iso || iso[i])) { inside[i] = 1; queue.push(i); }
   if (!queue.length) return updateConNote();
   const seen = Uint8Array.from(inside);
   for (let h = 0; h < queue.length; h++) {
@@ -1152,7 +1492,7 @@ function render() {
   if (markerLayer.addLayers) markerLayer.addLayers(markers); else markers.forEach(m => markerLayer.addLayer(m));
   pinsMode = pinsHidden ? 'none' : vb ? 'vb' : 'full';
   updateStats();
-  if (activeBBox || activePoly) buildSelectionPanel();
+  syncSelPanel();
   drawContours();
 }
 
@@ -1341,6 +1681,37 @@ function addFilterBar() {
           </div>
           <div class="con-desc" id="con-desc"></div>
         </div>
+        <span class="opt-l">Boundaries</span>
+        <div class="opt-row" id="bnd-row">
+          <button class="toggle-btn" id="bnd-state-btn" type="button" title="State lines (Census Bureau)"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">States</span></button>
+          <button class="toggle-btn" id="bnd-county-btn" type="button" title="County lines (Census Bureau)"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Counties</span></button>
+          <button class="toggle-btn" id="bnd-huc-btn" type="button" title="Watershed boundaries from the USGS hydrologic units; the level follows the zoom unless set in the settings"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Watersheds</span></button>
+          <button class="info-btn gear" id="bnd-set-btn" type="button" aria-expanded="false" aria-controls="bnd-set" title="Boundary settings">⚙</button>
+        </div>
+        <div class="info-pop con-pop" id="bnd-set" hidden>
+          <div class="con-grid">
+            <span class="opt-l">Watersheds</span>
+            <div class="seg-ctrl">
+              <button class="seg-btn active" data-huc="auto" title="The level follows the zoom: basins when zoomed out, subwatersheds when zoomed in">Auto</button>
+              <button class="seg-btn" data-huc="2" title="HUC2 regions (the Upper Colorado)">2</button>
+              <button class="seg-btn" data-huc="4" title="HUC4 subregions (the San Juan)">4</button>
+              <button class="seg-btn" data-huc="6" title="HUC6 basins">6</button>
+              <button class="seg-btn" data-huc="8" title="HUC8 subbasins (McElmo, Animas, Mancos)">8</button>
+              <button class="seg-btn" data-huc="10" title="HUC10 watersheds">10</button>
+              <button class="seg-btn" data-huc="12" title="HUC12 subwatersheds">12</button>
+            </div>
+            <span class="opt-l">Labels</span>
+            <div class="opt-row"><button class="toggle-btn active" id="bnd-lab-btn" type="button" title="Names on the counties and watersheds"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">On</span></button></div>
+            <span class="opt-l">Fill</span>
+            <div class="seg-ctrl">
+              <button class="seg-btn active" data-bf="off" title="Lines only">Off</button>
+              <button class="seg-btn" data-bf="light" title="A light tint inside each boundary">Light</button>
+            </div>
+          </div>
+          <div class="con-desc" id="bnd-desc"></div>
+        </div>
+        <span class="opt-l" id="bnd-sel-lab" hidden>Picked</span>
+        <div class="opt-row" id="bnd-sel-row" hidden></div>
         <span class="opt-l">Error filter</span>
         <div class="opt-row">
           <div class="seg-ctrl">
@@ -1544,6 +1915,33 @@ function addFilterBar() {
       el.querySelectorAll('[data-con]').forEach(x => x.classList.toggle('active', x === b));
       conDesc(); drawContours(); updateLegend();
     }));
+    for (const kind of ['state', 'county', 'huc']) el.querySelector(`#bnd-${kind}-btn`).addEventListener('click', e => {
+      bndOn[kind] = !bndOn[kind];
+      e.currentTarget.classList.toggle('active', bndOn[kind]);
+      bndHoverClear(); bndDesc(); bndBadge(kind); refreshBoundsNow();
+    });
+    el.querySelector('#bnd-set-btn').addEventListener('click', e => {
+      const box = el.querySelector('#bnd-set'), open = box.hidden;
+      box.hidden = !open; e.currentTarget.setAttribute('aria-expanded', String(open));
+      e.currentTarget.classList.toggle('active', open);
+      if (open) bndDesc();
+    });
+    el.querySelectorAll('[data-huc]').forEach(b => b.addEventListener('click', () => {
+      hucLevelPick = b.dataset.huc;
+      el.querySelectorAll('[data-huc]').forEach(x => x.classList.toggle('active', x === b));
+      bndDesc(); refreshBoundsNow();
+    }));
+    el.querySelectorAll('[data-bf]').forEach(b => b.addEventListener('click', () => {
+      bndFill = b.dataset.bf === 'light';
+      el.querySelectorAll('[data-bf]').forEach(x => x.classList.toggle('active', x === b));
+      for (const kind of ['state', 'county', 'huc']) if (bndLayers[kind]) drawBoundLayer(kind);
+      drawBndSel();
+    }));
+    el.querySelector('#bnd-lab-btn').addEventListener('click', e => {
+      bndLabels = !bndLabels;
+      e.currentTarget.classList.toggle('active', bndLabels);
+      for (const kind of ['county', 'huc']) if (bndLayers[kind]) drawBoundLayer(kind);
+    });
     el.querySelector('#cluster-btn').addEventListener('click', e => {
       clusteringEnabled = !clusteringEnabled;
       e.currentTarget.classList.toggle('active', !clusteringEnabled);   // the toggle reads Decluster: lit when pins are not grouped
@@ -1831,7 +2229,7 @@ function buildSelectionPanel() {
   const f = v => v == null ? '—' : v.toFixed(2);
   const mean = good.length ? good.reduce((a, b) => a + b, 0) / good.length : null;
   panel.innerHTML = `
-    <div class="sel-header"><span>${sel.length} gauge${sel.length === 1 ? '' : 's'} in ${activeBBox ? 'box' : 'polygon'}${sel.length - good.length ? ` · ${sel.length - good.length} likely erroneous, not in stats` : ''}</span><button type="button" class="sel-close" id="sel-close">Clear ×</button></div>
+    <div class="sel-header"><span>${sel.length} gauge${sel.length === 1 ? '' : 's'} in ${activeBBox ? 'box' : activePoly ? 'polygon' : bndSel.map(b => b.name).join(' · ')}${sel.length - good.length ? ` · ${sel.length - good.length} likely erroneous, not in stats` : ''}</span><button type="button" class="sel-close" id="sel-close">Clear ×</button></div>
     <div class="sel-stats">
       <div><b>${f(median(good))}</b><span>Median</span></div>
       <div><b>${f(mean)}</b><span>Mean</span></div>
@@ -1840,7 +2238,11 @@ function buildSelectionPanel() {
     </div>
     <div class="sel-list"></div>
     <button class="sel-copy" id="sel-copy">Copy table (paste into Excel)</button>`;
-  panel.querySelector('#sel-close').addEventListener('click', () => activeBBox ? clearBBox() : clearPoly());
+  panel.querySelector('#sel-close').addEventListener('click', () => activeBBox ? clearBBox() : activePoly ? clearPoly() : clearBndSel());
+  if (!IS_PHONE) {
+    const ip = document.getElementById('info-panel'), list = panel.querySelector('.sel-list');
+    if (ip && list) { const room = leafletMap.getContainer().getBoundingClientRect().bottom - 28 - (ip.getBoundingClientRect().bottom + 10); list.style.maxHeight = Math.max(48, Math.min(180, room - (panel.offsetHeight - list.offsetHeight))) + 'px'; }
+  }
   const list = panel.querySelector('.sel-list');
   for (const s of sel) {
     const r = document.createElement('div');
@@ -2288,7 +2690,7 @@ function histFromUrl() {
     const p = new URLSearchParams(location.search), last = +p.get('last'), nd = +p.get('days'), ev = p.get('event') || '';
     let from = p.get('from') || '', to = p.get('to') || from;
     if (ev && EVENTS.some(e => e.id === ev)) { showEvent(ev); return; }
-    if (!last && !nd && !from && !to) { showHours(24); return; }   // opening view: the last 24 hours
+    if (!last && !nd && !from && !to) { showHours(48); return; }   // opening view: the last 48 hours
     const HR = /^\d{4}-\d\d-\d\dT\d\d$/, DY = /^\d{4}-\d\d-\d\d$/, $ = id => document.getElementById(id);
     const hourUi = (a, z) => {
       const b = document.querySelector('[data-hmode="h"]'); if (b) b.click();
@@ -2444,7 +2846,7 @@ function playPaint() {
   }
   if (clusteringEnabled && markerLayer.refreshClusters) markerLayer.refreshClusters();
   updateStats();
-  if (activeBBox || activePoly) buildSelectionPanel();
+  syncSelPanel();
   drawContours();
   return true;
 }

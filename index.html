@@ -347,7 +347,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.79';
+const APP_VERSION = '1.81';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -425,6 +425,24 @@ let legendSteps = 16;
 const LEG_MIN = 4, LEG_MAX = 30;
 let legendTop = null;    // a set top for the scale (inches): equal steps from 0.01 to it, the same for any period
 let legendLock = null;   // brackets held exactly as they were when locked
+// Storm events open with the legend locked to one storm scale (v1.81): the same 12 brackets for every event, so
+// storms compare by eye from one to the next. Unlock in Adjust to fit the brackets to the readings instead; a lock
+// set by hand before the event is left alone. Leaving the event releases the storm scale.
+const EVENT_BREAKS = [0.01, 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3, 4, 5];
+let eventLock = false;      // the lock in place is the storm scale
+let stepsBefore = null;     // Number of steps before the storm scale set it
+function lockForEvent() {
+  if (legendLock && !eventLock) return;   // locked by hand: his brackets stay
+  if (stepsBefore == null) stepsBefore = legendSteps;
+  legendSteps = EVENT_BREAKS.length;
+  legendLock = EVENT_BREAKS.slice(); eventLock = true; legendSig = '';
+}
+function unlockFromEvent() {
+  if (eventLock) { eventLock = false; legendLock = null; legendSig = ''; }
+  if (stepsBefore != null) { if (legendSteps === EVENT_BREAKS.length) legendSteps = stepsBefore; stepsBefore = null; }
+}
+const lockInfo = b => eventLock ? `Storm scale: brackets fixed at ${breaksDesc(b)}, the same for every storm event so they compare by eye. Unlock in Adjust to fit them to the readings.`
+  : `Brackets locked, ${breaksDesc(b)}; they stay through any period or playback until unlocked in Adjust.`;
 function topBreaks(top, n) { const st = top / (n - 1), b = [0.01]; for (let i = 1; i < n; i++) { const v = r2(i * st); if (v > b[b.length - 1]) b.push(v); } return b; }
 const breaksDesc = b => `${fmtV(b[0])} to ${fmtV(b[b.length - 1])}+ in ${b.length} steps`;
 let legendAdjOpen = false, legendInfoOpen = false;
@@ -460,7 +478,7 @@ function updateScale() {
   scaleInfo = '';
   if (play) {   // playback: brackets held for the whole run so colors can be compared frame to frame
     BREAKS = play.breaks; CLASSES = makeClasses(BREAKS, false);
-    scaleInfo = legendLock ? `Brackets locked, ${breaksDesc(BREAKS)}; they stay through any period or playback until unlocked in Adjust.`
+    scaleInfo = legendLock ? lockInfo(BREAKS)
       : legendTop ? `Brackets set to run from 0.01 to ${fmtV(legendTop)} ${METRICS[metric].unit} in ${BREAKS.length} equal steps, the same for any period.`
       : play.mode === 'total' ? 'Brackets fit the totals for the whole period, held while playing.' : 'Brackets fit single hours, up to the wettest 1% of rainy hours in the period, held while playing.';
     const sig = ['play', play.mode, BREAKS.join(','), legendAdjOpen, contourMode, conMethod, conEdge, colorScheme].join('|');
@@ -469,7 +487,7 @@ function updateScale() {
     const info = legendEl.querySelector('#leg-info'); if (info) info.textContent = scaleInfo;
     return false;
   }
-  if (legendLock) { b = legendLock; scaleInfo = `Brackets locked, ${breaksDesc(b)}; they stay through any period or playback until unlocked in Adjust.`; }
+  if (legendLock) { b = legendLock; scaleInfo = lockInfo(b); }
   else if (legendTop) { b = topBreaks(legendTop, legendSteps); scaleInfo = `Brackets set to run from 0.01 to ${fmtV(legendTop)} ${METRICS[metric].unit} in ${b.length} equal steps, the same for any period.`; }
   else if (legendRange !== 'fixed') {
     const vb = legendRange === 'screen' && leafletMap ? leafletMap.getBounds() : null;
@@ -486,7 +504,7 @@ function updateScale() {
   }
   BREAKS = b || METRICS[metric].breaks;
   CLASSES = makeClasses(BREAKS, !b);
-  const sig = [metric, BREAKS.join(','), legendRange, legendMethod, legendSteps, legendTop, !!legendLock, legendAdjOpen, contourMode, conMethod, conEdge, colorScheme].join('|');
+  const sig = [metric, BREAKS.join(','), legendRange, legendMethod, legendSteps, legendTop, legendLock ? legendLock.join(',') : '', legendAdjOpen, contourMode, conMethod, conEdge, colorScheme].join('|');
   if (!legendEl) return false;
   if (sig !== legendSig) { legendSig = sig; updateLegend(); return true; }
   const info = legendEl.querySelector('#leg-info');
@@ -533,10 +551,18 @@ const SUS = { ...SUS_DEF };
 const SUS_LIM = { hi: [1.1, 10], hiGap: [0, 5], lo: [0, 95], loGap: [0, 5], r1: [0.5, 15], r2: [1, 30], r3: [1, 50], cap: [1, 50] };
 // History periods: a gauge that missed part of the period (offline) has a short total, and a single hour (or day)
 // far above every gauge around it is a slug through the funnel or a sensor fault, not rain. Both are flagged.
-const SPIKE = { hr: 1.0, hrX: 6, hrAbs: 3.0, day: 3.0, dayX: 5, dayAbs: 8, minNb: 3 };
+// corrDiv/corrFrac: a spike counts as real when at least 2 neighbors, and a tenth of them, read a third of it or more
+// (one or two gauges glitching in the same hour don't vouch for each other). A repeated reading (the same value hour
+// after hour) is a frozen feed when it runs 4+ hours, or is 0.5 in or more, or doubles what the gauges around read.
+const SPIKE = { hr: 1.0, hrX: 6, hrAbs: 2.5, day: 3.0, dayX: 5, dayAbs: 8, minNb: 3, farHr: 0.5, farX: 8, corrDiv: 3, corrFrac: 0.1, stuck: 0.2, stuckRun: 3, stuckHi: 0.5, stuckX: 2 };
 function flagHistory(hash, bad) {
   const hourly = hist.mode === 'h';
   const when = key => hourly ? `the hour ending ${fmtHourMs(key + 3600e3)}` : key;
+  const valsAt = (list, key) => {   // the neighbors' readings for that hour (0 where a reporting gauge had none)
+    const vals = [];
+    for (const o of list) { let has = false; for (const d of o.hist.days) { if (d[0] === key) { vals.push(d[1]); has = true; break; } } if (!has && o.hist.days.some(d => hourly ? Math.abs(d[0] - key) <= 3 * 3600e3 : true)) vals.push(0); }
+    return vals;
+  };
   for (const s of stations) {
     const H = s.hist; if (!H) continue;
     // missed more than a few hours (or a day) of what the archive covers
@@ -547,10 +573,33 @@ function flagHistory(hash, bad) {
         : `Reported ${needA - gap} of ${needA} days of this period, so its total misses rain the others recorded.`;
       continue;
     }
-    // one hour or day far above everything nearby
     if (!H.days || !H.days.length) continue;
+    // the same reading hour after hour: the station's feed froze and the last value was repeated, not rain
+    if (hourly && H.days.length >= SPIKE.stuckRun) {
+      let run = 1, hit = null;
+      for (let i = 1; i < H.days.length; i++) {
+        const a = H.days[i - 1], b = H.days[i];
+        run = b[0] - a[0] === 3600e3 && Math.abs(b[1] - a[1]) < 0.005 && b[1] >= SPIKE.stuck ? run + 1 : 1;
+        if (run >= SPIKE.stuckRun && (!hit || run > hit[2] || (run === hit[2] && b[1] > hit[1]))) hit = [H.days[i - run + 1][0], b[1], run];
+      }
+      if (hit) {
+        const [k0, v, n] = hit;
+        let sure = n > SPIKE.stuckRun || v >= SPIKE.stuckHi, nbTxt = '';
+        if (!sure) {   // a short run of a modest value: frozen only if it stands well above the gauges around
+          const nb = near(hash, s, SUS.r2).filter(o => o !== s && o.hist && o.hist.days), meds = [];
+          for (let h = 0; h < n; h++) { const vals = valsAt(nb, k0 + h * 3600e3); if (vals.length >= SPIKE.minNb) meds.push(median(vals)); }
+          if (meds.length) { const m = median(meds); sure = v >= SPIKE.stuckX * Math.max(m, 0.01); nbTxt = ` while gauges within ${SUS.r2} mi read ${fmtV(m)} an hour`; }
+        }
+        if (sure) {
+          bad.add(s); s.suspect = true;
+          s.why = `Reported exactly ${fmtV(v)} in in each of ${n} hours running from ${fmtHourMs(k0)}${nbTxt}: one reading repeated by a frozen feed, not rain.`;
+          continue;
+        }
+      }
+    }
+    // one hour or day far above everything nearby
     const lim = hourly ? SPIKE.hr : SPIKE.day;
-    let worst = null; for (const d of H.days) if (d[1] >= lim && (!worst || d[1] > worst[1])) worst = d;
+    let worst = null; for (const d of H.days) if (d[1] >= (hourly ? SPIKE.farHr : SPIKE.day) && (!worst || d[1] > worst[1])) worst = d;
     if (!worst) continue;
     const [key, v] = worst;
     if (v >= (hourly ? SPIKE.hrAbs : SPIKE.dayAbs)) {
@@ -558,14 +607,17 @@ function flagHistory(hash, bad) {
       s.why = `Reads ${fmtV(v)} in in ${when(key)}, more than falls here in ${hourly ? 'an hour' : 'a day'}. Gauge error (a slug of snow or debris through the funnel, or a sensor fault).`;
       continue;
     }
-    const nb = near(hash, s, SUS.r2).filter(o => o !== s && o.hist && o.hist.days);
-    const vals = [];
-    for (const o of nb) { let has = false; for (const d of o.hist.days) { if (d[0] === key) { vals.push(d[1]); has = true; break; } } if (!has && o.hist.days.some(d => hourly ? Math.abs(d[0] - key) <= 3 * 3600e3 : true)) vals.push(0); }
-    if (vals.length < SPIKE.minNb) continue;
-    const med = median(vals);
-    if (v >= (hourly ? SPIKE.hrX : SPIKE.dayX) * Math.max(med, 0.01)) {
+    const sameHour = list => valsAt(list, key);
+    let r = SUS.r2, vals = sameHour(near(hash, s, SUS.r2).filter(o => o !== s && o.hist && o.hist.days));
+    let need = lim, x = hourly ? SPIKE.hrX : SPIKE.dayX;
+    if (vals.length < SPIKE.minNb && hourly) {   // an isolated gauge: compared farther out, with a stricter bar
+      r = SUS.r3; vals = sameHour(near(hash, s, SUS.r3).filter(o => o !== s && o.hist && o.hist.days)); need = SPIKE.farHr; x = SPIKE.farX;
+    }
+    if (vals.length < SPIKE.minNb || v < need) continue;
+    const med = median(vals), corr = vals.filter(q => q >= v / SPIKE.corrDiv).length, needCorr = Math.max(2, Math.ceil(SPIKE.corrFrac * vals.length));
+    if (v >= x * Math.max(med, 0.01) && corr < needCorr) {
       bad.add(s); s.suspect = true;
-      s.why = `Reads ${fmtV(v)} in in ${when(key)} while ${vals.length} gauges within ${SUS.r2} mi read ${fmtV(med)}; its other hours match them. Gauge error (a slug of snow or debris through the funnel, or a sensor fault).`;
+      s.why = `Reads ${fmtV(v)} in in ${when(key)} while ${vals.length} gauges within ${r} mi read ${fmtV(med)}${corr ? ` (${corr} of them also high)` : ''}; its other hours match them. Gauge error (a slug of snow or debris through the funnel, a sensor fault, or a bad report).`;
     }
   }
 }
@@ -575,7 +627,7 @@ function susInfoText() {
     `Nearby means within ${SUS.r1} mi, or ${SUS.r2} mi where gauges are sparse; high readings at isolated gauges are checked against gauges within ${SUS.r3} mi. ` +
     `Over ${SUS.cap} in is flagged as more than this region records. Inches are for a day's rain and scale up for longer periods. ` +
     `On Event, a storm total smaller than the same gauge's rain today is flagged, since its storm counter was reset partway through. ` +
-    `For a past period, a gauge is also flagged when it missed more than a few hours of it (offline, so its total is short), or when one hour reads at least ${SPIKE.hr} in and ${SPIKE.hrX} times what gauges within ${SUS.r2} mi read in that hour (a slug through the funnel or a sensor fault, not rain). Ambient stations registered twice by the same owner are shown once.`;
+    `For a past period, a gauge is also flagged when it missed more than a few hours of it (offline, so its total is short), or when one hour reads at least ${SPIKE.hr} in and ${SPIKE.hrX} times what gauges within ${SUS.r2} mi read in that hour (${SPIKE.farHr} in and ${SPIKE.farX} times gauges within ${SUS.r3} mi for an isolated gauge), or when it repeats exactly the same amount of ${SPIKE.stuck} in or more hour after hour (${SPIKE.stuckRun} hours when the amount is ${SPIKE.stuckHi} in or more or twice what gauges nearby read, 4 hours otherwise): a frozen feed repeating one reading, not rain. A spike that at least two neighbors, and a tenth of them, share at a third of its size or more counts as rain. Ambient stations registered twice by the same owner are shown once.`;
 }
 const HASH = 0.07;  // degrees; a 3x3 block of these covers a 3-mile search
 const hkey = (i, j) => i + ',' + j;
@@ -2215,7 +2267,7 @@ function legendAdjHtml(notes) {
       <span class="opt-l">Colors</span>${seg('cs', colorScheme, Object.entries(SCHEMES).map(([k, v]) => [k, v.label]))}
       <span class="opt-l">Number</span><span class="leg-num-wrap"><input type="number" class="leg-num" id="leg-steps" min="${LEG_MIN}" max="${LEG_MAX}" step="1" inputmode="numeric" value="${legendSteps}"${locked || (legendRange === 'fixed' && !topSet) ? ' disabled' : ''} aria-label="Number of steps" title="How many colors, ${LEG_MIN} to ${LEG_MAX}"> ${LEG_MIN}–${LEG_MAX}</span>
       <span class="opt-l">Top</span><span class="leg-num-wrap"><input type="number" class="leg-num" id="leg-top" min="0.1" max="100" step="0.5" inputmode="decimal" value="${legendTop ?? ''}" placeholder="fit"${locked ? ' disabled' : ''} aria-label="Top of the scale, inches" title="Set the top of the scale: the brackets run from 0.01 to this in equal steps (Number of them) and stay the same for any period. Blank fits them to the readings."> ${METRICS[metric].unit}, blank fits</span>
-      <span class="opt-l">Lock</span><div class="opt-row"><button class="toggle-btn${locked ? ' active' : ''}" id="leg-lock" type="button" title="Hold the brackets exactly as they are now, through any period, event or playback, until unlocked"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">${locked ? 'Locked' : 'Off'}</span></button></div>
+      <span class="opt-l">Lock</span><div class="opt-row"><button class="toggle-btn${locked ? ' active' : ''}" id="leg-lock" type="button" title="Hold the brackets exactly as they are now, through any period, event or playback, until unlocked"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">${locked ? (eventLock ? 'Storm scale' : 'Locked') : 'Off'}</span></button></div>
     </div>`;
 }
 let legendEl;
@@ -2270,7 +2322,7 @@ function addLegend() {
       else if (t.dataset.lr) legendRange = t.dataset.lr;
       else if (t.dataset.lm) legendMethod = t.dataset.lm;
       else if (t.dataset.cs) { colorScheme = t.dataset.cs; COLORS = schemeColors(colorScheme); }
-      else if (t.id === 'leg-lock') legendLock = legendLock ? null : BREAKS.slice();
+      else if (t.id === 'leg-lock') { legendLock = legendLock ? null : BREAKS.slice(); eventLock = false; }
       else return;
       legendSig = '';
       if (play) play.breaks = playBreaks();
@@ -2814,6 +2866,7 @@ function showEvent(id) {
   const b = document.querySelector('[data-hmode="h"]'); if (b) b.click();
   const pa = dParts(a), pz = dParts(z);
   if ($('hh-fd')) { $('hh-fd').value = dayStr(pa); $('hh-fh').value = pa.h; $('hh-td').value = dayStr(pz); $('hh-th').value = pz.h; }
+  lockForEvent();
   setHourHist(a, z, null, 'ev:' + id);
 }
 const histTitle = label => /^Last /.test(label) ? `Rain in the ${label.toLowerCase()} (in)` : `Rain ${label} (in)`;
@@ -2849,6 +2902,7 @@ function showDays(n) {
 }
 function setHourHist(start, end, label, preset, extra) {
   playOff();
+  if (!(preset && preset.startsWith('ev:'))) unlockFromEvent();
   const hrs = (end - start) / 3600e3;
   label = label || (dayStr(dParts(start)) === dayStr(dParts(end)) ? `${fmtHourMs(start)} – ${fmtHourMs(end, false)}` : `${fmtHourMs(start)} – ${fmtHourMs(end)}`);
   hist = { mode: 'h', start, end, days: hrs / 24, label, key: 'h_' + start + '_' + end, preset: preset || null, ...(extra || {}) };
@@ -2892,6 +2946,7 @@ function snotelFor(h, only) {
 
 function setHist(from, to, label, preset, extra) {
   playOff();
+  unlockFromEvent();
   const days = dayCount(from, to);
   label = label || (from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`);
   hist = { from, to, days, label, key: from + '_' + to, preset: preset || null, ...(extra || {}) };
@@ -2964,6 +3019,7 @@ function histFromUrl() {
 }
 function exitHist(toMetric) {
   playOff();
+  unlockFromEvent();
   hist = null; histRun++;
   histToUrl();
   metric = toMetric || 'year';

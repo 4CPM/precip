@@ -50,6 +50,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .st-popup .vals b{display:block;font-size:12px;color:#1e293b;font-variant-numeric:tabular-nums}
 .st-popup .vals span{font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:.04em}
 .st-popup .warn{margin:6px 0;padding:5px 8px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:11px;line-height:1.4}
+.st-popup .warn.tag{background:#fee2e2;color:#991b1b}
+.st-popup .warn.good{background:#dcfce7;color:#166534}
+.st-popup .tags{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 2px}
+.st-popup .tags button{border:1px solid #cbd5e1;background:#fff;color:#1e293b;font:inherit;font-size:11px;font-weight:600;border-radius:6px;padding:4px 9px;cursor:pointer}
+.st-popup .tags button.bad{border-color:#fca5a5;color:#b91c1c}
+.st-popup .tags button.good{border-color:#86efac;color:#15803d}
+.st-popup .tags button.on{background:#1e293b;color:#fff;border-color:#1e293b}
+.tag-tools{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px}
+.tag-list{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}
+.tag-chip{display:inline-flex;align-items:center;gap:4px;border-radius:10px;padding:1px 4px 1px 8px;font-size:11px;background:#fee2e2;color:#991b1b}
+.tag-chip.good{background:#dcfce7;color:#166534}
+.tag-chip button{border:none;background:transparent;color:inherit;font:inherit;font-size:13px;line-height:1;padding:0 3px;cursor:pointer;opacity:.7}
+.tag-chip button:hover{opacity:1}
 .st-popup a{color:#2563eb;text-decoration:none;font-weight:600}
 .st-popup a:hover{text-decoration:underline}
 
@@ -347,7 +360,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.83';
+const APP_VERSION = '1.85';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -564,7 +577,7 @@ function flagHistory(hash, bad) {
     return vals;
   };
   for (const s of stations) {
-    const H = s.hist; if (!H) continue;
+    const H = s.hist; if (!H || bad.has(s)) continue;
     // missed more than a few hours (or a day) of what the archive covers
     const needA = H.needArch || 0, gap = H.gap || 0;
     if (needA && gap > Math.max(hourly ? 2 : 0, 0.05 * needA)) {
@@ -623,6 +636,54 @@ function flagHistory(hash, bad) {
     }
   }
 }
+// Your own tags (v1.85): a gauge tagged as an error is treated like a flagged one; a trusted gauge keeps its
+// readings whatever the automatic checks say. Tags live in this browser; the site's tags.json (in the repo)
+// applies to everyone, and the Error filter ⚙ copies your tags in that file's format.
+const TAGS_URL = 'https://raw.githubusercontent.com/4CPM/precip/main/tags.json';
+let myTags = {}, siteTags = {};
+try { myTags = JSON.parse(localStorage.getItem('cpmTags') || '{}') || {}; } catch (e) { myTags = {}; }
+fetch(TAGS_URL).then(r => r.ok ? r.json() : {}).then(j => { siteTags = j && typeof j === 'object' ? j : {}; if (Object.keys(siteTags).length && stations.length) { computeDerived(); render(); } updateTagTools(); }).catch(() => {});
+function tagKey(s) { return s.src === 'A' ? 'A:' + (s.mac || s.key || s.name) : s.src === 'S' ? 'S:' + s.snotel : 'O:' + (s.iem ? s.iem.net + '/' + s.iem.id : s.name); }
+function tagOf(s) { const k = tagKey(s); return myTags[k] || siteTags[k] || null; }
+function setTag(s, t) {
+  const k = tagKey(s);
+  if (!t) delete myTags[k]; else myTags[k] = { t, name: s.name, when: new Date().toISOString().slice(0, 10) };
+  saveTags();
+  computeDerived(); render(); updateTagTools();
+}
+function saveTags() { try { if (Object.keys(myTags).length) localStorage.setItem('cpmTags', JSON.stringify(myTags)); else localStorage.removeItem('cpmTags'); } catch (e) {} }
+function tagsText() { return JSON.stringify(myTags, null, 1); }
+function updateTagTools() {
+  const el = document.getElementById('tag-tools'); if (!el) return;
+  const keys = Object.keys(myTags), n = keys.filter(k => myTags[k].t === 'bad').length, g = keys.length - n, site = Object.keys(siteTags).length;
+  el.querySelector('#tag-count').textContent = `Your tags: ${n} error${n === 1 ? '' : 's'}, ${g} trusted` + (site ? ` · site file: ${site}` : '');
+  el.querySelector('#tag-copy').disabled = el.querySelector('#tag-clear').disabled = !keys.length;
+  const list = document.getElementById('tag-list');
+  if (list) {
+    list.innerHTML = '';
+    for (const k of keys.sort((a, b) => (myTags[a].name || '').localeCompare(myTags[b].name || ''))) {
+      const t = myTags[k], chip = document.createElement('span');
+      chip.className = 'tag-chip' + (t.t === 'good' ? ' good' : ''); chip.title = (t.t === 'good' ? 'Trusted' : 'Tagged as an error') + (t.when ? ' on ' + t.when : '');
+      chip.append(document.createTextNode(t.name || k));
+      const x = document.createElement('button'); x.type = 'button'; x.textContent = '×'; x.setAttribute('aria-label', 'Remove this tag');
+      x.addEventListener('click', () => { delete myTags[k]; saveTags(); computeDerived(); render(); updateTagTools(); });
+      chip.appendChild(x); list.appendChild(chip);
+    }
+  }
+}
+// after a tag, the pins are redrawn; put the popup back on the same gauge when it is still shown
+function reopenPopup(s, tries) {
+  const m = markersById[s.id];
+  if (m && m._icon) {   // same spot as before, so no panning: a pan would reload the view and close it again
+    const p = m.getPopup(), ap = p ? p.options.autoPan : null;
+    if (p) p.options.autoPan = false;
+    m.openPopup();
+    if (p) p.options.autoPan = ap;
+    return;
+  }
+  if (!m && !visible(s)) return;
+  if ((tries || 0) < 40) setTimeout(() => reopenPopup(s, (tries || 0) + 1), 150);
+}
 function susInfoText() {
   return `A reading is flagged when it is under ${Math.round(SUS.lo * 100)}% of nearby gauges and at least ${SUS.loGap} in below them (including 0.00 where nearby gauges show rain), ` +
     `or over ${SUS.hi} times nearby gauges and at least ${SUS.hiGap} in above them (${2 * SUS.hiGap} in when the comparison reaches ${SUS.r2} mi, ${3 * SUS.hiGap} in at ${SUS.r3} mi). ` +
@@ -666,11 +727,13 @@ function computeDerived() {
   };
   const M = METRICS[metric], k = M.scale, U = M.unit;
   const highs = new Set();
-  for (const s of stations) { s.why = ''; s.suspect = false; s.nbMed = null; }
+  for (const s of stations) { s.why = ''; s.suspect = false; s.nbMed = null; s.trusted = false; }
+  for (const s of stations) { const tg = tagOf(s); if (tg && tg.t === 'bad') { highs.add(s); s.suspect = true; s.why = `Tagged as an error${myTags[tagKey(s)] ? ' by you' : ' for this site'}${tg.when ? ' on ' + tg.when : ''}.`; } }
   if (metric === 'hist' && hist) flagHistory(hash, highs);
   if (!M.check) {
     // Year can't be compared with neighbors, but some totals are impossible for this region.
     if (M.max) for (const s of stations) if (s.p > M.max) { s.suspect = true; s.why = `Reads over ${M.max} in for the year, more than this region gets. Gauge error.`; }
+    trustTagged();
     return;
   }
   for (const s of stations) {
@@ -704,6 +767,14 @@ function computeDerived() {
         ? `Reads 0.00 while nearby gauges show rain (median ${h1.med.toFixed(2)} ${U}, ${h1.n} gauges within ${h1.r} mi). Likely no rain gauge or a failed gauge.`
         : `Reads far below nearby gauges (median ${h1.med.toFixed(2)} ${U}, ${h1.n} gauges within ${h1.r} mi). Possible gauge problem, such as a clogged funnel.`;
     }
+  }
+  trustTagged();
+}
+function trustTagged() {
+  for (const s of stations) {
+    const k = tagKey(s), tg = myTags[k] || siteTags[k]; if (!tg || tg.t !== 'good') continue;
+    if (s.suspect) { s.suspect = false; s.trusted = true; s.why = `Trusted${myTags[k] ? ' by you' : ' for this site'}: an automatic flag was set aside.`; }
+    else if (myTags[k] && siteTags[k] && siteTags[k].t === 'bad') { s.trusted = true; s.why = 'Trusted by you, over the site\u2019s error tag.'; }
   }
 }
 
@@ -1792,7 +1863,8 @@ function buildPopup(s) {
     <div class="big">${fmtV(s.p)} <small>${metric === 'hist' && hist ? (play ? play.label : hist.label) : METRICS[metric].title.replace(/ \(.*\)$/, '').replace(/^Rain /, '').toLowerCase()} (${METRICS[metric].unit})</small></div>
     <div class="vals">${Object.entries(METRICS).filter(([k2]) => s.v[k2] != null).map(([k2, m2]) =>
       `<div class="${k2 === metric ? 'on' : ''}"><b>${fmtV(s.v[k2])}</b><span>${m2.label}</span></div>`).join('')}</div>
-    ${s.why ? `<div class="warn">${s.why}</div>` : ''}
+    ${s.why ? `<div class="warn${/^Tagged as an error/.test(s.why) ? ' tag' : s.trusted ? ' good' : ''}">${s.why}</div>` : ''}
+    <div class="tags"></div>
     ${metric === 'hist' && s.hist ? `<div class="hist-days">${hist.mode === 'h' ? histHoursHtml(s.hist) : `${s.hist.have < s.hist.need ? `<div class="hist-gap">Readings on ${s.hist.have} of ${s.hist.need} days.</div>` : ''}${s.hist.days.slice(-31).map(([d, v]) => `<div class="row"><span>${fmtDay(d)}</span><span>${fmtV(v)} in</span></div>`).join('')}${s.hist.days.length > 31 ? `<div class="hist-gap">Last 31 days shown.</div>` : ''}`}</div>` : ''}
     <div class="row"><span>${metric === 'hist' ? 'Live reading as of' : 'As of'}</span><span>${s.time}</span></div>
     <div class="row"><span>From ${CENTER.name}</span><span>${s.dist.toFixed(1)} mi ${s.dist < 0.05 ? '' : s.dir}</span></div>
@@ -1801,6 +1873,11 @@ function buildPopup(s) {
     ${links.length ? `<div style="margin-top:6px;display:flex;flex-direction:column;gap:2px">${links.join('')}</div>` : ''}`;
   el.querySelector('h3').textContent = s.name;
   el.querySelector('.sub').textContent = [netLabel, s.area].filter(Boolean).join(' · ');
+  // your tags: mark the gauge as an error, or trust it against an automatic flag
+  const tg = myTags[tagKey(s)], tags = el.querySelector('.tags');
+  const mk = (label, cls, on, t, title) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.className = cls + (on ? ' on' : ''); b.title = title; b.addEventListener('click', () => { setTag(s, on ? null : t); reopenPopup(s); }); return b; };
+  tags.appendChild(mk(tg && tg.t === 'bad' ? 'Tagged as error · untag' : 'Tag as error', 'bad', !!(tg && tg.t === 'bad'), 'bad', 'Treat this gauge as an error on this device: hidden under Exclude, left out of the contours and stats'));
+  if (s.suspect || s.trusted || (tg && tg.t === 'good')) tags.appendChild(mk(tg && tg.t === 'good' ? 'Trusted · untag' : 'Trust this gauge', 'good', !!(tg && tg.t === 'good'), 'good', 'Keep this gauge\u2019s readings on this device whatever the automatic checks say'));
   return el;
 }
 
@@ -2020,7 +2097,11 @@ function addFilterBar() {
           <div class="con-desc">Inches are for a day's rain and scale up for longer periods (×1.5 a week, ×2 a month, ×4 beyond); the high gap doubles at the sparse distance and triples at the isolated one. <button class="draw-btn" id="sus-reset" type="button">Reset to defaults</button></div>
         </div>
         <div class="info-pop" id="sus-info" hidden></div>`;
+    el.querySelector('#sus-set .con-desc').insertAdjacentHTML('afterend', `<div class="tag-tools" id="tag-tools"><span id="tag-count" style="color:#475569"></span><button class="draw-btn" id="tag-copy" type="button" title="Copy your tags in the format of the site\u2019s tags.json, to apply them for everyone">Copy for the site</button><button class="draw-btn" id="tag-clear" type="button" title="Remove all your tags on this device">Clear tags</button></div><div class="tag-list" id="tag-list"></div><div class="con-desc">Tag a gauge from its popup: Tag as error, or Trust this gauge against an automatic flag. Tags are kept in this browser; the site file tags.json in the repo applies to everyone.</div>`);
     document.querySelector('#info-panel .panel-body').appendChild(el);
+    el.querySelector('#tag-copy').addEventListener('click', e => { const b = e.currentTarget; navigator.clipboard.writeText(tagsText()).then(() => { b.textContent = 'Copied'; setTimeout(() => b.textContent = 'Copy for the site', 1500); }).catch(() => { b.textContent = 'Copy blocked by browser'; }); });
+    el.querySelector('#tag-clear').addEventListener('click', () => { if (!Object.keys(myTags).length) return; myTags = {}; saveTags(); computeDerived(); render(); updateTagTools(); });
+    updateTagTools();
     el.querySelector('#sus-info-btn').addEventListener('click', e => {
       const box = el.querySelector('#sus-info'), open = box.hidden;
       box.hidden = !open; e.currentTarget.setAttribute('aria-expanded', String(open));

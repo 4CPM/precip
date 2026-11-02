@@ -347,7 +347,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.76';
+const APP_VERSION = '1.78';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -531,12 +531,51 @@ let dataTime = 'Loading…';
 const SUS_DEF = { hi: 2.5, hiGap: 1, lo: 0.4, loGap: 0.25, r1: 3, r2: 10, r3: 25, cap: 12 };
 const SUS = { ...SUS_DEF };
 const SUS_LIM = { hi: [1.1, 10], hiGap: [0, 5], lo: [0, 95], loGap: [0, 5], r1: [0.5, 15], r2: [1, 30], r3: [1, 50], cap: [1, 50] };
+// History periods: a gauge that missed part of the period (offline) has a short total, and a single hour (or day)
+// far above every gauge around it is a slug through the funnel or a sensor fault, not rain. Both are flagged.
+const SPIKE = { hr: 1.0, hrX: 6, hrAbs: 3.0, day: 3.0, dayX: 5, dayAbs: 8, minNb: 3 };
+function flagHistory(hash, bad) {
+  const hourly = hist.mode === 'h';
+  const when = key => hourly ? `the hour ending ${fmtHourMs(key + 3600e3)}` : key;
+  for (const s of stations) {
+    const H = s.hist; if (!H) continue;
+    // missed more than a few hours (or a day) of what the archive covers
+    const needA = H.needArch || 0, gap = H.gap || 0;
+    if (needA && gap > Math.max(hourly ? 2 : 0, 0.05 * needA)) {
+      bad.add(s); s.suspect = true;
+      s.why = hourly ? `Reported ${needA - gap} of ${needA} archived hours of this period (offline for ${gap}), so its total misses rain the others recorded.`
+        : `Reported ${needA - gap} of ${needA} days of this period, so its total misses rain the others recorded.`;
+      continue;
+    }
+    // one hour or day far above everything nearby
+    if (!H.days || !H.days.length) continue;
+    const lim = hourly ? SPIKE.hr : SPIKE.day;
+    let worst = null; for (const d of H.days) if (d[1] >= lim && (!worst || d[1] > worst[1])) worst = d;
+    if (!worst) continue;
+    const [key, v] = worst;
+    if (v >= (hourly ? SPIKE.hrAbs : SPIKE.dayAbs)) {
+      bad.add(s); s.suspect = true;
+      s.why = `Reads ${fmtV(v)} in in ${when(key)}, more than falls here in ${hourly ? 'an hour' : 'a day'}. Gauge error (a slug of snow or debris through the funnel, or a sensor fault).`;
+      continue;
+    }
+    const nb = near(hash, s, SUS.r2).filter(o => o !== s && o.hist && o.hist.days);
+    const vals = [];
+    for (const o of nb) { let has = false; for (const d of o.hist.days) { if (d[0] === key) { vals.push(d[1]); has = true; break; } } if (!has && o.hist.days.some(d => hourly ? Math.abs(d[0] - key) <= 3 * 3600e3 : true)) vals.push(0); }
+    if (vals.length < SPIKE.minNb) continue;
+    const med = median(vals);
+    if (v >= (hourly ? SPIKE.hrX : SPIKE.dayX) * Math.max(med, 0.01)) {
+      bad.add(s); s.suspect = true;
+      s.why = `Reads ${fmtV(v)} in in ${when(key)} while ${vals.length} gauges within ${SUS.r2} mi read ${fmtV(med)}; its other hours match them. Gauge error (a slug of snow or debris through the funnel, or a sensor fault).`;
+    }
+  }
+}
 function susInfoText() {
   return `A reading is flagged when it is under ${Math.round(SUS.lo * 100)}% of nearby gauges and at least ${SUS.loGap} in below them (including 0.00 where nearby gauges show rain), ` +
     `or over ${SUS.hi} times nearby gauges and at least ${SUS.hiGap} in above them (${2 * SUS.hiGap} in when the comparison reaches ${SUS.r2} mi, ${3 * SUS.hiGap} in at ${SUS.r3} mi). ` +
     `Nearby means within ${SUS.r1} mi, or ${SUS.r2} mi where gauges are sparse; high readings at isolated gauges are checked against gauges within ${SUS.r3} mi. ` +
     `Over ${SUS.cap} in is flagged as more than this region records. Inches are for a day's rain and scale up for longer periods. ` +
-    `On Event, a storm total smaller than the same gauge's rain today is flagged, since its storm counter was reset partway through. Ambient stations registered twice by the same owner are shown once.`;
+    `On Event, a storm total smaller than the same gauge's rain today is flagged, since its storm counter was reset partway through. ` +
+    `For a past period, a gauge is also flagged when it missed more than a few hours of it (offline, so its total is short), or when one hour reads at least ${SPIKE.hr} in and ${SPIKE.hrX} times what gauges within ${SUS.r2} mi read in that hour (a slug through the funnel or a sensor fault, not rain). Ambient stations registered twice by the same owner are shown once.`;
 }
 const HASH = 0.07;  // degrees; a 3x3 block of these covers a 3-mile search
 const hkey = (i, j) => i + ',' + j;
@@ -574,18 +613,20 @@ function computeDerived() {
   const M = METRICS[metric], k = M.scale, U = M.unit;
   const highs = new Set();
   for (const s of stations) { s.why = ''; s.suspect = false; s.nbMed = null; }
+  if (metric === 'hist' && hist) flagHistory(hash, highs);
   if (!M.check) {
     // Year can't be compared with neighbors, but some totals are impossible for this region.
     if (M.max) for (const s of stations) if (s.p > M.max) { s.suspect = true; s.why = `Reads over ${M.max} in for the year, more than this region gets. Gauge error.`; }
     return;
   }
   for (const s of stations) {
+    if (highs.has(s)) continue;
     if (s.p > SUS.cap * k) {   // beyond anything this region records
       highs.add(s); s.suspect = true;
       s.why = 'Reads more rain than this region records. Gauge error.';
       continue;
     }
-    const h0 = hood(s, null, true);
+    const h0 = hood(s, highs, true);
     // wider neighborhoods need a bigger gap, since storm cells can be that small
     const gap = (h0 ? (h0.r === SUS.r1 ? 1 : h0.r === SUS.r2 ? 2 : 3) : 0) * SUS.hiGap * k;
     if (h0 && s.p > SUS.hi * h0.med && s.p - h0.med >= gap) {
@@ -2626,7 +2667,9 @@ async function archFor(h) {
 // station by station, from the 5-minute readings (rises of the daily counter).
 const HR_FIRST_DAY = '2026-10-19';
 // Named events (Filters & tools → Events), hour by hour, Mountain Time. The address keeps them as ?event=<id>.
+// An event with to: 'now' runs from its start to the present, so it grows while the storm lasts.
 const EVENTS = [
+  { id: 'oct30', label: 'Oct 30 storm', title: 'The storm since Oct 30, 2026: Oct 30, 12 AM to now, hour by hour', from: '2026-10-30T00', to: 'now' },
   { id: 'oct21', label: 'Oct 21–25 storm', title: 'Remnants of Hurricane Trudy: Oct 21, 12 AM to Oct 25, 11 PM, 2026, hour by hour', from: '2026-10-21T00', to: '2026-10-25T23' },
 ];
 let hrIndex = null, hrIndexAt = 0, hrTzfix = {};
@@ -2767,7 +2810,7 @@ function markShow() {
 function showEvent(id) {
   const e = EVENTS.find(x => x.id === id); if (!e) return;
   const $ = q => document.getElementById(q);
-  const a = localHourMs(TZ, e.from.slice(0, 10), +e.from.slice(11)), z = localHourMs(TZ, e.to.slice(0, 10), +e.to.slice(11));
+  const a = localHourMs(TZ, e.from.slice(0, 10), +e.from.slice(11)), z = e.to === 'now' ? Date.now() : localHourMs(TZ, e.to.slice(0, 10), +e.to.slice(11));
   const b = document.querySelector('[data-hmode="h"]'); if (b) b.click();
   const pa = dParts(a), pz = dParts(z);
   if ($('hh-fd')) { $('hh-fd').value = dayStr(pa); $('hh-fh').value = pa.h; $('hh-td').value = dayStr(pz); $('hh-th').value = pz.h; }
@@ -2892,7 +2935,7 @@ function histFromUrl() {
     const p = new URLSearchParams(location.search), last = +p.get('last'), nd = +p.get('days'), ev = p.get('event') || '';
     let from = p.get('from') || '', to = p.get('to') || from;
     if (ev && EVENTS.some(e => e.id === ev)) { showEvent(ev); return; }
-    if (!last && !nd && !from && !to) { showHours(48); return; }   // opening view: the last 48 hours
+    if (!last && !nd && !from && !to) { showEvent('oct30'); return; }   // opening view: the storm since Oct 30, to now
     const HR = /^\d{4}-\d\d-\d\dT\d\d$/, DY = /^\d{4}-\d\d-\d\d$/, $ = id => document.getElementById(id);
     const hourUi = (a, z) => {
       const b = document.querySelector('[data-hmode="h"]'); if (b) b.click();
@@ -3608,8 +3651,9 @@ function rebuild() {
         else if (liveT && L && L.v.day != null) { total = +(total + L.v.day).toFixed(2); days = days.concat([[t.to, L.v.day]]); have += 1; }
         else if (liveH && L && L.v.day != null) { total = +(total + L.v.day).toFixed(2); todayLive = L.v.day; }   // hours: the total is complete now; the hours of today follow
       }
+      const needArch = hist.mode === 'h' ? (a.need || 0) : hist.days - (hist.arch.missing ? hist.arch.missing.length : 0);
       amb.push({ src: 'A', net: 'Ambient', name: L ? L.name : m[2], area: L ? L.area : '', lat: m[0], lon: m[1], slug: m[3], mac, key: m[3], tz: m[4],
-        v: { ...(L ? L.v : {}), hist: total }, time: L ? L.time : 'not reporting now', hist: { total, days, have, need, todayLive } });
+        v: { ...(L ? L.v : {}), hist: total }, time: L ? L.time : 'not reporting now', hist: { total, days, have, need, todayLive, needArch, gap: Math.max(0, needArch - a.have) } });
     }
   } else
   for (const s of ambient.values()) {

@@ -360,7 +360,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.85';
+const APP_VERSION = '1.86';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -454,7 +454,12 @@ function unlockFromEvent() {
   if (eventLock) { eventLock = false; legendLock = null; legendSig = ''; }
   if (stepsBefore != null) { if (legendSteps === EVENT_BREAKS.length) legendSteps = stepsBefore; stepsBefore = null; }
 }
-const lockInfo = b => eventLock ? `Storm scale: brackets fixed at ${breaksDesc(b)}, the same for every storm event so they compare by eye. Unlock in Adjust to fit them to the readings.`
+// A period that takes in a whole storm event (both storms together, say) is shown on the storm scale too (v1.86).
+function periodCoversEvent(start, end) {
+  const now = Date.now(), h = 3600e3;
+  return EVENTS.some(e => { const a = localHourMs(TZ, e.from.slice(0, 10), +e.from.slice(11)), z = Math.min(now, e.to === 'now' ? now : localHourMs(TZ, e.to.slice(0, 10), +e.to.slice(11))); return start <= a + h && end >= z - h; });
+}
+const lockInfo = b => eventLock ? `Storm scale: brackets fixed at ${breaksDesc(b)}, the same for every storm event, and for any period that takes a whole storm in, so they compare by eye. Unlock in Adjust to fit them to the readings.`
   : `Brackets locked, ${breaksDesc(b)}; they stay through any period or playback until unlocked in Adjust.`;
 function topBreaks(top, n) { const st = top / (n - 1), b = [0.01]; for (let i = 1; i < n; i++) { const v = r2(i * st); if (v > b[b.length - 1]) b.push(v); } return b; }
 const breaksDesc = b => `${fmtV(b[0])} to ${fmtV(b[b.length - 1])}+ in ${b.length} steps`;
@@ -2985,7 +2990,7 @@ function showDays(n) {
 }
 function setHourHist(start, end, label, preset, extra) {
   playOff();
-  if (!(preset && preset.startsWith('ev:'))) unlockFromEvent();
+  if ((preset && preset.startsWith('ev:')) || periodCoversEvent(start, end)) lockForEvent(); else unlockFromEvent();
   const hrs = (end - start) / 3600e3;
   label = label || (dayStr(dParts(start)) === dayStr(dParts(end)) ? `${fmtHourMs(start)} – ${fmtHourMs(end, false)}` : `${fmtHourMs(start)} – ${fmtHourMs(end)}`);
   hist = { mode: 'h', start, end, days: hrs / 24, label, key: 'h_' + start + '_' + end, preset: preset || null, ...(extra || {}) };
@@ -3029,7 +3034,7 @@ function snotelFor(h, only) {
 
 function setHist(from, to, label, preset, extra) {
   playOff();
-  unlockFromEvent();
+  if (periodCoversEvent(localHourMs(TZ, from, 0), localHourMs(TZ, to, 0) + 86400e3)) lockForEvent(); else unlockFromEvent();
   const days = dayCount(from, to);
   label = label || (from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`);
   hist = { from, to, days, label, key: from + '_' + to, preset: preset || null, ...(extra || {}) };

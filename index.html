@@ -347,7 +347,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.81';
+const APP_VERSION = '1.83';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -574,8 +574,10 @@ function flagHistory(hash, bad) {
       continue;
     }
     if (!H.days || !H.days.length) continue;
-    // the same reading hour after hour: the station's feed froze and the last value was repeated, not rain
-    if (hourly && H.days.length >= SPIKE.stuckRun) {
+    // the same reading hour after hour: the station's feed froze and the last value was repeated, not rain.
+    // Not for gauges that report in tenths (SNOTEL): 0.2 in four hours running is ordinary steady snow there.
+    const coarse = s.src === 'S' || H.days.every(d => Math.abs(d[1] * 10 - Math.round(d[1] * 10)) < 1e-6);
+    if (hourly && !coarse && H.days.length >= SPIKE.stuckRun) {
       let run = 1, hit = null;
       for (let i = 1; i < H.days.length; i++) {
         const a = H.days[i - 1], b = H.days[i];
@@ -627,7 +629,7 @@ function susInfoText() {
     `Nearby means within ${SUS.r1} mi, or ${SUS.r2} mi where gauges are sparse; high readings at isolated gauges are checked against gauges within ${SUS.r3} mi. ` +
     `Over ${SUS.cap} in is flagged as more than this region records. Inches are for a day's rain and scale up for longer periods. ` +
     `On Event, a storm total smaller than the same gauge's rain today is flagged, since its storm counter was reset partway through. ` +
-    `For a past period, a gauge is also flagged when it missed more than a few hours of it (offline, so its total is short), or when one hour reads at least ${SPIKE.hr} in and ${SPIKE.hrX} times what gauges within ${SUS.r2} mi read in that hour (${SPIKE.farHr} in and ${SPIKE.farX} times gauges within ${SUS.r3} mi for an isolated gauge), or when it repeats exactly the same amount of ${SPIKE.stuck} in or more hour after hour (${SPIKE.stuckRun} hours when the amount is ${SPIKE.stuckHi} in or more or twice what gauges nearby read, 4 hours otherwise): a frozen feed repeating one reading, not rain. A spike that at least two neighbors, and a tenth of them, share at a third of its size or more counts as rain. Ambient stations registered twice by the same owner are shown once.`;
+    `For a past period, a gauge is also flagged when it missed more than a few hours of it (offline, so its total is short), or when one hour reads at least ${SPIKE.hr} in and ${SPIKE.hrX} times what gauges within ${SUS.r2} mi read in that hour (${SPIKE.farHr} in and ${SPIKE.farX} times gauges within ${SUS.r3} mi for an isolated gauge), or when it repeats exactly the same amount of ${SPIKE.stuck} in or more hour after hour (${SPIKE.stuckRun} hours when the amount is ${SPIKE.stuckHi} in or more or twice what gauges nearby read, 4 hours otherwise; gauges that report in tenths, such as SNOTEL, are not held to this): a frozen feed repeating one reading, not rain. A spike that at least two neighbors, and a tenth of them, share at a third of its size or more counts as rain. Ambient stations registered twice by the same owner are shown once.`;
 }
 const HASH = 0.07;  // degrees; a 3x3 block of these covers a 3-mile search
 const hkey = (i, j) => i + ',' + j;

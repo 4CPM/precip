@@ -1,12 +1,14 @@
 # Nightly history archive for the 4 Corners Precip Map.
 # Collects daily rain totals for public Ambient Weather Network stations into history/.
-# Runs every night, and can be run by hand from the Actions tab ("Run workflow"):
-# enter 365 in "days" for the one-time backfill of the past year.
+# Runs twice a day (the afternoon run makes up a failed night; a run also reaches
+# back to any day of the last 10 the archive has not built), and can be run by hand
+# from the Actions tab ("Run workflow"): enter 365 in "days" for the one-time backfill.
 name: Ambient history
 
 on:
   schedule:
-    - cron: '23 8 * * *'   # 2:23 AM MDT / 1:23 AM MST
+    - cron: '23 8 * * *'    # 2:23 AM MDT / 1:23 AM MST
+    - cron: '23 20 * * *'   # 2:23 PM MDT / 1:23 PM MST: makes up a failed night
   workflow_dispatch:
     inputs:
       days:
@@ -41,5 +43,10 @@ jobs:
           git add history
           if git diff --cached --quiet; then echo "No changes"; exit 0; fi
           git commit -m "History: daily totals through $(TZ=America/Denver date -d yesterday +%F)"
-          git pull --rebase
-          git push
+          # GitHub itself fails now and then (500 on push, Nov 4 2026): try for up to 12 minutes
+          n=0
+          until git pull --rebase && git push; do
+            git rebase --abort 2>/dev/null || true
+            n=$((n+1)); if [ $n -ge 6 ]; then echo "Could not push after $n tries"; exit 1; fi
+            echo "Push failed (try $n); waiting 2 minutes"; sleep 120
+          done

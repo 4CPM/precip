@@ -1,19 +1,22 @@
 # Hourly rain archive for the 4 Corners Precip Map.
 # Ambient keeps 5-minute readings for only about 8 days, so this saves each day's
 # hourly rain for every station into history/hourly/ before it ages out.
-# Runs every night after the daily archive. Run by hand with 8 in "days" to save
-# everything still available.
+# Runs twice a day after the daily archive, saving whichever of the last 8 days are
+# not in the archive yet, so a failed run is made up by the next one and the
+# afternoon run stops at once when the night's run succeeded. Run by hand with 8 in
+# "days" to save everything still available.
 name: Ambient hourly
 
 on:
   schedule:
-    - cron: '13 9 * * *'   # 3:13 AM MDT / 2:13 AM MST, after the daily archive
+    - cron: '13 9 * * *'    # 3:13 AM MDT / 2:13 AM MST, after the daily archive
+    - cron: '13 21 * * *'   # 3:13 PM MDT / 2:13 PM MST: makes up a failed night
   workflow_dispatch:
     inputs:
       days:
-        description: 'Days to save, ending yesterday (1 to 8)'
-        required: true
-        default: '1'
+        description: 'Days to save, ending yesterday (1 to 8); blank saves only the days missing from the last 8'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -34,7 +37,7 @@ jobs:
       - name: Save hourly rain
         run: node .github/scripts/hourly.mjs
         env:
-          DAYS: ${{ github.event.inputs.days || '1' }}
+          DAYS: ${{ github.event.inputs.days || '' }}
       - name: Save to the repo
         run: |
           git config user.name "4CPM history"
@@ -42,5 +45,10 @@ jobs:
           git add history
           if git diff --cached --quiet; then echo "No changes"; exit 0; fi
           git commit -m "Hourly rain through $(TZ=America/Denver date -d yesterday +%F)"
-          git pull --rebase
-          git push
+          # GitHub itself fails now and then (500 on push, Nov 4 2026): try for up to 12 minutes
+          n=0
+          until git pull --rebase && git push; do
+            git rebase --abort 2>/dev/null || true
+            n=$((n+1)); if [ $n -ge 6 ]; then echo "Could not push after $n tries"; exit 1; fi
+            echo "Push failed (try $n); waiting 2 minutes"; sleep 120
+          done

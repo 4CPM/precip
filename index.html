@@ -259,6 +259,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .collapsed .panel-head .chev{transform:rotate(-90deg)}
 .collapsed .panel-body{display:none}
 .panel-body{margin-top:8px}
+.arch-note{display:none;margin-top:5px;font-size:11px;line-height:1.35;color:#92400e;background:#fef3c7;border-radius:6px;padding:3px 8px}
+.arch-note.show{display:block}
 .info-panel:not(.collapsed) .panel-head .summary{display:none}
 .legend.collapsed{padding:8px 12px}
 
@@ -360,7 +362,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.86';
+const APP_VERSION = '1.87';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1902,6 +1904,7 @@ function addInfoPanel() {
     el.innerHTML = `
       <div class="app-name">4 Corners Precip Map <span id="app-ver"></span></div>
       <button class="panel-head" type="button"><h2 id="info-title">Rain Today</h2><span class="chev">▾</span></button>
+      <div class="arch-note" id="arch-note"></div>
       <div class="panel-body">
         <div class="asof" id="asof"></div>
         <div class="stat"><span>Gauges shown</span><span class="val" id="st-n"></span></div>
@@ -2739,8 +2742,40 @@ async function ensureHist() {
   if (run !== histRun || hist !== h0) return;
   rebuild(); histStatus();
 }
+// A quiet note when the archive lacks a day inside the selected period (v1.87): a nightly save that
+// hasn't run (the archive is behind, so those days are read live, slower) or one that never caught up
+// (the day is gone from Ambient's feed, so its hours are not in the totals). Nothing shows otherwise.
+const fmtDayList = days => {   // "Nov 3", "Nov 1–3", "Oct 30 and Nov 2"
+  const runs = [];
+  for (const d of days) { const r = runs[runs.length - 1]; if (r && addDays(r[1], 1) === d) r[1] = d; else runs.push([d, d]); }
+  const txt = runs.map(([a, b]) => a === b ? fmtDay(a) : `${fmtDay(a)}–${fmtDay(b)}`);
+  return txt.length > 1 ? txt.slice(0, -1).join(', ') + ' and ' + txt[txt.length - 1] : txt[0];
+};
+function archNote() {
+  if (!hist || hist.arch === undefined) return '';
+  const hourly = hist.mode === 'h';
+  const list = hourly ? (hrIndex && hrIndex.days) : (archIndex && Object.values(archIndex.months || {}).flat());
+  if (!list || !list.length) return '';
+  const saved = new Set(list), sorted = [...saved].sort(), first = sorted[0], last = sorted[sorted.length - 1];
+  const p = dParts(Date.now()), expect = addDays(dayStr(p), p.h >= 4 ? -1 : -2);   // through yesterday once the night's saves have had until 4 AM
+  let from = hourly ? dayStr(dParts(hist.start)) : hist.from; const to = hourly ? dayStr(dParts(hist.end - 1)) : hist.to;
+  if (from < first) from = first;
+  const gone = [], late = [];
+  for (let d = from; d <= to && d <= expect; d = addDays(d, 1)) if (!saved.has(d)) (d < last ? gone : late).push(d);
+  if (!gone.length && !late.length) return '';
+  const parts = [];
+  if (gone.length) parts.push(`${fmtDayList(gone)} missing from the ${hourly ? 'hourly ' : ''}archive (a nightly save failed${hourly ? '; those hours are not in the totals' : '; read live, slower'})`);
+  if (late.length) parts.push(`${fmtDayList(late)} not saved yet (the nightly save is behind; read live, slower)`);
+  return 'Archive: ' + parts.join('. ') + '.';
+}
+function updateArchNote() {
+  const el = document.getElementById('arch-note'); if (!el) return;
+  const t = archNote();
+  el.textContent = t; el.classList.toggle('show', !!t);
+}
 function histStatus() {
   if (!hist) return;
+  updateArchNote();
   if (hist.arch) {
     const msg = document.getElementById('refresh-msg'), n = stations.length;
     const t = hist.arch.tail;
@@ -2855,6 +2890,7 @@ function histHoursHtml(e) {
     (rainy.length ? rainy.slice(-31).map(([t, v]) => `<div class="row"><span>${fmtHourMs(t)}</span><span>${fmtV(v)} in</span></div>`).join('') + `<div class="hist-gap">${rainy.length > 31 ? 'Last 31 hours with rain shown.' : 'Hours with no rain not listed.'}</div>`
       : '<div class="hist-gap">No rain in any hour.</div>');
 }
+const hrIndexHas = d => !!(hrIndex && hrIndex.days && hrIndex.days.includes(d));
 async function archHourFor(h) {
   try {
     if (!hrIndex || Date.now() - hrIndexAt > 600e3) {
@@ -2877,6 +2913,9 @@ async function archHourFor(h) {
     }
     const d0 = addDays(dayStr(dParts(h.start)), -1), d1 = addDays(dayStr(dParts(aEnd - 1)), 1);
     const want = days.filter(d => d >= d0 && d <= d1);
+    // days the archive skipped inside the range (a nightly save that never caught up): their hours are not expected of any gauge
+    let gapH = 0;
+    for (let d = addDays(d0, 1); d < nextDay && d <= dayStr(dParts(aEnd - 1)); d = addDays(d, 1)) if (!hrIndexHas(d)) { const a0 = Math.max(h.start, localHourMs(TZ, d, 0)), a1 = Math.min(aEnd, localHourMs(TZ, addDays(d, 1), 0)); if (a1 > a0) gapH += Math.round((a1 - a0) / 3600e3); }
     const files = await Promise.all(want.map(d => { if (!hrFiles.has(d)) hrFiles.set(d, archJSON('hourly/' + d + '.json').catch(e => { hrFiles.delete(d); throw e; })); return hrFiles.get(d); }));
     const lo = h.start - 1800e3;
     const sums = new Map(), endBy = new Map();   // endBy: a zone's archived-part end (its midnight of nextDay, or the period's end)
@@ -2894,7 +2933,7 @@ async function archHourFor(h) {
         for (let i = 0; i < 24; i++) {
           const t = hs[i], v = row[1 + i];
           if (t < lo || t >= stEnd || v == null) continue;
-          if (!e) sums.set(st[0], e = { total: 0, days: [], have: 0, need: Math.max(1, Math.round((stEnd - h.start) / 3600e3)) });
+          if (!e) sums.set(st[0], e = { total: 0, days: [], have: 0, need: Math.max(1, Math.round((stEnd - h.start) / 3600e3) - gapH) });
           e.have++; e.total += v / 100; if (v > 0) e.days.push([t, v / 100]);
         }
       }
@@ -3108,6 +3147,7 @@ function histFromUrl() {
 function exitHist(toMetric) {
   playOff();
   unlockFromEvent();
+  { const el = document.getElementById('arch-note'); if (el) { el.textContent = ''; el.classList.remove('show'); } }
   hist = null; histRun++;
   histToUrl();
   metric = toMetric || 'year';
@@ -3814,6 +3854,7 @@ function rebuild() {
   computeDerived();
   pinsMode = 'none';   // the pins on the map still point at the old station objects, so the next frame redraws them
   if (play) playApply(); else render();
+  updateArchNote();
 }
 
 let lastLoad = 0;

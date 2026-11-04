@@ -26,15 +26,18 @@
 //   history/hourly/tzfix.json  { station number: corrected time zone }
 //   history/hourly/index.json  { days: [dates saved] }
 //
-// DAYS (environment) = days to save, ending yesterday (Denver); 1 nightly,
-// up to 8 for the first run (older 5-minute readings are no longer available).
+// DAYS (environment) = days to save, ending yesterday (Denver), up to 8 (older
+// 5-minute readings are no longer available). Left blank, as the scheduled runs
+// leave it, the job saves whichever of the last 8 days are not in the archive yet,
+// so a night that failed (GitHub down, Ambient down, the runner cut off) is made up
+// by the next run with nothing lost, and a run that finds nothing missing stops at once.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const BASE = process.env.AWN_BASE || 'https://lightning.ambientweather.net';
 const OUT = process.env.OUT_DIR || 'history';
-const DAYS = Math.max(1, Math.min(8, +(process.env.DAYS || 1)));
+const DAYS = process.env.DAYS ? Math.max(1, Math.min(8, +process.env.DAYS || 1)) : 0;   // 0 = the days missing from the last 8
 const PAR = +(process.env.PAR || 40);
 const TZ = 'America/Denver';
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
@@ -125,10 +128,23 @@ function hourly(rs, days, dayTz) {
   return res;
 }
 
+// the days to save: the last DAYS days, or (DAYS blank) those of the last 8 not yet in history/hourly/
+async function daysToSave(yesterday) {
+  if (DAYS) { const days = []; for (let k = DAYS - 1; k >= 0; k--) days.push(addDays(yesterday, -k)); return days; }
+  const dir = path.join(OUT, 'hourly'), days = [];
+  for (let k = 7; k >= 0; k--) {
+    const d = addDays(yesterday, -k), f = await readJSON(path.join(dir, d + '.json'), null);
+    if (!f || f.v !== 2 || !f.rows || !f.rows.length) days.push(d);
+  }
+  return days;
+}
+
 async function main() {
   const today = parts(Date.now()).day, yesterday = addDays(today, -1);
-  const days = []; for (let k = DAYS - 1; k >= 0; k--) days.push(addDays(yesterday, -k));
-  log(`Saving hourly rain for ${days[0]} to ${yesterday} (${DAYS} days) from ${BASE}`);
+  const days = await daysToSave(yesterday);
+  if (!days.length) { log(`Hourly rain is already saved for every day through ${yesterday}; nothing to do.`); return; }
+  log(`Saving hourly rain for ${days.join(', ')} (${DAYS ? DAYS + ' days' : 'the days missing from the last 8'}) from ${BASE}`);
+  if (process.env.PLAN_ONLY) return;
 
   const sj = await readJSON(path.join(OUT, 'stations.json'), null);
   if (!sj || sj.v !== 2) { console.error('history/stations.json (format 2) not found; run the daily archive first.'); process.exit(1); }

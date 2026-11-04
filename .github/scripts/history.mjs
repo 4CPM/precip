@@ -14,7 +14,9 @@
 //
 // DAYS (environment) = how many days back to rebuild, ending yesterday (Denver).
 // Nightly runs rebuild the last 3 days to pick up late readings; the first run
-// backfills a year with DAYS=365.
+// backfills a year with DAYS=365. A run also reaches back to the earliest day of
+// the last 10 that the archive has not built yet, so a night that failed (GitHub
+// down, Ambient down, the runner cut off) is made up by the next run.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -135,10 +137,21 @@ async function stationDays(st, first, last) {
 async function readJSON(f, fallback) { try { return JSON.parse(await fs.readFile(f, 'utf8')); } catch { return fallback; } }
 const monthDays = m => { const [y, mo] = m.split('-').map(Number), n = new Date(Date.UTC(y, mo, 0)).getUTCDate(); return Array.from({ length: n }, (_, i) => `${m}-${String(i + 1).padStart(2, '0')}`); };
 
+// the earliest of the last 10 days that no month file has built yet (null when there is none)
+async function earliestMissing(yesterday) {
+  const idx = await readJSON(path.join(OUT, 'index.json'), null), months = (idx && idx.months) || {};
+  if (!idx) return null;   // first run: DAYS says how far back to go
+  for (let k = 9; k >= 0; k--) { const d = addDays(yesterday, -k); if (!(months[d.slice(0, 7)] || []).includes(d)) return d; }
+  return null;
+}
+
 async function main() {
   const yesterday = addDays(localDay(Date.now(), TZ), -1);
-  const first = addDays(yesterday, -(DAYS - 1));
-  log(`Rebuilding ${first} to ${yesterday} (${DAYS} days) from ${BASE}`);
+  let first = addDays(yesterday, -(DAYS - 1));
+  const missing = await earliestMissing(yesterday);
+  if (missing && missing < first) { log(`${missing} is not in the archive yet; reaching back to it`); first = missing; }
+  log(`Rebuilding ${first} to ${yesterday} from ${BASE}`);
+  if (process.env.PLAN_ONLY) return;
 
   const { stations, cells, failed } = await listStations();
   log(`Station list: ${stations.length} stations with rain gauges and dashboards from ${cells} cells (${failed} cells failed)`);

@@ -35,6 +35,24 @@ body.docked #dock-left .info-panel,body.docked #dock-right .legend,body.docked #
 body.docked #dock-bottom #play-bar{position:static;transform:none!important;display:none;box-shadow:none;background:transparent;width:auto;max-width:none;margin:0;padding:8px 12px}
 body.docked #dock-bottom #play-bar.on{display:block}
 body.docked .info-panel .drag-handle,body.docked .legend .drag-handle{cursor:default}
+/* a grab strip on each dock's inner edge: drag to resize, double-click to put back (v2.08) */
+.splitter{position:absolute;z-index:5;background:transparent}
+.splitter:hover,.splitter.dragging{background:#38bdf8}
+.splitter.v{top:0;bottom:0;width:6px;cursor:col-resize}
+.splitter.h{left:0;right:0;height:6px;cursor:row-resize}
+body:not(.docked) .splitter{display:none}
+body.docked #stage{position:relative}
+body.docked #ask-bar{position:relative}
+body.docked #ask-bar .splitter{bottom:-3px}
+/* the whole page's chrome out of the way, so the map is the window */
+body.chrome-off #ask-bar,body.chrome-off #dock-left,body.chrome-off #dock-right,body.chrome-off #dock-bottom{display:none}
+#chrome-toggle{position:absolute;top:8px;left:8px;z-index:1001;width:26px;height:26px;border:1px solid rgba(0,0,0,.18);
+  border-radius:6px;background:rgba(255,255,255,.92);color:#334155;font-size:13px;line-height:1;cursor:pointer;padding:0;
+  display:none;align-items:center;justify-content:center}
+body.docked #chrome-toggle{display:flex}
+#chrome-toggle:hover{background:#fff;color:#0f172a}
+/* undocked, the floating boxes take a corner drag of their own */
+body:not(.docked) #info-panel,body:not(.docked) .legend{resize:both;overflow:auto}
 
 /* ── Pins ─────────────────────────────────────────────── */
 .pin{
@@ -115,6 +133,8 @@ body.docked .info-panel .drag-handle,body.docked .legend .drag-handle{cursor:def
 
 /* ── Filters (inside the panel) ─────────────────────────── */
 .opt-grid{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 8px;align-items:center}
+.opt-sec{grid-column:1 / -1;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#64748b;margin:9px 0 1px;padding-top:7px;border-top:1px solid #e2e8f0}
+.opt-sec.first{margin-top:2px;padding-top:0;border-top:none}
 .opt-l{font-size:11px;font-weight:600;color:#64748b;text-align:right;white-space:nowrap}
 .opt-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .seg-ctrl.wrap{flex-wrap:wrap;max-width:420px}
@@ -347,6 +367,7 @@ body.docked .ask-msg .rep{display:inline-flex;margin:0 0 0 8px;vertical-align:ba
 .collapsed .panel-head .chev{transform:rotate(-90deg)}
 .collapsed .panel-body{display:none}
 .panel-body{margin-top:8px}
+.panel-btn.small{font-size:11px;padding:4px 9px;font-weight:600}
 .arch-note{display:none;margin-top:5px;font-size:11px;line-height:1.35;color:#92400e;background:#fef3c7;border-radius:6px;padding:3px 8px}
 .arch-note.show{display:block}
 .info-panel:not(.collapsed) .panel-head .summary{display:none}
@@ -456,7 +477,7 @@ body.docked .ask-msg .rep{display:inline-flex;margin:0 0 0 8px;vertical-align:ba
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.07';
+const APP_VERSION = '2.08';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -914,7 +935,10 @@ function visible(s, ignoreRegion) {
 
 // ── Map ──────────────────────────────────────────────────────────────────────
 function initMap() {
-  leafletMap = L.map('map', { zoomControl: false }).setView([CENTER.lat, CENTER.lon], 10);
+  // Any scale, not just whole zoom levels (v2.08): zoomSnap 0 lets the wheel, the buttons and
+  // every fitBounds land on a fractional zoom instead of rounding to the nearest step.
+  leafletMap = L.map('map', { zoomControl: false, zoomSnap: 0, zoomDelta: 0.5, wheelPxPerZoomLevel: 100 })
+    .setView([CENTER.lat, CENTER.lon], 10);
   L.control.zoom({ position: 'topright' }).addTo(leafletMap);
   leafletMap.createPane('contourFill').style.zIndex = 350;
   leafletMap.getPane('contourFill').style.opacity = '0.45';
@@ -990,6 +1014,7 @@ function initMap() {
   addPlayBar();
   addAskBox();
   dockPanels();
+  addSplitters();
   window.addEventListener('resize', () => { clearTimeout(dockT); dockT = setTimeout(dockPanels, 180); });
   enableDragging();
   let t;
@@ -1609,18 +1634,86 @@ function placeDockables() {
   put(document.getElementById('play-bar'), 'dock-bottom');
 }
 
+// Drag a dock's edge to resize it, double-click the edge to put it back, and one button takes
+// every piece of chrome away so the map has the whole window (v2.08). Sizes last across visits.
+const DOCK_DEF = { left: 332, right: 188, ask: 122 };
+function dockSize(k, px) {
+  const v = Math.round(px);
+  if (k === 'ask') { const l = document.getElementById('ask-log'); if (l) l.style.maxHeight = Math.max(0, v) + 'px'; }
+  else { const d = document.getElementById('dock-' + k); if (d) d.style.width = Math.max(0, v) + 'px'; }
+  try { v === DOCK_DEF[k] ? localStorage.removeItem('cpmDock' + k) : localStorage.setItem('cpmDock' + k, String(v)); } catch (e) {}
+  if (leafletMap) leafletMap.invalidateSize();
+}
+function restoreDockSizes() {
+  for (const k of Object.keys(DOCK_DEF)) {
+    let v = null; try { v = localStorage.getItem('cpmDock' + k); } catch (e) {}
+    if (v != null && Number.isFinite(+v)) dockSize(k, +v);
+  }
+}
+function addSplitters() {
+  const mk = (hostId, kind, key, get, set, sign = 1) => {
+    const host = document.getElementById(hostId); if (!host || host.querySelector('.splitter.for-' + key)) return;
+    const sp = document.createElement('div');
+    sp.className = 'splitter for-' + key + ' ' + kind;
+    sp.title = 'Drag to resize, double-click to put back';
+    host.appendChild(sp);
+    let from = 0, base = 0;
+    const move = e => { const p = e.touches ? e.touches[0] : e; set(base + sign * (kind === 'v' ? p.clientX - from : p.clientY - from)); };
+    const up = () => { sp.classList.remove('dragging'); document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+      document.removeEventListener('touchmove', move); document.removeEventListener('touchend', up); };
+    const down = e => { const p = e.touches ? e.touches[0] : e; from = kind === 'v' ? p.clientX : p.clientY; base = get();
+      sp.classList.add('dragging'); e.preventDefault();
+      document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+      document.addEventListener('touchmove', move, { passive: false }); document.addEventListener('touchend', up); };
+    sp.addEventListener('mousedown', down);
+    sp.addEventListener('touchstart', down, { passive: false });
+    sp.addEventListener('dblclick', () => set(DOCK_DEF[key]));
+  };
+  mk('stage', 'v', 'left', () => document.getElementById('dock-left').offsetWidth,
+     px => { dockSize('left', Math.max(0, Math.min(640, px))); placeSplitters(); });
+  // the right dock's edge is on its left, so dragging left makes it wider: the sign flips
+  mk('stage', 'v', 'right', () => document.getElementById('dock-right').offsetWidth,
+     px => { dockSize('right', Math.max(0, Math.min(520, px))); placeSplitters(); }, -1);
+  mk('ask-bar', 'h', 'ask', () => document.getElementById('ask-log').getBoundingClientRect().height,
+     px => dockSize('ask', Math.max(0, Math.min(window.innerHeight * 0.6, px))));
+  const chrome = document.createElement('button');
+  chrome.id = 'chrome-toggle'; chrome.type = 'button';
+  chrome.title = 'Hide everything but the map';
+  chrome.textContent = '\u26F6';
+  chrome.addEventListener('click', () => {
+    const off = document.body.classList.toggle('chrome-off');
+    chrome.title = off ? 'Bring the panels back' : 'Hide everything but the map';
+    try { off ? localStorage.setItem('cpmChromeOff', '1') : localStorage.removeItem('cpmChromeOff'); } catch (e) {}
+    if (leafletMap) setTimeout(() => leafletMap.invalidateSize(), 60);
+  });
+  leafletMap.getContainer().appendChild(chrome);
+  L.DomEvent.disableClickPropagation(chrome);
+  let off = false; try { off = !!localStorage.getItem('cpmChromeOff'); } catch (e) {}
+  if (off) { document.body.classList.add('chrome-off'); chrome.title = 'Bring the panels back'; }
+  restoreDockSizes();
+  placeSplitters();
+  new ResizeObserver(() => placeSplitters()).observe(document.getElementById('stage'));
+}
+// the two stage splitters ride on the inner edge of each column
+function placeSplitters() {
+  const l = document.getElementById('dock-left'), r = document.getElementById('dock-right');
+  const sl = document.querySelector('#stage .splitter.for-left'), sr = document.querySelector('#stage .splitter.for-right');
+  if (sl && l) sl.style.left = Math.max(0, l.offsetWidth - 3) + 'px';
+  if (sr && r) sr.style.right = Math.max(0, r.offsetWidth - 3) + 'px';
+}
+
 // the box itself
 function addAskBox() {
   const el = document.createElement('div');
   el.id = 'ask-box'; el.className = 'closed';
   el.innerHTML = `
-    <button id="ask-head" type="button" aria-expanded="false"><span class="ask-dot"></span><span class="ask-t">Ask the map</span><span class="chev">▾</span></button>
+    <button id="ask-head" type="button" aria-expanded="false"><span class="ask-dot"></span><span class="ask-t">Talk to the map</span><span class="chev">▾</span></button>
     <div class="ask-body">
       <div id="ask-log" aria-live="polite"></div>
       <div class="ask-bottom">
         <div class="ask-row">
-          <span class="ask-inline-t">Ask the map</span>
-          <input id="ask-text" type="text" autocomplete="off" placeholder="Show me the McElmo watershed last week" aria-label="Ask the map">
+          <span class="ask-inline-t">Talk to the map</span>
+          <input id="ask-text" type="text" autocomplete="off" placeholder="Ask about the rain, or say what to show" aria-label="Talk to the map">
           <button id="ask-send" type="button">Ask</button>
         </div>
         <div class="ask-foot"><span id="ask-hint">It sets the map and reads back what the gauges show.</span><span><button id="ask-big" type="button" title="A taller box for longer conversations">Expand</button> · <button id="ask-new" type="button">New topic</button></span></div>
@@ -1688,7 +1781,7 @@ function askReportUi(m, i) {
   if (m.rep === 'sent') { wrap.classList.add('done'); wrap.textContent = 'Reported — thanks.'; return wrap; }
   if (m.rep !== 'open') {
     const b = document.createElement('button');
-    b.type = 'button'; b.textContent = 'Not what I wanted';
+    b.type = 'button'; b.textContent = 'Not what you wanted?';
     b.title = 'Say what it should have done. It goes on the list of things to fix in the next version.';
     b.addEventListener('click', () => { m.rep = 'open'; askDraw(); const f = askEl.querySelector('.rep input'); if (f) f.focus(); });
     wrap.appendChild(b);
@@ -2522,7 +2615,7 @@ function addInfoPanel() {
         <div class="stat"><span>Gauges shown</span><span class="val" id="st-n"></span></div>
         <div class="stat"><span>Range</span><span class="val" id="st-rng"></span></div>
         <div class="stat"><span>Errors flagged</span><span class="val" id="st-sus"></span></div>
-        <div class="refresh-row"><button class="panel-btn" id="refresh-btn" title="Back to the opening view and default settings, with fresh live data">↺ Reset</button><button class="info-btn" id="status-btn" type="button" aria-expanded="false" aria-controls="refresh-msg" title="About the data shown">i</button></div>
+        <div class="refresh-row"><button class="panel-btn small" id="refresh-btn" title="Back to the opening view and default settings, with fresh live data">↺ Reset to default</button><button class="info-btn" id="status-btn" type="button" aria-expanded="false" aria-controls="refresh-msg" title="About the data shown">i</button></div>
         <div class="refresh-msg" id="refresh-msg">Loading…</div>
       </div>`;
     L.DomEvent.disableClickPropagation(el);
@@ -2562,6 +2655,7 @@ function addFilterBar() {
     el.className = 'opt-grid filters';
     el.id = 'options-panel';
     el.innerHTML = `
+        <div class="opt-sec first">What period</div>
         <span class="opt-l">Show</span>
         <div class="opt-row">
           <span class="leg-num-wrap"><input type="number" class="leg-num" id="win-hours" min="1" step="1" inputmode="numeric" aria-label="The last how many hours" title="The last N hours, ending now, back to October 19, 2026, when the hourly archive began"> hours</span>
@@ -2595,6 +2689,7 @@ function addFilterBar() {
         </div>
         <span class="opt-l">Events</span>
         <div class="seg-ctrl wrap">${EVENTS.map(e => `<button class="seg-btn" data-ev="${e.id}" title="${e.title}">${e.label}</button>`).join('')}</div>
+        <div class="opt-sec">Which gauges</div>
         <span class="opt-l">Gauges</span>
         <div class="seg-ctrl">
           <button class="seg-btn active" data-src="all">All</button>
@@ -2609,6 +2704,33 @@ function addFilterBar() {
           <button class="seg-btn active" data-rad="250">250</button>
           <button class="seg-btn" data-rad="500">500 mi</button>
         </div>
+        <span class="opt-l">Error filter</span>
+        <div class="opt-row">
+          <div class="seg-ctrl">
+            <button class="seg-btn active" data-sus="exclude">Exclude</button>
+            <button class="seg-btn" data-sus="include">Include</button>
+            <button class="seg-btn" data-sus="only">Only</button>
+          </div>
+          <button class="info-btn gear" id="sus-set-btn" type="button" aria-expanded="false" aria-controls="sus-set" title="Error filter settings">⚙</button>
+          <button class="info-btn" id="sus-info-btn" type="button" aria-expanded="false" aria-controls="sus-info" title="How readings are flagged">i</button>
+        </div>
+        <div class="info-pop con-pop" id="sus-set" hidden>
+          <div class="sus-grid">
+            <span class="opt-l">Too high</span>
+            <span class="sus-t">over <input type="number" class="leg-num" data-sus-k="hi" min="1.1" max="10" step="0.1" inputmode="decimal" aria-label="High: times nearby gauges"> × nearby and <input type="number" class="leg-num" data-sus-k="hiGap" min="0" max="5" step="0.05" inputmode="decimal" aria-label="High: inches above nearby gauges"> in above</span>
+            <span class="opt-l">Too low</span>
+            <span class="sus-t">under <input type="number" class="leg-num" data-sus-k="lo" min="0" max="95" step="1" inputmode="numeric" aria-label="Low: percent of nearby gauges"> % of nearby and <input type="number" class="leg-num" data-sus-k="loGap" min="0" max="5" step="0.05" inputmode="decimal" aria-label="Low: inches below nearby gauges"> in below</span>
+            <span class="opt-l">Nearby</span>
+            <span class="sus-t">within <input type="number" class="leg-num" data-sus-k="r1" min="0.5" max="15" step="0.5" inputmode="decimal" aria-label="Nearby, miles"> mi, or <input type="number" class="leg-num" data-sus-k="r2" min="1" max="30" step="1" inputmode="numeric" aria-label="Nearby where sparse, miles"> mi if sparse</span>
+            <span class="opt-l">Isolated</span>
+            <span class="sus-t">high readings out to <input type="number" class="leg-num" data-sus-k="r3" min="1" max="50" step="1" inputmode="numeric" aria-label="Isolated gauges, miles"> mi</span>
+            <span class="opt-l">Impossible</span>
+            <span class="sus-t">over <input type="number" class="leg-num" data-sus-k="cap" min="1" max="50" step="0.5" inputmode="decimal" aria-label="Impossible, inches"> in</span>
+          </div>
+          <div class="con-desc">Inches are for a day's rain and scale up for longer periods (×1.5 a week, ×2 a month, ×4 beyond); the high gap doubles at the sparse distance and triples at the isolated one. <button class="draw-btn" id="sus-reset" type="button">Reset to defaults</button></div>
+        </div>
+        <div class="info-pop" id="sus-info" hidden></div>
+        <div class="opt-sec">How it is drawn</div>
         <span class="opt-l">Pins</span>
         <div class="opt-row">
           <button class="toggle-btn" id="hide-btn" title="Hide pins and clusters, to see contours only"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">Hide</span></button>
@@ -2691,32 +2813,7 @@ function addFilterBar() {
         </div>
         <span class="opt-l" id="bnd-sel-lab" hidden>Picked</span>
         <div class="opt-row" id="bnd-sel-row" hidden></div>
-        <span class="opt-l">Error filter</span>
-        <div class="opt-row">
-          <div class="seg-ctrl">
-            <button class="seg-btn active" data-sus="exclude">Exclude</button>
-            <button class="seg-btn" data-sus="include">Include</button>
-            <button class="seg-btn" data-sus="only">Only</button>
-          </div>
-          <button class="info-btn gear" id="sus-set-btn" type="button" aria-expanded="false" aria-controls="sus-set" title="Error filter settings">⚙</button>
-          <button class="info-btn" id="sus-info-btn" type="button" aria-expanded="false" aria-controls="sus-info" title="How readings are flagged">i</button>
-        </div>
-        <div class="info-pop con-pop" id="sus-set" hidden>
-          <div class="sus-grid">
-            <span class="opt-l">Too high</span>
-            <span class="sus-t">over <input type="number" class="leg-num" data-sus-k="hi" min="1.1" max="10" step="0.1" inputmode="decimal" aria-label="High: times nearby gauges"> × nearby and <input type="number" class="leg-num" data-sus-k="hiGap" min="0" max="5" step="0.05" inputmode="decimal" aria-label="High: inches above nearby gauges"> in above</span>
-            <span class="opt-l">Too low</span>
-            <span class="sus-t">under <input type="number" class="leg-num" data-sus-k="lo" min="0" max="95" step="1" inputmode="numeric" aria-label="Low: percent of nearby gauges"> % of nearby and <input type="number" class="leg-num" data-sus-k="loGap" min="0" max="5" step="0.05" inputmode="decimal" aria-label="Low: inches below nearby gauges"> in below</span>
-            <span class="opt-l">Nearby</span>
-            <span class="sus-t">within <input type="number" class="leg-num" data-sus-k="r1" min="0.5" max="15" step="0.5" inputmode="decimal" aria-label="Nearby, miles"> mi, or <input type="number" class="leg-num" data-sus-k="r2" min="1" max="30" step="1" inputmode="numeric" aria-label="Nearby where sparse, miles"> mi if sparse</span>
-            <span class="opt-l">Isolated</span>
-            <span class="sus-t">high readings out to <input type="number" class="leg-num" data-sus-k="r3" min="1" max="50" step="1" inputmode="numeric" aria-label="Isolated gauges, miles"> mi</span>
-            <span class="opt-l">Impossible</span>
-            <span class="sus-t">over <input type="number" class="leg-num" data-sus-k="cap" min="1" max="50" step="0.5" inputmode="decimal" aria-label="Impossible, inches"> in</span>
-          </div>
-          <div class="con-desc">Inches are for a day's rain and scale up for longer periods (×1.5 a week, ×2 a month, ×4 beyond); the high gap doubles at the sparse distance and triples at the isolated one. <button class="draw-btn" id="sus-reset" type="button">Reset to defaults</button></div>
-        </div>
-        <div class="info-pop" id="sus-info" hidden></div>`;
+`;
     el.querySelector('#sus-set .con-desc').insertAdjacentHTML('afterend', `<div class="tag-tools" id="tag-tools"><span id="tag-count" style="color:#475569"></span><button class="draw-btn" id="tag-copy" type="button" title="Copy your tags in the format of the site\u2019s tags.json, to apply them for everyone">Copy for the site</button><button class="draw-btn" id="tag-clear" type="button" title="Remove all your tags on this device">Clear tags</button></div><div class="tag-list" id="tag-list"></div><div class="con-desc">Tag a gauge from its popup: Tag as error, or Trust this gauge against an automatic flag. Tags are kept in this browser; the site file tags.json in the repo applies to everyone.</div>`);
     document.querySelector('#info-panel .panel-body').appendChild(el);
     el.querySelector('#tag-copy').addEventListener('click', e => { const b = e.currentTarget; navigator.clipboard.writeText(tagsText()).then(() => { b.textContent = 'Copied'; setTimeout(() => b.textContent = 'Copy for the site', 1500); }).catch(() => { b.textContent = 'Copy blocked by browser'; }); });
@@ -4498,7 +4595,7 @@ async function loadData() {
   rebuild();
   await ensureCells(true);
   if (hist) await ensureHist();
-  btn.disabled = false; btn.textContent = '↺ Reset';
+  btn.disabled = false; btn.textContent = '↺ Reset to default';
   if (offErr) setStatus('Official gauges could not be loaded (no connection, or the browser blocked it). Showing the last values it had.', true);
   else if (!document.getElementById('refresh-msg').classList.contains('err')) setStatus();
   loading = false;

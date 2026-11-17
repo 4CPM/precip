@@ -400,7 +400,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.02';
+const APP_VERSION = '2.03';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1434,6 +1434,20 @@ async function aiApply(set) {
       const r = num(c.reachMi, REACH_MIN, REACH_MAX);
       if (r) { if (conAuto) click('#con-auto-btn'); const i = document.getElementById('con-reach'); if (i) { i.value = r; i.dispatchEvent(new Event('change', { bubbles: true })); did.push(`contour reach ${r} mi`); } }
     }
+    // the thin lines drawn over the painted surface have their own toggle; removing them is not contours off
+    if (typeof c.surfaceLines === 'boolean' && c.surfaceLines !== conSurfLines) {
+      click('#con-sl-btn');
+      did.push(c.surfaceLines ? 'lines drawn over the surface' : 'lines off, the painted surface kept');
+      if (contourMode !== 'surface') skipped.push('that toggle only shows while the painted surface is on');
+    }
+    if (['hard', 'soft', 'three'].includes(c.edges) && c.edges !== conEdge) { click(`[data-ce="${c.edges}"]`); did.push('contour edges: ' + c.edges); }
+    if (['map', 'screen'].includes(c.grid) && c.grid !== conGrid) { click(`[data-cg="${c.grid}"]`); did.push('contour grid: ' + c.grid); }
+    if (['smooth', 'steps'].includes(c.shading) && c.shading !== conSurfShade) { click(`[data-cs="${c.shading}"]`); did.push('surface shading: ' + c.shading); }
+    if (c.opacityPct != null) {
+      const o = num(c.opacityPct, 30, 100);
+      if (o) { const i = document.getElementById('con-op'); if (i) { i.value = Math.round(o); i.dispatchEvent(new Event('change', { bubbles: true })); did.push(`surface ${Math.round(o)}% solid`); } }
+    }
+    if (typeof c.labels === 'boolean' && c.labels !== conLabels) { click('#con-lab-btn'); did.push(c.labels ? 'contour values labelled' : 'contour labels off'); }
   }
 
   const l = set.legend;
@@ -1451,6 +1465,7 @@ async function aiApply(set) {
 
   const b = set.boundaries;
   if (b && typeof b === 'object') {
+    if (typeof b.labels === 'boolean' && b.labels !== bndLabels) { click('#bnd-lab-btn'); did.push(b.labels ? 'boundary names on' : 'boundary names off'); }
     for (const [key, id, word] of [['state', '#bnd-state-btn', 'state lines'], ['county', '#bnd-county-btn', 'county lines'], ['watersheds', '#bnd-huc-btn', 'watersheds']]) {
       const k = key === 'watersheds' ? 'huc' : key;
       if (typeof b[key] === 'boolean' && b[key] !== bndOn[k]) { click(id); did.push(b[key] ? word + ' on' : word + ' off'); }

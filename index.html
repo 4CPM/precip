@@ -400,7 +400,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.01';
+const APP_VERSION = '2.02';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1259,6 +1259,78 @@ async function aiPickBoundary(name, kindWant) {
   return { name: full, bbox: hit.slice(4) };
 }
 
+// Every control on the page, discovered rather than listed (v2.02). A control added to the map later
+// appears here on its own. Keys are stable: the element's id, else its data-attribute inside the nearest
+// element that has an id. Destructive ones are marked so they are not fired in passing.
+const AI_DESTRUCTIVE = { 'refresh-btn': 1, 'tag-clear': 1, 'sus-reset': 1 };
+function aiControlMap() {
+  const map = new Map();
+  for (const r of document.querySelectorAll('#info-panel, #sel-panel, .legend, .leaflet-control, #play-bar')) {
+    for (const c of r.querySelectorAll('button, input, select')) {
+      if (c.closest('#ask-box') || c.closest('.leaflet-popup')) continue;
+      if (c.id && /^(ask-|tmp-)/.test(c.id)) continue;
+      const host = c.closest('[id]'), hid = host ? host.id : '';
+      const dat = [...c.attributes].find(a => /^data-/.test(a.name) && a.value);
+      let key = c.id || (dat ? `${hid}:${dat.name.slice(5)}=${dat.value}` : '');
+      if (!key) {
+        const lbl = (c.getAttribute('aria-label') || c.textContent || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 24);
+        key = `${hid}:${lbl}`;
+      }
+      let k = key, n = 1; while (map.has(k)) k = key + '~' + (++n);
+      map.set(k, c);
+    }
+  }
+  return map;
+}
+function aiControls() {
+  const out = [];
+  for (const [k, c] of aiControlMap()) {
+    const tag = c.tagName.toLowerCase(), cls = String(c.className || '');
+    const kind = tag === 'select' ? 'select'
+      : tag === 'input' ? (c.type === 'checkbox' ? 'checkbox' : c.type === 'number' ? 'number' : c.type === 'date' ? 'date' : c.type === 'range' ? 'range' : 'text')
+      : /toggle-btn/.test(cls) ? 'toggle' : /seg-btn/.test(cls) ? 'segment' : 'button';
+    const label = (c.getAttribute('aria-label') || c.title || c.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 60);
+    let state = null;
+    if (kind === 'toggle' || kind === 'segment') state = /\bactive\b/.test(cls) ? 'on' : 'off';
+    else if (kind === 'checkbox') state = c.checked ? 'on' : 'off';
+    else if (tag === 'input' || tag === 'select') state = String(c.value == null ? '' : c.value).slice(0, 24);
+    const row = [k, kind, label, state];
+    if (AI_DESTRUCTIVE[k]) row.push('destructive');
+    out.push(row);
+  }
+  return out;
+}
+// work the controls the assistant named, the same as a click
+function aiWorkControls(list) {
+  const did = [], skipped = [];
+  if (!Array.isArray(list)) return { did, skipped };
+  const map = aiControlMap();
+  for (const a of list.slice(0, 20)) {
+    const key = a && (typeof a === 'string' ? a : a.id);
+    const el = key ? map.get(key) : null;
+    if (!el) { skipped.push(`no control called \u201c${String(key).slice(0, 40)}\u201d`); continue; }
+    if (AI_DESTRUCTIVE[key] && !(a && a.confirm === true)) { skipped.push(`${key} resets things, so it was left alone`); continue; }
+    const tag = el.tagName.toLowerCase(), cls = String(el.className || '');
+    const want = a && a.value != null ? String(a.value) : null;
+    const label = (el.getAttribute('aria-label') || el.title || el.textContent || key).trim().replace(/\s+/g, ' ').slice(0, 40);
+    if (tag === 'input' && el.type !== 'checkbox' || tag === 'select') {
+      if (want == null) { skipped.push(`${label} needs a value`); continue; }
+      el.value = want;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      did.push(`${label}: ${want}`);
+      continue;
+    }
+    const on = el.type === 'checkbox' ? el.checked : /\bactive\b/.test(cls);
+    if (want === 'on' || want === 'off' || want === 'true' || want === 'false') {
+      const target = want === 'on' || want === 'true';
+      if (target === on) continue;             // already where it should be
+    }
+    el.click();
+    did.push(label);
+  }
+  return { did, skipped };
+}
 // what the map is set to now
 function aiState() {
   const c = leafletMap.getCenter(), b = leafletMap.getBounds();
@@ -1274,15 +1346,18 @@ function aiState() {
     events: EVENTS.map(e => ({ id: e.id, label: e.label })),
     gauges: { sources: srcFilter, flagged: suspectFilter, radiusMi: radius,
               pins: pinsHidden ? 'hidden' : pinStyle, clustered: clusteringEnabled },
-    contours: { mode: contourMode, method: conMethod, reachMi: conAuto ? 'auto' : conReachMi },
+    contours: { mode: contourMode, method: conMethod, reachMi: conAuto ? 'auto' : conReachMi,
+                surfaceLines: conSurfLines, edges: conEdge, grid: conGrid, shading: conSurfShade,
+                opacityPct: Math.round(conSurfOp * 100), labels: conLabels },
     legend: { steps: legendSteps, top: legendTop, locked: !!legendLock, stormScale: eventLock,
               brackets: BREAKS.map(v => +v.toFixed(2)) },
     boundaries: { state: bndOn.state, county: bndOn.county, watersheds: bndOn.huc,
                   hucLevel: bndOn.huc ? hucLevel() : null,
-                  selected: bndSel.map(x => x.name), isolate: bndIso },
+                  selected: bndSel.map(x => x.name), isolate: bndIso, labels: bndLabels },
     view: { center: [+c.lat.toFixed(3), +c.lng.toFixed(3)], zoom: +leafletMap.getZoom().toFixed(1),
             box: [+b.getWest().toFixed(2), +b.getSouth().toFixed(2), +b.getEast().toFixed(2), +b.getNorth().toFixed(2)] },
     archiveNote: (document.getElementById('arch-note') || {}).textContent || '',
+    controls: aiControls(),
   };
 }
 
@@ -1313,6 +1388,10 @@ function aiFigures() {
 async function aiApply(set) {
   const did = [], skipped = [];
   if (!set || typeof set !== 'object') return { did, skipped };
+  const runControls = () => {
+    const r = aiWorkControls(set.controls);
+    did.push(...r.did); skipped.push(...r.skipped);
+  };
   const click = sel => { const b = document.querySelector(sel); if (b) { b.click(); return true; } return false; };
   const num = (v, lo, hi) => { const x = +v; return Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : null; };
   const isDay = d => /^\d{4}-\d\d-\d\d$/.test(String(d || ''));
@@ -1399,6 +1478,8 @@ async function aiApply(set) {
       leafletMap.setView([+v.center[0], +v.center[1]], num(v.zoom, 3, 16) || leafletMap.getZoom()); did.push('moved the map');
     }
   }
+
+  runControls();   // anything named by control, last, so it wins over the settings above
   return { did, skipped };
 }
 

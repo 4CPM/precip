@@ -22,9 +22,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 body.docked{display:flex;flex-direction:column;height:100dvh;overflow:hidden}
 body.docked #stage{flex:1 1 auto;display:flex;min-height:0}
 body.docked #map{flex:1 1 auto;height:auto;min-width:0}
-body.docked #dock-left,body.docked #dock-right{flex:0 0 auto;overflow-y:auto;background:#fff;z-index:2}
-body.docked #dock-left{width:332px;border-right:1px solid #e2e8f0;padding:10px}
-body.docked #dock-right{width:188px;border-left:1px solid #e2e8f0;padding:10px}
+body.docked #dock-left,body.docked #dock-right{flex:0 0 auto;overflow-y:auto;background:#fff;z-index:2;contain:layout style}
+body.docked #dock-left{width:332px;border-right:1px solid #e2e8f0;padding:10px;box-sizing:border-box}
+body.docked #dock-right{width:188px;border-left:1px solid #e2e8f0;padding:10px;box-sizing:border-box}
+body.docked #dock-left.gone,body.docked #dock-right.gone{width:0!important;padding:0;border:none;overflow:hidden}
+body.docked #ask-bar.gone{height:0;overflow:hidden;border:none}
 body.docked #dock-bottom{flex:0 0 auto;background:#fff;border-top:1px solid #e2e8f0}
 body.docked #dock-bottom:empty{display:none}
 body:not(.docked) #stage{display:contents}
@@ -36,14 +38,14 @@ body.docked #dock-bottom #play-bar{position:static;transform:none!important;disp
 body.docked #dock-bottom #play-bar.on{display:block}
 body.docked .info-panel .drag-handle,body.docked .legend .drag-handle{cursor:default}
 /* a grab strip on each dock's inner edge: drag to resize, double-click to put back (v2.08) */
-.splitter{position:absolute;z-index:5;background:transparent}
-.splitter:hover,.splitter.dragging{background:#38bdf8}
-.splitter.v{top:0;bottom:0;width:6px;cursor:col-resize}
-.splitter.h{left:0;right:0;height:6px;cursor:row-resize}
+.splitter{position:fixed;z-index:1002;background:#e2e8f0;border:0;padding:0;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:9px;line-height:1}
+.splitter:hover{background:#bae6fd;color:#0369a1}
+.splitter.dragging{background:#38bdf8}
+.splitter.v{width:9px;cursor:col-resize;writing-mode:vertical-rl}
+.splitter.h{height:9px;cursor:row-resize}
+.splitter.off{background:#cbd5e1;color:#475569}
 body:not(.docked) .splitter{display:none}
-body.docked #stage{position:relative}
-body.docked #ask-bar{position:relative}
-body.docked #ask-bar .splitter{bottom:-3px}
+body.docked{position:relative}
 /* the whole page's chrome out of the way, so the map is the window */
 body.chrome-off #ask-bar,body.chrome-off #dock-left,body.chrome-off #dock-right,body.chrome-off #dock-bottom{display:none}
 #chrome-toggle{position:absolute;top:8px;left:8px;z-index:1001;width:26px;height:26px;border:1px solid rgba(0,0,0,.18);
@@ -132,10 +134,19 @@ body:not(.docked) #info-panel,body:not(.docked) .legend{resize:both;overflow:aut
 .refresh-msg.err{color:#b91c1c}
 
 /* ── Filters (inside the panel) ─────────────────────────── */
-.opt-grid{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 8px;align-items:center}
+.opt-grid{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 8px;align-items:center;min-width:0}
+/* narrow column: the label goes above its control and takes the full width, so nothing is clipped */
+.opt-grid.narrow{grid-template-columns:minmax(0,1fr)}
+.opt-grid.narrow > .opt-l{text-align:left;white-space:normal;margin-top:4px}
+.opt-grid.narrow .seg-ctrl{flex-wrap:wrap;max-width:100%}
+.opt-grid.narrow .seg-ctrl .seg-btn{flex:1 1 auto}
+#options-panel{min-width:0;overflow-x:hidden}
+#options-panel .seg-ctrl{flex-wrap:wrap;max-width:100%}
+body.docked #dock-left,body.docked #dock-right{overflow-x:hidden}
 .opt-sec{grid-column:1 / -1;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#64748b;margin:9px 0 1px;padding-top:7px;border-top:1px solid #e2e8f0}
 .opt-sec.first{margin-top:2px;padding-top:0;border-top:none}
 .opt-l{font-size:11px;font-weight:600;color:#64748b;text-align:right;white-space:nowrap}
+.sus-count{font-size:11px;color:#64748b;white-space:nowrap}
 .opt-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .seg-ctrl.wrap{flex-wrap:wrap;max-width:420px}
 .info-btn{width:17px;height:17px;border-radius:50%;border:1.5px solid #94a3b8;background:#fff;color:#64748b;font:italic 700 11px Georgia,serif;line-height:1;padding:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
@@ -239,7 +250,7 @@ body.docked #info-panel > .panel-body{max-height:none!important;overflow-y:visib
 #measure-hint.on{display:flex}
 #measure-hint button{border:none;background:rgba(255,255,255,.2);color:#fff;font:inherit;font-size:12px;padding:5px 10px;border-radius:14px;cursor:pointer}
 /* ── Ask the map (v2.00, docked across the top in v2.06) ── */
-#ask-bar{flex:0 0 auto;background:#f1f5f9;border-bottom:1px solid #cbd5e1}
+#ask-bar{flex:0 0 auto;background:#f1f5f9;border-bottom:1px solid #cbd5e1;contain:layout style}
 body.docked #ask-box{
   position:static;width:auto;margin:0;max-width:none;border-radius:0;box-shadow:none;
   background:transparent;backdrop-filter:none;font-size:13px;color:#1e293b;overflow:visible;
@@ -477,7 +488,7 @@ body.docked .ask-msg .rep{display:inline-flex;margin:0 0 0 8px;vertical-align:ba
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.10';
+const APP_VERSION = '2.11';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -840,11 +851,19 @@ function computeDerived() {
   // Compare each gauge with the median of its neighborhood, itself included, so
   // one bad gauge cannot make its good neighbors look wrong. High readings are
   // found first and left out when checking for low ones.
+  const nbCache = new Map();
+  const nearOnce = (s, r) => {
+    const key = s.id + '|' + r;
+    let v = nbCache.get(key);
+    if (v === undefined) { v = near(hash, s, r); nbCache.set(key, v); }
+    return v;
+  };
+  const drop = (list, skip) => (skip && skip.size ? list.filter(o => !skip.has(o)) : list);
   const hood = (s, skip, wide) => {
-    let r = SUS.r1, nb = near(hash, s, SUS.r1).filter(o => !(skip && skip.has(o)));
-    if (nb.length < 2) { r = SUS.r2; nb = near(hash, s, SUS.r2).filter(o => !(skip && skip.has(o))); }
+    let r = SUS.r1, nb = drop(nearOnce(s, SUS.r1), skip);
+    if (nb.length < 2) { r = SUS.r2; nb = drop(nearOnce(s, SUS.r2), skip); }
     // isolated gauges: look out to 25 mi (r3), but only when testing for high readings
-    if (nb.length < 2 && wide) { r = SUS.r3; nb = near(hash, s, SUS.r3).filter(o => !(skip && skip.has(o))); }
+    if (nb.length < 2 && wide) { r = SUS.r3; nb = drop(nearOnce(s, SUS.r3), skip); }
     return nb.length >= 2 ? { med: median([...nb.map(o => o.p), s.p]), n: nb.length, r } : null;
   };
   const M = METRICS[metric], k = M.scale, U = M.unit;
@@ -1651,31 +1670,34 @@ function restoreDockSizes() {
   }
 }
 function addSplitters() {
-  const mk = (hostId, kind, key, get, set, sign = 1) => {
-    const host = document.getElementById(hostId); if (!host || host.querySelector('.splitter.for-' + key)) return;
+  const mk = (key2, kind, key, get, set, sign = 1) => {
+    if (document.querySelector('.splitter.for-' + key)) return;
     const sp = document.createElement('div');
     sp.className = 'splitter for-' + key + ' ' + kind;
-    sp.title = 'Drag to resize, double-click to put back';
-    host.appendChild(sp);
-    let from = 0, base = 0;
-    const move = e => { const p = e.touches ? e.touches[0] : e; set(base + sign * (kind === 'v' ? p.clientX - from : p.clientY - from)); };
-    const up = () => { sp.classList.remove('dragging'); document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+    sp.title = 'Click to hide this margin, drag to resize';
+    document.body.appendChild(sp);
+    let from = 0, base = 0, moved = 0;
+    const move = e => { const p = e.touches ? e.touches[0] : e; const d = (kind === 'v' ? p.clientX - from : p.clientY - from);
+      if (Math.abs(d) > moved) moved = Math.abs(d); set(base + sign * d); };
+    const up = () => { sp.classList.remove('dragging');
+      if (moved < 4) toggleMargin(key);   // a click, not a drag: the whole margin goes away and comes back
+      document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
       document.removeEventListener('touchmove', move); document.removeEventListener('touchend', up); };
-    const down = e => { const p = e.touches ? e.touches[0] : e; from = kind === 'v' ? p.clientX : p.clientY; base = get();
+    const down = e => { const p = e.touches ? e.touches[0] : e; from = kind === 'v' ? p.clientX : p.clientY; base = get(); moved = 0;
       sp.classList.add('dragging'); e.preventDefault();
       document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
       document.addEventListener('touchmove', move, { passive: false }); document.addEventListener('touchend', up); };
     sp.addEventListener('mousedown', down);
     sp.addEventListener('touchstart', down, { passive: false });
-    sp.addEventListener('dblclick', () => set(DOCK_DEF[key]));
+
   };
-  mk('stage', 'v', 'left', () => document.getElementById('dock-left').offsetWidth,
+  mk('left', 'v', 'left', () => document.getElementById('dock-left').offsetWidth,
      px => { dockSize('left', Math.max(0, Math.min(640, px))); placeSplitters(); });
   // the right dock's edge is on its left, so dragging left makes it wider: the sign flips
-  mk('stage', 'v', 'right', () => document.getElementById('dock-right').offsetWidth,
+  mk('right', 'v', 'right', () => document.getElementById('dock-right').offsetWidth,
      px => { dockSize('right', Math.max(0, Math.min(520, px))); placeSplitters(); }, -1);
-  mk('ask-bar', 'h', 'ask', () => document.getElementById('ask-log').getBoundingClientRect().height,
-     px => dockSize('ask', Math.max(0, Math.min(window.innerHeight * 0.6, px))));
+  mk('ask', 'h', 'ask', () => document.getElementById('ask-log').getBoundingClientRect().height,
+     px => { dockSize('ask', Math.max(0, Math.min(window.innerHeight * 0.6, px))); placeSplitters(); });
   const chrome = document.createElement('button');
   chrome.id = 'chrome-toggle'; chrome.type = 'button';
   chrome.title = 'Hide everything but the map';
@@ -1691,15 +1713,52 @@ function addSplitters() {
   let off = false; try { off = !!localStorage.getItem('cpmChromeOff'); } catch (e) {}
   if (off) { document.body.classList.add('chrome-off'); chrome.title = 'Bring the panels back'; }
   restoreDockSizes();
+  for (const k of ['left', 'right', 'ask']) {
+    let v = null; try { v = localStorage.getItem('cpmOff' + k); } catch (e) {}
+    if (v) { marginOff[k] = true; const el = marginEl(k); if (el) el.classList.add('gone'); }
+  }
   placeSplitters();
   new ResizeObserver(() => placeSplitters()).observe(document.getElementById('stage'));
+  // the settings grid drops its label column when the margin is too narrow for two
+  const op = document.getElementById('options-panel'), dl = document.getElementById('dock-left');
+  const fitOpts = () => { if (!op) return; const w = (docked && dl ? dl.clientWidth : op.clientWidth) - 20;
+    op.classList.toggle('narrow', w > 0 && w < 272); };
+  if (dl) new ResizeObserver(fitOpts).observe(dl);
+  if (op) new ResizeObserver(fitOpts).observe(op);
+  fitOpts();
 }
-// the two stage splitters ride on the inner edge of each column
+// Each strip rides the inner edge of its margin, and stays put when that margin is gone, so one
+// click brings it back. A hidden margin keeps its size, ready for the next click.
+const marginWas = {}, marginOff = {};
+function marginEl(key) { return document.getElementById(key === 'ask' ? 'ask-bar' : 'dock-' + key); }
+function toggleMargin(key) {
+  const el = marginEl(key); if (!el) return;
+  if (!marginOff[key]) {
+    marginWas[key] = key === 'ask' ? document.getElementById('ask-log').getBoundingClientRect().height
+                                   : document.getElementById('dock-' + key).offsetWidth;
+    marginOff[key] = true; el.classList.add('gone');
+  } else {
+    marginOff[key] = false; el.classList.remove('gone');
+    dockSize(key, marginWas[key] || DOCK_DEF[key]);
+  }
+  try { marginOff[key] ? localStorage.setItem('cpmOff' + key, '1') : localStorage.removeItem('cpmOff' + key); } catch (e) {}
+  if (leafletMap) setTimeout(() => leafletMap.invalidateSize(), 40);
+  placeSplitters();
+}
 function placeSplitters() {
-  const l = document.getElementById('dock-left'), r = document.getElementById('dock-right');
-  const sl = document.querySelector('#stage .splitter.for-left'), sr = document.querySelector('#stage .splitter.for-right');
-  if (sl && l) sl.style.left = Math.max(0, l.offsetWidth - 3) + 'px';
-  if (sr && r) sr.style.right = Math.max(0, r.offsetWidth - 3) + 'px';
+  const st = document.getElementById('stage'); if (!st) return;
+  const sr0 = st.getBoundingClientRect();
+  const l = document.getElementById('dock-left'), r = document.getElementById('dock-right'), ab = document.getElementById('ask-bar');
+  const put = (key, css) => { const sp = document.querySelector('.splitter.for-' + key); if (!sp) return sp;
+    Object.assign(sp.style, css); return sp; };
+  const lw = l ? l.offsetWidth : 0, rw = r ? r.offsetWidth : 0, ah = ab ? ab.offsetHeight : 0;
+  const sl = put('left', { left: Math.max(0, lw - 4) + 'px', top: sr0.top + 'px', height: sr0.height + 'px', right: 'auto', bottom: 'auto', width: '9px' });
+  const sr = put('right', { right: Math.max(0, rw - 4) + 'px', top: sr0.top + 'px', height: sr0.height + 'px', left: 'auto', bottom: 'auto', width: '9px' });
+  const sa = put('ask', { top: Math.max(0, ah - 4) + 'px', left: '0px', right: '0px', height: '9px', bottom: 'auto', width: 'auto' });
+  const mark = (sp, key, glyph) => { if (!sp) return; const gone = !!marginOff[key];
+    sp.classList.toggle('off', gone); sp.textContent = gone ? glyph : '\u22EE';
+    sp.title = gone ? 'Click to bring this margin back' : 'Click to hide this margin, drag to resize'; };
+  mark(sl, 'left', '\u203A'); mark(sr, 'right', '\u2039'); mark(sa, 'ask', '\u2304');
 }
 
 // A PNG of the map as it stands (v2.09). The tile servers all send CORS headers and the layers ask
@@ -1895,14 +1954,16 @@ function addAskBox() {
   setBig(wasBig);
   el.querySelector('#ask-text').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); askSend(); } });
   if (!docked) dragBox(el, [el.querySelector('#ask-head')], '');
-  new ResizeObserver(() => askLayout()).observe(el);
+  // coalesce into one frame: with thousands of pins on the page, a measure per keystroke is felt
+  let askRaf = 0;
+  new ResizeObserver(() => { if (askRaf) return; askRaf = requestAnimationFrame(() => { askRaf = 0; askLayout(); }); }).observe(el);
   askLayout();
 }
 // both live at bottom left: keep the selection panel clear of the ask box
 function askLayout() {
+  if (docked) return;        // docked, nothing overlaps and nothing needs measuring
   const sp = document.getElementById('sel-panel');
   if (!sp || !askEl) return;
-  if (docked) { sp.style.bottom = ''; return; }   // nothing overlaps once the strip is docked
   if (!IS_PHONE || boxOffsets.get(sp) || boxOffsets.get(askEl)) { sp.style.bottom = ''; return; }
   const h = askEl.getBoundingClientRect().height || 0;
   sp.style.bottom = Math.round(8 + h + 8) + 'px';
@@ -2769,7 +2830,6 @@ function addInfoPanel() {
         <div class="asof" id="asof"></div>
         <div class="stat"><span>Gauges shown</span><span class="val" id="st-n"></span></div>
         <div class="stat"><span>Range</span><span class="val" id="st-rng"></span></div>
-        <div class="stat"><span>Errors flagged</span><span class="val" id="st-sus"></span></div>
         <div class="refresh-row"><button class="panel-btn small" id="refresh-btn" title="Back to the opening view and default settings, with fresh live data">↺ Reset to default</button><button class="info-btn" id="status-btn" type="button" aria-expanded="false" aria-controls="refresh-msg" title="About the data shown">i</button></div>
         <div class="refresh-msg" id="refresh-msg">Loading…</div>
       </div>`;
@@ -2800,7 +2860,8 @@ function updateStats() {
   const U = METRICS[metric].unit;
   document.getElementById('info-title').textContent = metric === 'day' ? 'Rain Today' : metric === 'hist' && hist ? `Rain: ${play ? play.label : hist.label}` : `Rain: ${METRICS[metric].label}`;
   document.getElementById('st-rng').textContent = good.length ? `${fmtV(Math.min(...good))} – ${fmtV(Math.max(...good))} ${U}` : '—';
-  document.getElementById('st-sus').textContent = `${inRadius.filter(s => s.suspect).length}${suspectFilter === 'exclude' ? ' (hidden)' : ''}`;
+  { const n = inRadius.filter(s => s.suspect).length, e = document.getElementById('st-sus');
+    if (e) e.textContent = `${n} flagged${suspectFilter === 'exclude' ? ', hidden' : ''}`; }
 }
 
 // ── Filter bar ───────────────────────────────────────────────────────────────
@@ -2866,6 +2927,7 @@ function addFilterBar() {
             <button class="seg-btn" data-sus="include">Include</button>
             <button class="seg-btn" data-sus="only">Only</button>
           </div>
+          <span class="sus-count" id="st-sus"></span>
           <button class="info-btn gear" id="sus-set-btn" type="button" aria-expanded="false" aria-controls="sus-set" title="Error filter settings">⚙</button>
           <button class="info-btn" id="sus-info-btn" type="button" aria-expanded="false" aria-controls="sus-info" title="How readings are flagged">i</button>
         </div>

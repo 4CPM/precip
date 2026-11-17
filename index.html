@@ -197,6 +197,38 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 }
 #measure-hint.on{display:flex}
 #measure-hint button{border:none;background:rgba(255,255,255,.2);color:#fff;font:inherit;font-size:12px;padding:5px 10px;border-radius:14px;cursor:pointer}
+/* ── Ask the map (v2.00) ────────────────────────────────── */
+#ask-box{
+  position:absolute;top:12px;left:50%;margin-left:-168px;z-index:1000;width:336px;max-width:calc(100vw - 24px);
+  background:rgba(255,255,255,.96);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.18);
+  backdrop-filter:blur(8px);font-size:13px;color:#1e293b;overflow:hidden;
+}
+#ask-box.closed .ask-body{display:none}
+#ask-head{display:flex;align-items:center;gap:8px;width:100%;border:none;background:transparent;padding:9px 12px;cursor:pointer;font:inherit;color:inherit;text-align:left}
+#ask-head .ask-t{flex:1;font-weight:700;font-size:13px;letter-spacing:.02em}
+#ask-head .ask-dot{width:7px;height:7px;border-radius:50%;background:#0e7490;flex-shrink:0}
+#ask-head .chev{font-size:12px;color:#64748b;transition:transform .2s}
+#ask-box.closed #ask-head .chev{transform:rotate(-90deg)}
+.ask-body{padding:0 12px 11px}
+#ask-log{max-height:240px;overflow-y:auto;margin-bottom:8px;display:flex;flex-direction:column;gap:7px}
+#ask-log:empty{display:none}
+.ask-msg{font-size:12px;line-height:1.45;border-radius:8px;padding:5px 9px;max-width:100%;overflow-wrap:break-word}
+.ask-msg.you{background:#e2e8f0;color:#0f172a;align-self:flex-end}
+.ask-msg.map{background:#ecfeff;color:#0f172a;border:1px solid #a5f3fc}
+.ask-msg.err{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
+.ask-msg .did{display:block;margin-top:3px;color:#475569;font-size:11px}
+.ask-row{display:flex;gap:6px;align-items:center}
+#ask-text{flex:1;min-width:0;font:inherit;font-size:13px;padding:6px 9px;border:1px solid rgba(0,0,0,.18);border-radius:7px;background:#fff;color:#1e293b}
+#ask-text:disabled{background:#f1f5f9;color:#94a3b8}
+#ask-send{border:none;background:#0e7490;color:#fff;font:inherit;font-size:12px;font-weight:700;border-radius:7px;padding:7px 12px;cursor:pointer}
+#ask-send:disabled{background:#94a3b8;cursor:default}
+.ask-foot{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:11px;color:#64748b}
+.ask-foot button{border:none;background:transparent;color:#0e7490;font:inherit;font-size:11px;cursor:pointer;padding:0;text-decoration:underline}
+@media (max-width:700px){
+  #ask-box{left:8px;right:8px;width:auto;margin-left:0;top:auto;bottom:calc(30px + env(safe-area-inset-bottom,0px))}
+  #ask-log{max-height:170px}
+  #ask-text{font-size:16px}   /* iOS zooms the page in on a smaller field */
+}
 /* ── Movable boxes (v1.74) ──────────────────────────────── */
 .drag-handle{cursor:move;touch-action:none}
 .drag-handle:active{cursor:grabbing}
@@ -362,7 +394,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '1.87';
+const APP_VERSION = '2.00';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -894,6 +926,7 @@ function initMap() {
   hint.textContent = 'Zoomed out: showing up to 100 personal stations per 70-mile square. Zoom in to load every station.';
   leafletMap.getContainer().appendChild(hint);
   addPlayBar();
+  addAskBox();
   enableDragging();
   let t;
   leafletMap.on('moveend', () => { clearTimeout(t); t = setTimeout(() => ensureCells(false).then(() => { if (hist) ensureHist(); }), 350); });
@@ -1155,6 +1188,323 @@ function measureDraw() {
   });
 }
 
+// ── Ask the map (v2.00) ───────────────────────────────────────────────────────
+// A chat box that works the map's own controls and answers from figures this page
+// computes. Three rules hold it to the truth:
+//   1. It never invents a place. It passes a name through as typed; aiPickBoundary
+//      looks the name up in boundaries/names.json and asks the USGS service for that
+//      polygon, so every boundary on the map came from the real data.
+//   2. It never does arithmetic. Every number it reads back comes from aiFigures(),
+//      which measures the gauges actually on screen — flagged gauges and anything
+//      tagged as an error already left out, the same as the panel's own figures.
+//   3. It only moves controls that exist. aiApply validates every field against the
+//      same ranges the panel enforces and reports whatever it would not do.
+// The API key is not here: the page talks to a relay (a Cloudflare Worker) that holds
+// the key, rate-limits by visitor, and carries the instructions the assistant follows.
+const AI_URL = 'https://4cpm-ask.mt-e8f.workers.dev';   // the relay that holds the key
+const AI_MAX_TURNS = 8;     // exchanges kept for context
+let askOpen = false, askBusy = false, askLog = [], askEl = null, aiNamesP = null;
+
+function aiNames() {   // the name index: [name, kind, level, id, w, s, e, n]
+  if (!aiNamesP) aiNamesP = fetch(BND_BASE + 'names.json').then(r => r.ok ? r.json() : null).catch(() => null);
+  return aiNamesP;
+}
+const aiNorm = t => String(t || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ')
+  .replace(/\b(watershed|basin|sub ?basin|drainage|creek|river|wash|canyon|county|co|the)\b/g, ' ')
+  .replace(/\s+/g, ' ').trim();
+// the best match for a name: exact first, then normalized, then a contained phrase;
+// ties go to the larger unit (the lower HUC level), which is what people mean by a name
+function aiMatchName(rows, want, kindWant) {
+  const w = String(want || '').trim().toLowerCase(), wn = aiNorm(want);
+  if (!w) return null;
+  const ok = r => !kindWant || r[1] === kindWant;
+  const rank = r => (r[1] === 'state' ? 0 : r[1] === 'county' ? 1 : 2) * 100 + (r[2] || 0);
+  const pick = list => list.sort((a, b) => rank(a) - rank(b))[0] || null;
+  let hit = pick(rows.filter(r => ok(r) && r[0].toLowerCase() === w));
+  if (!hit) hit = pick(rows.filter(r => ok(r) && aiNorm(r[0]) === wn));
+  if (!hit && wn) hit = pick(rows.filter(r => ok(r) && aiNorm(r[0]).split(' ').includes(wn)));
+  if (!hit && wn) hit = pick(rows.filter(r => ok(r) && aiNorm(r[0]).includes(wn)));
+  return hit;
+}
+// one boundary's real polygon, from the service the map already uses
+async function aiGeom(kind, level, id) {
+  const def = BND[kind], field = typeof def.idField === 'function' ? def.idField(level) : def.idField;
+  const p = new URLSearchParams({ where: `${field}='${id}'`, outFields: def.fields(level), returnGeometry: 'true',
+    outSR: '4326', geometryPrecision: '5', maxAllowableOffset: '0.0003', f: 'geojson' });
+  const r = await fetch(def.url(level) + '?' + p);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const j = await r.json(), f = j.features && j.features[0];
+  if (!f || !f.geometry) throw new Error('no geometry');
+  return f;
+}
+// pick a boundary by name, the way a click on the map would
+async function aiPickBoundary(name, kindWant) {
+  const rows = (await aiNames() || {}).rows;
+  if (!rows) return { error: 'the name index could not be loaded' };
+  const hit = aiMatchName(rows, name, kindWant);
+  if (!hit) return { error: `no watershed, county or state here is named “${name}”` };
+  const [nm, kind, level, id] = hit;
+  if (bndSel.some(b => b.id === id)) return { name: nm, already: true };
+  let f;
+  try { f = await aiGeom(kind, level, id); } catch (e) { return { error: `“${nm}” could not be loaded from the boundary service` }; }
+  const full = kind === 'huc' ? nm : kind === 'county' ? (f.properties.BASENAME || f.properties.NAME) + ' County' : f.properties.NAME;
+  bndSel.push({ kind, id, name: full, sub: kind === 'huc' ? `HUC${level}` : '', level, geom: f.geometry, bbox: geomBbox(f.geometry), fine: true });
+  bndSelChanged();
+  return { name: full, bbox: hit.slice(4) };
+}
+
+// what the map is set to now
+function aiState() {
+  const c = leafletMap.getCenter(), b = leafletMap.getBounds();
+  const per = hist
+    ? { kind: hist.mode === 'h' ? 'hours' : 'days', label: hist.label,
+        from: hist.mode === 'h' ? new Date(hist.start).toISOString() : hist.from,
+        to: hist.mode === 'h' ? new Date(hist.end).toISOString() : hist.to,
+        event: hist.preset && hist.preset.startsWith('ev:') ? hist.preset.slice(3) : null }
+    : { kind: 'live', metric, label: METRICS[metric].label };
+  return {
+    today: todayDenver(),
+    period: per,
+    events: EVENTS.map(e => ({ id: e.id, label: e.label })),
+    gauges: { sources: srcFilter, flagged: suspectFilter, radiusMi: radius,
+              pins: pinsHidden ? 'hidden' : pinStyle, clustered: clusteringEnabled },
+    contours: { mode: contourMode, method: conMethod, reachMi: conAuto ? 'auto' : conReachMi },
+    legend: { steps: legendSteps, top: legendTop, locked: !!legendLock, stormScale: eventLock,
+              brackets: BREAKS.map(v => +v.toFixed(2)) },
+    boundaries: { state: bndOn.state, county: bndOn.county, watersheds: bndOn.huc,
+                  hucLevel: bndOn.huc ? hucLevel() : null,
+                  selected: bndSel.map(x => x.name), isolate: bndIso },
+    view: { center: [+c.lat.toFixed(3), +c.lng.toFixed(3)], zoom: +leafletMap.getZoom().toFixed(1),
+            box: [+b.getWest().toFixed(2), +b.getSouth().toFixed(2), +b.getEast().toFixed(2), +b.getNorth().toFixed(2)] },
+    archiveNote: (document.getElementById('arch-note') || {}).textContent || '',
+  };
+}
+
+// the figures for the gauges on screen. The page measures; the assistant only reads these back.
+function aiFigures() {
+  const vis = stations.filter(s => visible(s));
+  const vals = vis.map(s => s.p).filter(v => v != null).sort((a, b) => a - b);
+  const U = METRICS[metric].unit;
+  const top = vis.filter(s => s.p != null).sort((a, b) => b.p - a.p).slice(0, 8)
+    .map(s => ({ name: s.name, area: s.area || '', net: s.src === 'A' ? 'personal' : s.src === 'S' ? 'SNOTEL' : (s.net || 'official'), value: +s.p.toFixed(2) }));
+  const inRadius = stations.filter(s => s.dist <= radius);
+  return {
+    unit: U,
+    period: hist ? hist.label : METRICS[metric].label,
+    gaugesShown: vis.length,
+    excludedAsErrors: suspectFilter === 'exclude' ? inRadius.filter(s => s.suspect).length : 0,
+    median: vals.length ? +median(vals).toFixed(2) : null,
+    mean: vals.length ? +(vals.reduce((a, v) => a + v, 0) / vals.length).toFixed(2) : null,
+    highest: vals.length ? +vals[vals.length - 1].toFixed(2) : null,
+    lowest: vals.length ? +vals[0].toFixed(2) : null,
+    zeroCount: vals.filter(v => v === 0).length,
+    topGauges: top,
+    isolatedTo: bndIso && bndSel.length ? bndSel.map(b => b.name) : null,
+  };
+}
+
+// settings the assistant asked for, applied through the same controls a person uses
+async function aiApply(set) {
+  const did = [], skipped = [];
+  if (!set || typeof set !== 'object') return { did, skipped };
+  const click = sel => { const b = document.querySelector(sel); if (b) { b.click(); return true; } return false; };
+  const num = (v, lo, hi) => { const x = +v; return Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : null; };
+  const isDay = d => /^\d{4}-\d\d-\d\d$/.test(String(d || ''));
+
+  const p = set.period;
+  if (p && typeof p === 'object') {
+    if (p.kind === 'event' && EVENTS.some(e => e.id === p.id)) { showEvent(p.id); did.push(EVENTS.find(e => e.id === p.id).label); }
+    else if (p.kind === 'hours' && num(p.n, 1, 24 * 400)) { const n = Math.round(num(p.n, 1, 24 * 400)); showHours(n); did.push(`last ${n} hours`); }
+    else if (p.kind === 'days' && num(p.n, 1, HIST_MAX_DAYS - 1)) { const n = Math.round(num(p.n, 1, HIST_MAX_DAYS - 1)); showDays(n); did.push(n === 1 ? 'last 24 hours' : `last ${n} days`); }
+    else if (p.kind === 'range' && isDay(p.from) && isDay(p.to)) {
+      let from = p.from, to = p.to; if (from > to) { const t = from; from = to; to = t; }
+      if (p.fromHour != null || p.toHour != null) {
+        let a = localHourMs(TZ, from, Math.max(0, Math.min(23, +p.fromHour || 0)));
+        let z = localHourMs(TZ, to, Math.max(0, Math.min(23, p.toHour == null ? 23 : +p.toHour)));
+        if (a < hrFirstMs()) a = hrFirstMs();
+        if (z > Date.now()) z = Date.now();
+        if (z - a >= 3600e3) { setHourHist(a, z); did.push('that period, hour by hour'); } else skipped.push('that period is shorter than an hour');
+      } else { setHist(from, to); did.push(from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`); }
+    }
+    else if (p.kind === 'live') { exitHist(p.metric === 'day' ? 'day' : 'year'); did.push(p.metric === 'day' ? 'rain today' : 'this year'); }
+    else skipped.push('that period');
+  }
+
+  const g = set.gauges;
+  if (g && typeof g === 'object') {
+    if (['all', 'A', 'O', 'S'].includes(g.sources) && g.sources !== srcFilter) { click(`[data-src="${g.sources}"]`); did.push('gauges: ' + ({ all: 'all', A: 'personal only', O: 'NWS and RAWS only', S: 'SNOTEL only' })[g.sources]); }
+    if (['exclude', 'include', 'only'].includes(g.flagged) && g.flagged !== suspectFilter) { click(`[data-sus="${g.flagged}"]`); did.push('flagged gauges: ' + g.flagged); }
+    if ([50, 100, 250, 500].includes(+g.radiusMi) && +g.radiusMi !== radius) { click(`[data-rad="${+g.radiusMi}"]`); did.push(`radius ${+g.radiusMi} mi`); }
+    else if (g.radiusMi != null && ![50, 100, 250, 500].includes(+g.radiusMi)) skipped.push('the radius is 50, 100, 250 or 500 mi');
+    if (typeof g.hidePins === 'boolean' && g.hidePins !== pinsHidden) { click('#hide-btn'); did.push(g.hidePins ? 'pins hidden' : 'pins shown'); }
+    if (typeof g.clustered === 'boolean' && g.clustered !== clusteringEnabled) { click('#cluster-btn'); did.push(g.clustered ? 'pins grouped' : 'every pin shown'); }
+  }
+
+  const c = set.contours;
+  if (c && typeof c === 'object') {
+    if (['off', 'lines', 'filled', 'surface'].includes(c.mode) && c.mode !== contourMode) { click(`[data-con="${c.mode}"]`); did.push('contours: ' + c.mode); }
+    if (['idw', 'smooth', 'krige', 'elev'].includes(c.method) && c.method !== conMethod) { click(`[data-cm="${c.method}"]`); did.push('contour method: ' + c.method); }
+    if (c.reachMi === 'auto') { if (!conAuto) { click('#con-auto-btn'); did.push('contour reach: auto'); } }
+    else if (c.reachMi != null) {
+      const r = num(c.reachMi, REACH_MIN, REACH_MAX);
+      if (r) { if (conAuto) click('#con-auto-btn'); const i = document.getElementById('con-reach'); if (i) { i.value = r; i.dispatchEvent(new Event('change', { bubbles: true })); did.push(`contour reach ${r} mi`); } }
+    }
+  }
+
+  const l = set.legend;
+  if (l && typeof l === 'object') {
+    let touched = false;
+    const n = num(l.steps, LEG_MIN, LEG_MAX);
+    if (n && Math.round(n) !== legendSteps && !legendLock) { legendSteps = Math.round(n); touched = true; did.push(`${legendSteps} legend steps`); }
+    if ('top' in l && !legendLock) {
+      const t = l.top == null ? null : num(l.top, 0.1, 100);
+      if (t !== legendTop) { legendTop = t; touched = true; did.push(t == null ? 'legend fitted to the readings' : `legend top ${fmtV(t)} ${METRICS[metric].unit}`); }
+    }
+    if (typeof l.locked === 'boolean' && l.locked !== !!legendLock) { legendLock = l.locked ? BREAKS.slice() : null; eventLock = false; touched = true; did.push(l.locked ? 'legend locked' : 'legend unlocked'); }
+    if (touched) { legendSig = ''; if (play) play.breaks = playBreaks(); render(); }
+  }
+
+  const b = set.boundaries;
+  if (b && typeof b === 'object') {
+    for (const [key, id, word] of [['state', '#bnd-state-btn', 'state lines'], ['county', '#bnd-county-btn', 'county lines'], ['watersheds', '#bnd-huc-btn', 'watersheds']]) {
+      const k = key === 'watersheds' ? 'huc' : key;
+      if (typeof b[key] === 'boolean' && b[key] !== bndOn[k]) { click(id); did.push(b[key] ? word + ' on' : word + ' off'); }
+    }
+    if (b.clearSelection) { clearBndSel(); did.push('selection cleared'); }
+    const want = Array.isArray(b.select) ? b.select.slice(0, 4) : [];
+    for (const nm of want) {
+      const r = await aiPickBoundary(typeof nm === 'string' ? nm : nm && nm.name, typeof nm === 'object' && nm ? nm.kind : null);
+      if (r.error) skipped.push(r.error); else if (!r.already) did.push('picked ' + r.name);
+    }
+    if (typeof b.isolate === 'boolean' && b.isolate !== bndIso) {
+      if (b.isolate && !bndSel.length) skipped.push('nothing is picked to isolate');
+      else { setBndIso(b.isolate); did.push(b.isolate ? 'isolated to the picked boundaries' : 'isolation off'); }
+    }
+  }
+
+  const v = set.view;
+  if (v && typeof v === 'object') {
+    if (v.fit === 'selection' && bndSel.length) {
+      let bx = bndSel[0].bbox.slice();
+      for (const x of bndSel) bx = [Math.min(bx[0], x.bbox[0]), Math.min(bx[1], x.bbox[1]), Math.max(bx[2], x.bbox[2]), Math.max(bx[3], x.bbox[3])];
+      leafletMap.fitBounds([[bx[1], bx[0]], [bx[3], bx[2]]], { padding: [30, 30] }); did.push('zoomed to the selection');
+    } else if (v.fit === 'radius') { fitRadius(); did.push('zoomed to the radius'); }
+    else if (Array.isArray(v.center) && Number.isFinite(+v.center[0]) && Number.isFinite(+v.center[1])) {
+      leafletMap.setView([+v.center[0], +v.center[1]], num(v.zoom, 3, 16) || leafletMap.getZoom()); did.push('moved the map');
+    }
+  }
+  return { did, skipped };
+}
+
+// wait for a change to finish loading before reading the figures back
+function aiSettled(ms = 20000) {
+  const t0 = Date.now();
+  return new Promise(resolve => {
+    const tick = () => {
+      const msg = (document.getElementById('refresh-msg') || {}).textContent || '';
+      const busy = /Loading…/.test(msg) || (metric === 'hist' && hist && hist.arch === undefined);
+      if (!busy || Date.now() - t0 > ms) return resolve(!busy);
+      setTimeout(tick, 400);
+    };
+    setTimeout(tick, 350);
+  });
+}
+
+// the box itself
+function addAskBox() {
+  const el = document.createElement('div');
+  el.id = 'ask-box'; el.className = 'closed';
+  el.innerHTML = `
+    <button id="ask-head" type="button" aria-expanded="false"><span class="ask-dot"></span><span class="ask-t">Ask the map</span><span class="chev">▾</span></button>
+    <div class="ask-body">
+      <div id="ask-log" aria-live="polite"></div>
+      <div class="ask-row">
+        <input id="ask-text" type="text" autocomplete="off" placeholder="Show me the McElmo watershed last week" aria-label="Ask the map">
+        <button id="ask-send" type="button">Ask</button>
+      </div>
+      <div class="ask-foot"><span id="ask-hint">It sets the map and reads back what the gauges show.</span><button id="ask-new" type="button">New topic</button></div>
+    </div>`;
+  leafletMap.getContainer().appendChild(el);
+  askEl = el;
+  L.DomEvent.disableClickPropagation(el);
+  L.DomEvent.disableScrollPropagation(el);
+  el.querySelector('#ask-head').addEventListener('click', () => askToggle());
+  el.querySelector('#ask-send').addEventListener('click', () => askSend());
+  el.querySelector('#ask-new').addEventListener('click', () => { askLog = []; askDraw(); el.querySelector('#ask-text').focus(); });
+  el.querySelector('#ask-text').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); askSend(); } });
+  dragBox(el, [el.querySelector('#ask-head')], '');
+  new ResizeObserver(() => askLayout()).observe(el);
+  askLayout();
+}
+// both live at bottom left: keep the selection panel clear of the ask box
+function askLayout() {
+  const sp = document.getElementById('sel-panel');
+  if (!sp || !askEl) return;
+  if (!IS_PHONE || boxOffsets.get(sp) || boxOffsets.get(askEl)) { sp.style.bottom = ''; return; }
+  const h = askEl.getBoundingClientRect().height || 0;
+  sp.style.bottom = Math.round(8 + h + 8) + 'px';
+}
+function askToggle(open) {
+  askOpen = open == null ? !askOpen : open;
+  askEl.classList.toggle('closed', !askOpen);
+  askEl.querySelector('#ask-head').setAttribute('aria-expanded', String(askOpen));
+  if (askOpen) setTimeout(() => askEl.querySelector('#ask-text').focus(), 60);
+  askLayout();
+}
+function askDraw() {
+  const log = askEl.querySelector('#ask-log');
+  log.innerHTML = '';
+  for (const m of askLog) {
+    const d = document.createElement('div');
+    d.className = 'ask-msg ' + (m.role === 'user' ? 'you' : m.err ? 'err' : 'map');
+    d.textContent = m.text;
+    if (m.did && m.did.length) { const sp = document.createElement('span'); sp.className = 'did'; sp.textContent = m.did.join(' · '); d.appendChild(sp); }
+    log.appendChild(d);
+  }
+  log.scrollTop = log.scrollHeight;
+  askLayout();
+}
+function askSay(text, extra) { askLog.push({ role: 'map', text, ...(extra || {}) }); askDraw(); }
+function askBusyUi(on) {
+  askBusy = on;
+  askEl.querySelector('#ask-send').disabled = on;
+  askEl.querySelector('#ask-text').disabled = on;
+  askEl.querySelector('#ask-send').textContent = on ? '…' : 'Ask';
+}
+async function askSend() {
+  if (askBusy) return;
+  const box = askEl.querySelector('#ask-text'), text = box.value.trim();
+  if (!text) return;
+  if (!AI_URL) { askLog.push({ role: 'user', text }); askSay('The assistant is not connected yet.', { err: true }); box.value = ''; return; }
+  askLog.push({ role: 'user', text }); box.value = ''; askDraw(); askBusyUi(true);
+  try {
+    const first = await aiAsk(text, 'act');
+    const res = first.set ? await aiApply(first.set) : { did: [], skipped: [] };
+    const notes = [...res.did, ...res.skipped.map(x => 'not done: ' + x)];
+    if (first.then === 'answer') {
+      await aiSettled();
+      const second = await aiAsk(text, 'answer', res.did);
+      askSay(second.reply || first.reply || 'Done.', { did: notes });
+    } else {
+      askSay(first.reply || 'Done.', { did: notes });
+    }
+  } catch (e) {
+    const m = String(e && e.message || e);
+    askSay(/abort/i.test(m) ? 'That took too long — try again.' : /429/.test(m) ? 'Too many questions for now; give it a few minutes.' : 'The assistant could not be reached (' + m + ').', { err: true });
+  } finally { askBusyUi(false); askEl.querySelector('#ask-text').focus(); }
+}
+
+async function aiAsk(text, phase, didSoFar) {
+  const body = { v: 2, text, phase: phase || 'act', history: askLog.slice(-AI_MAX_TURNS * 2),
+                 state: aiState(), figures: aiFigures(), applied: didSoFar || null };
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 45000);
+  try {
+    const r = await fetch(AI_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: ctl.signal });
+    const j = await r.json().catch(() => null);
+    if (!r.ok) throw new Error((j && j.error) || ('HTTP ' + r.status));
+    return j || {};
+  } finally { clearTimeout(timer); }
+}
 // ── Movable boxes (v1.74) ─────────────────────────────────────────────────────
 // The info panel, legend, play bar and selection panel can be dragged by their heads when they get in each
 // other's way. The box keeps its own anchor (corner, bottom center) and is offset from it, so the layout

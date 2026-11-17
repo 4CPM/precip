@@ -16,6 +16,25 @@
 html,body{height:100%}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f8fafc;color:#1e293b}
 #map{width:100%;height:100vh;height:100dvh}
+/* Docked layout (v2.06): the ask strip, the panel, the legend and the play bar sit in the page
+   around the map instead of floating on top of it, so the map is never covered. Below 900px there
+   is no room for columns, so everything goes back to floating over the map as before. */
+body.docked{display:flex;flex-direction:column;height:100dvh;overflow:hidden}
+body.docked #stage{flex:1 1 auto;display:flex;min-height:0}
+body.docked #map{flex:1 1 auto;height:auto;min-width:0}
+body.docked #dock-left,body.docked #dock-right{flex:0 0 auto;overflow-y:auto;background:#fff;z-index:2}
+body.docked #dock-left{width:332px;border-right:1px solid #e2e8f0;padding:10px}
+body.docked #dock-right{width:188px;border-left:1px solid #e2e8f0;padding:10px}
+body.docked #dock-bottom{flex:0 0 auto;background:#fff;border-top:1px solid #e2e8f0}
+body.docked #dock-bottom:empty{display:none}
+body:not(.docked) #stage{display:contents}
+body:not(.docked) #dock-left,body:not(.docked) #dock-right,body:not(.docked) #dock-bottom,body:not(.docked) #ask-bar{display:none}
+/* the panels, once docked, are plain blocks: no shadow, no float, full column width */
+body.docked #dock-left .info-panel,body.docked #dock-right .legend,body.docked #dock-left #sel-panel{
+  position:static;transform:none!important;box-shadow:none;max-width:none;width:auto;margin:0 0 10px;backdrop-filter:none;background:transparent}
+body.docked #dock-bottom #play-bar{position:static;transform:none!important;display:none;box-shadow:none;background:transparent;width:auto;max-width:none;margin:0;padding:8px 12px}
+body.docked #dock-bottom #play-bar.on{display:block}
+body.docked .info-panel .drag-handle,body.docked .legend .drag-handle{cursor:default}
 
 /* ── Pins ─────────────────────────────────────────────── */
 .pin{
@@ -197,7 +216,31 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 }
 #measure-hint.on{display:flex}
 #measure-hint button{border:none;background:rgba(255,255,255,.2);color:#fff;font:inherit;font-size:12px;padding:5px 10px;border-radius:14px;cursor:pointer}
-/* ── Ask the map (v2.00) ────────────────────────────────── */
+/* ── Ask the map (v2.00, docked across the top in v2.06) ── */
+#ask-bar{flex:0 0 auto;background:#f1f5f9;border-bottom:1px solid #cbd5e1}
+body.docked #ask-box{
+  position:static;width:auto;margin:0;max-width:none;border-radius:0;box-shadow:none;
+  background:transparent;backdrop-filter:none;font-size:13px;color:#1e293b;overflow:visible;
+}
+body.docked #ask-box .ask-body{padding:5px 14px 7px}
+body.docked #ask-box.closed .ask-body{display:block}   /* docked, the line is always there */
+body.docked #ask-head{display:none}
+body.docked .ask-bottom{display:flex;align-items:center;gap:14px}
+body.docked .ask-row{flex:1 1 auto;min-width:0}
+body.docked .ask-foot{flex:0 0 auto;margin-top:0}
+body.docked #ask-hint{display:none}
+body.docked .ask-inline-t{display:inline;font-weight:700;color:#0f172a;white-space:nowrap}
+body.docked .ask-inline-t::before{content:'';display:inline-block;width:7px;height:7px;border-radius:50%;background:#0e7490;margin-right:7px;vertical-align:1px}
+body.docked #ask-log{max-height:122px;min-height:0;resize:none;margin-bottom:6px;gap:2px}
+body.docked #ask-box.tall #ask-log{max-height:min(34vh,300px)}
+/* flat lines, both speakers on the left: at full width each turn is one line, so the ceiling holds plenty */
+body.docked .ask-msg{background:none!important;border:none!important;border-radius:0;padding:1px 0;align-self:stretch!important;font-size:12.5px;line-height:1.4}
+body.docked .ask-msg.you{color:#475569}
+body.docked .ask-msg.you::before{content:'You: ';color:#94a3b8}
+body.docked .ask-msg.map{color:#0f172a}
+body.docked .ask-msg.err{color:#991b1b}
+body.docked .ask-msg .did{display:inline;margin:0 0 0 8px;color:#64748b;font-size:11px}
+body.docked .ask-msg .rep{display:inline-flex;margin:0 0 0 8px;vertical-align:baseline}
 #ask-box{
   position:absolute;top:12px;left:50%;margin-left:-168px;z-index:1000;width:336px;max-width:calc(100vw - 24px);
   background:rgba(255,255,255,.96);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.18);
@@ -220,6 +263,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .ask-msg.err{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
 .ask-msg .did{display:block;margin-top:3px;color:#475569;font-size:11px}
 .ask-row{display:flex;gap:6px;align-items:center}
+.ask-inline-t{display:none}
 #ask-text{flex:1;min-width:0;font:inherit;font-size:13px;padding:6px 9px;border:1px solid rgba(0,0,0,.18);border-radius:7px;background:#fff;color:#1e293b}
 #ask-text:disabled{background:#f1f5f9;color:#94a3b8}
 #ask-send{border:none;background:#0e7490;color:#fff;font:inherit;font-size:12px;font-weight:700;border-radius:7px;padding:7px 12px;cursor:pointer}
@@ -396,7 +440,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 </style>
 </head>
 <body>
-<div id="map"></div>
+<div id="ask-bar"></div>
+<div id="stage">
+  <aside id="dock-left"></aside>
+  <div id="map"></div>
+  <aside id="dock-right"></aside>
+</div>
+<div id="dock-bottom"></div>
 
 <script>
 // ── Data ────────────────────────────────────────────────────────────────────
@@ -404,7 +454,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.05';
+const APP_VERSION = '2.06';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -937,6 +987,8 @@ function initMap() {
   leafletMap.getContainer().appendChild(hint);
   addPlayBar();
   addAskBox();
+  dockPanels();
+  window.addEventListener('resize', () => { clearTimeout(dockT); dockT = setTimeout(dockPanels, 180); });
   enableDragging();
   let t;
   leafletMap.on('moveend', () => { clearTimeout(t); t = setTimeout(() => ensureCells(false).then(() => { if (hist) ensureHist(); }), 350); });
@@ -1526,6 +1578,35 @@ function aiSettled(ms = 20000) {
   });
 }
 
+// Docking (v2.06): the panels are built as Leaflet controls, then moved into the page around the
+// map so nothing sits on top of it. Each one remembers where it came from, so a narrow window puts
+// it back and the phone layout is untouched.
+const DOCK_MIN = 900;
+let dockT = null, docked = null;
+const dockHome = new Map();
+function dockPanels() {
+  const want = window.innerWidth >= DOCK_MIN && !IS_PHONE;
+  if (want === docked) { if (want) placeDockables(); return; }
+  docked = want;
+  document.body.classList.toggle('docked', want);
+  if (want) placeDockables();
+  else for (const [el, home] of dockHome) if (el && home && el.parentElement !== home) home.appendChild(el);
+  if (leafletMap) setTimeout(() => leafletMap.invalidateSize(), 60);
+}
+function placeDockables() {
+  const put = (el, dockId) => {
+    if (!el) return;
+    if (!dockHome.has(el)) dockHome.set(el, el.parentElement);
+    const d = document.getElementById(dockId);
+    if (d && el.parentElement !== d) { el.style.transform = ''; boxOffsets.delete(el); d.appendChild(el); }
+  };
+  put(askEl, 'ask-bar');
+  put(document.getElementById('info-panel'), 'dock-left');
+  put(document.getElementById('sel-panel'), 'dock-left');
+  put(legendEl, 'dock-right');
+  put(document.getElementById('play-bar'), 'dock-bottom');
+}
+
 // the box itself
 function addAskBox() {
   const el = document.createElement('div');
@@ -1534,11 +1615,14 @@ function addAskBox() {
     <button id="ask-head" type="button" aria-expanded="false"><span class="ask-dot"></span><span class="ask-t">Ask the map</span><span class="chev">▾</span></button>
     <div class="ask-body">
       <div id="ask-log" aria-live="polite"></div>
-      <div class="ask-row">
-        <input id="ask-text" type="text" autocomplete="off" placeholder="Show me the McElmo watershed last week" aria-label="Ask the map">
-        <button id="ask-send" type="button">Ask</button>
+      <div class="ask-bottom">
+        <div class="ask-row">
+          <span class="ask-inline-t">Ask the map</span>
+          <input id="ask-text" type="text" autocomplete="off" placeholder="Show me the McElmo watershed last week" aria-label="Ask the map">
+          <button id="ask-send" type="button">Ask</button>
+        </div>
+        <div class="ask-foot"><span id="ask-hint">It sets the map and reads back what the gauges show.</span><span><button id="ask-big" type="button" title="A taller box for longer conversations">Expand</button> · <button id="ask-new" type="button">New topic</button></span></div>
       </div>
-      <div class="ask-foot"><span id="ask-hint">It sets the map and reads back what the gauges show.</span><span><button id="ask-big" type="button" title="A taller, wider box for longer conversations">Expand</button> · <button id="ask-new" type="button">New topic</button></span></div>
     </div>`;
   leafletMap.getContainer().appendChild(el);
   askEl = el;
@@ -1560,7 +1644,7 @@ function addAskBox() {
   let wasBig = false; try { wasBig = !!localStorage.getItem('cpmAskTall'); } catch (e) {}
   setBig(wasBig);
   el.querySelector('#ask-text').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); askSend(); } });
-  dragBox(el, [el.querySelector('#ask-head')], '');
+  if (!docked) dragBox(el, [el.querySelector('#ask-head')], '');
   new ResizeObserver(() => askLayout()).observe(el);
   askLayout();
 }
@@ -1568,6 +1652,7 @@ function addAskBox() {
 function askLayout() {
   const sp = document.getElementById('sel-panel');
   if (!sp || !askEl) return;
+  if (docked) { sp.style.bottom = ''; return; }   // nothing overlaps once the strip is docked
   if (!IS_PHONE || boxOffsets.get(sp) || boxOffsets.get(askEl)) { sp.style.bottom = ''; return; }
   const h = askEl.getBoundingClientRect().height || 0;
   sp.style.bottom = Math.round(8 + h + 8) + 'px';
@@ -2989,6 +3074,7 @@ function addDrawControl() {
   const container = leafletMap.getContainer();
   const panel = document.createElement('div');
   panel.id = 'sel-panel';
+  setTimeout(() => { if (docked) placeDockables(); }, 0);
   container.appendChild(panel);
   L.DomEvent.disableClickPropagation(panel);
   L.DomEvent.disableScrollPropagation(panel);

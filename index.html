@@ -183,6 +183,8 @@ body.docked .info-panel .drag-handle,body.docked .legend .drag-handle{cursor:def
 .leg-num.active{border-color:#0891b2;box-shadow:0 0 0 2px rgba(8,145,178,.3)}
 .leg-num-wrap{white-space:nowrap;color:#64748b;font-size:11px}
 .legend .panel-body{max-height:calc(100vh - 220px);max-height:calc(100dvh - 220px);overflow-y:auto}
+body.docked .legend .panel-body{max-height:none;overflow-y:visible}
+body.docked #info-panel > .panel-body{max-height:none!important;overflow-y:visible!important}
 
 /* ── Draw control ───────────────────────────────────────── */
 .draw-control{background:rgba(255,255,255,.94);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.15);display:flex;gap:4px;padding:8px 10px}
@@ -454,7 +456,7 @@ body.docked .ask-msg .rep{display:inline-flex;margin:0 0 0 8px;vertical-align:ba
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.06';
+const APP_VERSION = '2.07';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -2978,6 +2980,7 @@ function fitPanels() {
   const ip = document.getElementById('info-panel'); if (!ip || !leafletMap) return;
   const b = ip.querySelector(':scope > .panel-body'); if (!b) return;
   b.style.maxHeight = ''; b.style.overflowY = '';
+  if (docked) { fitLegend(); return; }   // the dock column scrolls; nothing to fit against
   if (ip.classList.contains('collapsed')) return;
   const mapR = leafletMap.getContainer().getBoundingClientRect(), bTop = b.getBoundingClientRect().top;
   let floor = mapR.bottom - 44;
@@ -2995,7 +2998,7 @@ function fitPanels() {
 function fitLegend() {
   const lg = legendEl, lb = lg && lg.querySelector(':scope > .panel-body');
   if (!lb || !leafletMap) return;
-  if (lg.classList.contains('collapsed')) { lb.style.maxHeight = ''; lb.style.overflowY = ''; return; }
+  if (docked || lg.classList.contains('collapsed')) { lb.style.maxHeight = ''; lb.style.overflowY = ''; return; }
   const floor = leafletMap.getContainer().getBoundingClientRect().top + (IS_PHONE ? 12 : 150);
   const extra = lg.offsetHeight - lb.offsetHeight;   // head and padding
   const allowed = Math.max(90, lg.getBoundingClientRect().bottom - floor - extra);   // the bottom is anchored, so this doesn't depend on the body's current height

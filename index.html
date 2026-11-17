@@ -222,12 +222,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 #ask-text:disabled{background:#f1f5f9;color:#94a3b8}
 #ask-send{border:none;background:#0e7490;color:#fff;font:inherit;font-size:12px;font-weight:700;border-radius:7px;padding:7px 12px;cursor:pointer}
 #ask-send:disabled{background:#94a3b8;cursor:default}
+.ask-msg .rep{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:5px}
+.ask-msg .rep button{border:none;background:transparent;color:#0e7490;font:inherit;font-size:11px;cursor:pointer;padding:0;text-decoration:underline}
+.ask-msg .rep button:disabled{color:#94a3b8;cursor:default}
+.ask-msg .rep button.x{color:#94a3b8}
+.ask-msg .rep.done{color:#15803d;font-size:11px}
+.ask-msg .rep input{flex:1;min-width:120px;font:inherit;font-size:12px;padding:4px 7px;border:1px solid rgba(0,0,0,.18);border-radius:6px;background:#fff;color:#1e293b}
 .ask-foot{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:11px;color:#64748b}
 .ask-foot button{border:none;background:transparent;color:#0e7490;font:inherit;font-size:11px;cursor:pointer;padding:0;text-decoration:underline}
 @media (max-width:700px){
   #ask-box{left:8px;right:8px;width:auto;margin-left:0;top:auto;bottom:calc(30px + env(safe-area-inset-bottom,0px))}
   #ask-log{max-height:170px}
-  #ask-text{font-size:16px}   /* iOS zooms the page in on a smaller field */
+  #ask-text,.ask-msg .rep input{font-size:16px}   /* iOS zooms the page in on a smaller field */
 }
 /* ── Movable boxes (v1.74) ──────────────────────────────── */
 .drag-handle{cursor:move;touch-action:none}
@@ -394,7 +400,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.00';
+const APP_VERSION = '2.01';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1454,15 +1460,60 @@ function askToggle(open) {
 function askDraw() {
   const log = askEl.querySelector('#ask-log');
   log.innerHTML = '';
-  for (const m of askLog) {
+  askLog.forEach((m, i) => {
     const d = document.createElement('div');
     d.className = 'ask-msg ' + (m.role === 'user' ? 'you' : m.err ? 'err' : 'map');
     d.textContent = m.text;
     if (m.did && m.did.length) { const sp = document.createElement('span'); sp.className = 'did'; sp.textContent = m.did.join(' · '); d.appendChild(sp); }
+    if (m.role === 'map' && AI_URL) d.appendChild(askReportUi(m, i));
     log.appendChild(d);
-  }
+  });
   log.scrollTop = log.scrollHeight;
   askLayout();
+}
+// When it gets it wrong (v2.01): a note on what it should have done goes to the relay with the
+// question, the answer, what it changed and the figures as they stood, and waits there to be read.
+function askReportUi(m, i) {
+  const wrap = document.createElement('div');
+  wrap.className = 'rep';
+  if (m.rep === 'sent') { wrap.classList.add('done'); wrap.textContent = 'Reported — thanks.'; return wrap; }
+  if (m.rep !== 'open') {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = 'Not what I wanted';
+    b.title = 'Say what it should have done. It goes on the list of things to fix in the next version.';
+    b.addEventListener('click', () => { m.rep = 'open'; askDraw(); const f = askEl.querySelector('.rep input'); if (f) f.focus(); });
+    wrap.appendChild(b);
+    return wrap;
+  }
+  const f = document.createElement('input');
+  f.type = 'text'; f.maxLength = 400; f.placeholder = 'What should it have done?'; f.setAttribute('aria-label', 'What should it have done?');
+  const send = document.createElement('button'); send.type = 'button'; send.textContent = 'Send';
+  const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'x'; cancel.textContent = 'Cancel';
+  const go = async () => {
+    send.disabled = true; cancel.disabled = true; send.textContent = '…';
+    const ok = await askReportSend(i, f.value.trim());
+    m.rep = ok ? 'sent' : undefined;
+    askDraw();
+    if (!ok) askSay('The report could not be sent — try again in a moment.', { err: true });
+  };
+  send.addEventListener('click', go);
+  f.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+  cancel.addEventListener('click', () => { m.rep = undefined; askDraw(); });
+  wrap.append(f, send, cancel);
+  return wrap;
+}
+async function askReportSend(i, note) {
+  const m = askLog[i];
+  let asked = '';
+  for (let k = i - 1; k >= 0; k--) if (askLog[k].role === 'user') { asked = askLog[k].text; break; }
+  const snap = m.snap || { state: aiState(), figures: aiFigures() };
+  const body = { v: 2, report: true, note, version: APP_VERSION, asked, replied: m.text,
+                 did: m.did || [], err: !!m.err, state: snap.state, figures: snap.figures,
+                 ua: (navigator.userAgent || '').slice(0, 160) };
+  try {
+    const r = await fetch(AI_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    return r.ok;
+  } catch (e) { return false; }
 }
 function askSay(text, extra) { askLog.push({ role: 'map', text, ...(extra || {}) }); askDraw(); }
 function askBusyUi(on) {
@@ -1481,21 +1532,23 @@ async function askSend() {
     const first = await aiAsk(text, 'act');
     const res = first.set ? await aiApply(first.set) : { did: [], skipped: [] };
     const notes = [...res.did, ...res.skipped.map(x => 'not done: ' + x)];
+    const snap = () => ({ state: aiState(), figures: aiFigures() });
     if (first.then === 'answer') {
       await aiSettled();
       const second = await aiAsk(text, 'answer', res.did);
-      askSay(second.reply || first.reply || 'Done.', { did: notes });
+      askSay(second.reply || first.reply || 'Done.', { did: notes, snap: snap() });
     } else {
-      askSay(first.reply || 'Done.', { did: notes });
+      askSay(first.reply || 'Done.', { did: notes, snap: snap() });
     }
   } catch (e) {
     const m = String(e && e.message || e);
-    askSay(/abort/i.test(m) ? 'That took too long — try again.' : /429/.test(m) ? 'Too many questions for now; give it a few minutes.' : 'The assistant could not be reached (' + m + ').', { err: true });
+    askSay(/abort/i.test(m) ? 'That took too long — try again.' : /429/.test(m) ? 'Too many questions for now; give it a few minutes.' : 'The assistant could not be reached (' + m + ').', { err: true, snap: { state: aiState(), figures: aiFigures() } });
   } finally { askBusyUi(false); askEl.querySelector('#ask-text').focus(); }
 }
 
 async function aiAsk(text, phase, didSoFar) {
-  const body = { v: 2, text, phase: phase || 'act', history: askLog.slice(-AI_MAX_TURNS * 2),
+  const body = { v: 2, text, phase: phase || 'act',
+                 history: askLog.slice(-AI_MAX_TURNS * 2).map(m => ({ role: m.role, text: m.text })),
                  state: aiState(), figures: aiFigures(), applied: didSoFar || null };
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 45000);
   try {

@@ -210,7 +210,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 #ask-head .chev{font-size:12px;color:#64748b;transition:transform .2s}
 #ask-box.closed #ask-head .chev{transform:rotate(-90deg)}
 .ask-body{padding:0 12px 11px}
-#ask-log{max-height:240px;overflow-y:auto;margin-bottom:8px;display:flex;flex-direction:column;gap:7px}
+#ask-log{max-height:260px;overflow-y:auto;margin-bottom:8px;display:flex;flex-direction:column;gap:7px;resize:vertical;min-height:70px}
+#ask-box.tall{width:470px;margin-left:-235px}
+#ask-box.tall #ask-log{height:min(62vh,580px);max-height:min(62vh,580px)}
 #ask-log:empty{display:none}
 .ask-msg{font-size:12px;line-height:1.45;border-radius:8px;padding:5px 9px;max-width:100%;overflow-wrap:break-word}
 .ask-msg.you{background:#e2e8f0;color:#0f172a;align-self:flex-end}
@@ -232,6 +234,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .ask-foot button{border:none;background:transparent;color:#0e7490;font:inherit;font-size:11px;cursor:pointer;padding:0;text-decoration:underline}
 @media (max-width:700px){
   #ask-box{left:8px;right:8px;width:auto;margin-left:0;top:auto;bottom:calc(30px + env(safe-area-inset-bottom,0px))}
+  #ask-box.tall{width:auto;margin-left:0}
+  #ask-box.tall #ask-log{height:50vh;max-height:50vh}
   #ask-log{max-height:170px}
   #ask-text,.ask-msg .rep input{font-size:16px}   /* iOS zooms the page in on a smaller field */
 }
@@ -400,7 +404,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.03';
+const APP_VERSION = '2.04';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1492,6 +1496,16 @@ async function aiApply(set) {
     else if (Array.isArray(v.center) && Number.isFinite(+v.center[0]) && Number.isFinite(+v.center[1])) {
       leafletMap.setView([+v.center[0], +v.center[1]], num(v.zoom, 3, 16) || leafletMap.getZoom()); did.push('moved the map');
     }
+    // frame a distance around the Four Corners Monument, the map's own anchor. This is the view only:
+    // the data radius is a separate control, so the gauges fetched do not change (v2.04).
+    else if (v.milesFromCenter != null) {
+      const mi = num(v.milesFromCenter, 1, 1200);
+      if (mi) { fitRadius(mi); did.push(`view framed ${Math.round(mi)} mi around the Four Corners Monument`); }
+    }
+    else if (v.zoom != null) {
+      const z = num(v.zoom, 3, 16);
+      if (z) { leafletMap.setZoom(z); did.push('zoom ' + Math.round(z)); }
+    }
   }
 
   runControls();   // anything named by control, last, so it wins over the settings above
@@ -1524,7 +1538,7 @@ function addAskBox() {
         <input id="ask-text" type="text" autocomplete="off" placeholder="Show me the McElmo watershed last week" aria-label="Ask the map">
         <button id="ask-send" type="button">Ask</button>
       </div>
-      <div class="ask-foot"><span id="ask-hint">It sets the map and reads back what the gauges show.</span><button id="ask-new" type="button">New topic</button></div>
+      <div class="ask-foot"><span id="ask-hint">It sets the map and reads back what the gauges show.</span><span><button id="ask-big" type="button" title="A taller, wider box for longer conversations">Expand</button> · <button id="ask-new" type="button">New topic</button></span></div>
     </div>`;
   leafletMap.getContainer().appendChild(el);
   askEl = el;
@@ -1533,6 +1547,18 @@ function addAskBox() {
   el.querySelector('#ask-head').addEventListener('click', () => askToggle());
   el.querySelector('#ask-send').addEventListener('click', () => askSend());
   el.querySelector('#ask-new').addEventListener('click', () => { askLog = []; askDraw(); el.querySelector('#ask-text').focus(); });
+  // a bigger box, remembered; the log can also be dragged taller by its own corner
+  const bigBtn = el.querySelector('#ask-big');
+  const setBig = on => {
+    el.classList.toggle('tall', on);
+    bigBtn.textContent = on ? 'Shrink' : 'Expand';
+    el.querySelector('#ask-log').style.height = '';   // drop any hand-dragged height
+    try { on ? localStorage.setItem('cpmAskTall', '1') : localStorage.removeItem('cpmAskTall'); } catch (e) {}
+    askLayout();
+  };
+  bigBtn.addEventListener('click', () => setBig(!el.classList.contains('tall')));
+  let wasBig = false; try { wasBig = !!localStorage.getItem('cpmAskTall'); } catch (e) {}
+  setBig(wasBig);
   el.querySelector('#ask-text').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); askSend(); } });
   dragBox(el, [el.querySelector('#ask-head')], '');
   new ResizeObserver(() => askLayout()).observe(el);

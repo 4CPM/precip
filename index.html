@@ -477,7 +477,7 @@ body.docked .ask-msg .rep{display:inline-flex;margin:0 0 0 8px;vertical-align:ba
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.09';
+const APP_VERSION = '2.10';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1779,6 +1779,84 @@ async function exportPNG() {
   } finally { btn.disabled = false; setTimeout(() => pngMsg(''), 6000); }
 }
 
+// An animated GIF of the timeline (v2.10): the playback is stepped frame by frame, each frame drawn
+// the same way the PNG is, and the frames encoded in the browser. Nothing is uploaded anywhere.
+const GIF_URL = 'https://unpkg.com/gif.js@0.2.0/dist/gif.js';
+const GIF_WORKER_URL = 'https://unpkg.com/gif.js@0.2.0/dist/gif.worker.js';
+let gifP = null, gifWorkerBlob = null, gifStop = false;
+function loadGIF() {
+  if (gifP) return gifP;
+  gifP = (async () => {
+    if (!window.GIF) await new Promise((res, rej) => {
+      const sc = document.createElement('script');
+      sc.src = GIF_URL; sc.crossOrigin = 'anonymous';
+      sc.onload = res; sc.onerror = () => rej(new Error('could not load the GIF library'));
+      document.head.appendChild(sc);
+    });
+    if (!gifWorkerBlob) {   // the worker has to come from this page's own origin
+      const t = await (await fetch(GIF_WORKER_URL)).text();
+      gifWorkerBlob = URL.createObjectURL(new Blob([t], { type: 'application/javascript' }));
+    }
+    return window.GIF;
+  })().catch(e => { gifP = null; throw e; });
+  return gifP;
+}
+// one frame, drawn like the PNG but without the caption
+async function frameCanvas(h2c, scale) {
+  const mapEl = leafletMap.getContainer();
+  const hide = [...mapEl.querySelectorAll('#chrome-toggle, .leaflet-control-zoom, .leaflet-control-layers, #measure-hint')];
+  const was = hide.map(e => e.style.visibility); hide.forEach(e => e.style.visibility = 'hidden');
+  try {
+    return await h2c(mapEl, { useCORS: true, backgroundColor: '#ffffff', scale, logging: false,
+                              width: mapEl.clientWidth, height: mapEl.clientHeight });
+  } finally { hide.forEach((e, i) => e.style.visibility = was[i]); }
+}
+async function exportGIF() {
+  if (!play) { pngMsg('The GIF needs a period with a timeline \u2014 pick days, hours or a storm first.'); setTimeout(() => pngMsg(''), 6000); return; }
+  const btn = document.getElementById('gif-btn'), stopBtn = document.getElementById('gif-stop');
+  const mapW = leafletMap.getContainer().clientWidth;
+  const scale = Math.min(1, 900 / Math.max(1, mapW));   // a GIF frame is uncompressed-ish; keep it under ~900px wide
+  gifStop = false;
+  btn.disabled = true; stopBtn.hidden = false;
+  const wasI = play.i;
+  try {
+    pngMsg('Loading\u2026');
+    const [h2c, GIFc] = await Promise.all([loadH2C(), loadGIF()]);
+    playPause();
+    const total = play.n, MAXF = 40;
+    const step = Math.max(1, Math.ceil(total / MAXF));
+    const idx = []; for (let i = 0; i < total; i += step) idx.push(i);
+    if (idx[idx.length - 1] !== total - 1) idx.push(total - 1);
+    const mapEl = leafletMap.getContainer();
+    const gif = new GIFc({ workers: 2, quality: 18, workerScript: gifWorkerBlob,
+                           width: Math.round(mapEl.clientWidth * scale), height: Math.round(mapEl.clientHeight * scale) });
+    for (let k = 0; k < idx.length; k++) {
+      if (gifStop) { pngMsg('Stopped.'); return; }
+      pngMsg(`Frame ${k + 1} of ${idx.length}\u2026 (about ${Math.max(1, Math.round((idx.length - k) * 3 / 60))} min left)`);
+      playGo(idx[k]);
+      await new Promise(r => setTimeout(r, 260));
+      await aiSettled(4000).catch(() => {});
+      const c = await frameCanvas(h2c, scale);
+      gif.addFrame(c, { delay: 220, copy: true });
+      await new Promise(r => setTimeout(r, 0));
+    }
+    pngMsg('Encoding\u2026');
+    const blob = await new Promise((res, rej) => { gif.on('finished', res); gif.on('abort', () => rej(new Error('stopped'))); gif.render(); });
+    if (gifStop) { pngMsg('Stopped.'); return; }
+    const name = '4 Corners Precip Map ' + new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '') + '.gif';
+    const u = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = u; a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(u), 20000);
+    pngMsg(`Saved ${idx.length} frames, ${(blob.size / 1048576).toFixed(1)} MB`);
+  } catch (e) {
+    pngMsg('Could not make the GIF (' + String(e.message || e).slice(0, 60) + ')');
+  } finally {
+    btn.disabled = false; stopBtn.hidden = true;
+    if (play) playGo(wasI);
+    setTimeout(() => pngMsg(''), 8000);
+  }
+}
+
 // the box itself
 function addAskBox() {
   const el = document.createElement('div');
@@ -2863,6 +2941,8 @@ function addFilterBar() {
         <span class="opt-l">Export</span>
         <div class="opt-row">
           <button class="draw-btn" id="png-btn" type="button" title="A PNG of the map as it looks now, with the legend and a caption">PNG of the map</button>
+          <button class="draw-btn" id="gif-btn" type="button" title="An animated GIF of the playback, frame by frame. Only while a period with a timeline is showing.">GIF of the playback</button>
+          <button class="draw-btn" id="gif-stop" type="button" hidden>Stop</button>
           <span class="leg-num-wrap"><input type="number" class="leg-num" id="png-scale" min="1" max="4" step="1" value="2" inputmode="numeric" aria-label="Picture scale" title="1 is screen size; 2 or 3 makes a sharper picture"> ×</span>
           <span id="png-msg" class="con-desc" style="margin:0"></span>
         </div>
@@ -2899,6 +2979,8 @@ function addFilterBar() {
         <div class="opt-row" id="bnd-sel-row" hidden></div>
 `;
     el.querySelector('#png-btn').addEventListener('click', exportPNG);
+    el.querySelector('#gif-btn').addEventListener('click', exportGIF);
+    el.querySelector('#gif-stop').addEventListener('click', () => { gifStop = true; });
     el.querySelector('#sus-set .con-desc').insertAdjacentHTML('afterend', `<div class="tag-tools" id="tag-tools"><span id="tag-count" style="color:#475569"></span><button class="draw-btn" id="tag-copy" type="button" title="Copy your tags in the format of the site\u2019s tags.json, to apply them for everyone">Copy for the site</button><button class="draw-btn" id="tag-clear" type="button" title="Remove all your tags on this device">Clear tags</button></div><div class="tag-list" id="tag-list"></div><div class="con-desc">Tag a gauge from its popup: Tag as error, or Trust this gauge against an automatic flag. Tags are kept in this browser; the site file tags.json in the repo applies to everyone.</div>`);
     document.querySelector('#info-panel .panel-body').appendChild(el);
     el.querySelector('#tag-copy').addEventListener('click', e => { const b = e.currentTarget; navigator.clipboard.writeText(tagsText()).then(() => { b.textContent = 'Copied'; setTimeout(() => b.textContent = 'Copy for the site', 1500); }).catch(() => { b.textContent = 'Copy blocked by browser'; }); });

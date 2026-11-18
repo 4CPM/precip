@@ -109,6 +109,7 @@ body.phone #info-panel .panel-body,body.phone #info-panel .arch-note{display:non
 body.phone #info-panel.in-sheet .panel-body,body.phone #info-panel.in-sheet .arch-note{display:block}
 body.phone #play-bar:not(.in-sheet),body.phone #ask-box:not(.in-sheet){display:none!important}
 body.phone .legend:not(.in-sheet){display:none!important}
+body.phone .legend.for-export,.legend.for-export{display:block!important;position:fixed!important;left:-9999px!important;top:0!important;z-index:-1!important;max-height:none!important}
 body.docked .opt-sec{height:0;margin:7px 0 3px;padding:0;overflow:hidden;text-indent:-9999px;white-space:nowrap}
 body.docked .opt-sec.first{display:none}
 body.docked .opt-row{gap:5px}
@@ -604,7 +605,7 @@ body.docked #ask-box.tall #ask-log{min-height:56px}
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.30';
+const APP_VERSION = '2.31';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -2025,39 +2026,55 @@ async function exportPNG() {
   try {
     const h2c = await loadH2C();
     const mapEl = leafletMap.getContainer();
-    const hide = [...mapEl.querySelectorAll('#chrome-toggle, .leaflet-control-zoom, .leaflet-control-layers, #measure-hint')];
+    const hide = [...mapEl.querySelectorAll(EXPORT_HIDE)];
     const was = hide.map(e => e.style.visibility); hide.forEach(e => e.style.visibility = 'hidden');
-    let base;
+    let base, trim = null;
     try {
+      trim = dataRectPx();
       base = await h2c(mapEl, { useCORS: true, allowTaint: false, backgroundColor: '#ffffff', scale,
                                 logging: false, width: mapEl.clientWidth, height: mapEl.clientHeight });
+      base = cropCanvas(base, trim, scale);
     } finally { hide.forEach((e, i) => e.style.visibility = was[i]); }
 
     const cap = exportCaption();
-    const pad = Math.round(10 * scale), footH = Math.round(42 * scale);
+    const sc = document.querySelector('.leaflet-control-scale-line');
+    const scaleTxt = sc && sc.textContent ? 'Scale ' + sc.textContent.trim() : '';
+    const pad = Math.round(10 * scale);
+    const titleF = `600 ${Math.round(14 * scale)}px -apple-system, Segoe UI, Roboto, sans-serif`;
+    const subF = `${Math.round(10.5 * scale)}px -apple-system, Segoe UI, Roboto, sans-serif`;
+    const m = document.createElement('canvas').getContext('2d');
+    m.font = titleF;
+    const titleLines = capLines(m, cap.title, base.width - pad * 2);
+    m.font = subF;
+    const subLines = capLines(m, [cap.when, scaleTxt, cap.credit].filter(Boolean).join('  \u00b7  '), base.width - pad * 2);
+    const lineT = Math.round(19 * scale), lineS = Math.round(14 * scale);
+    const footH = Math.round(14 * scale) + titleLines.length * lineT + subLines.length * lineS;
+
     const out = document.createElement('canvas');
     out.width = base.width; out.height = base.height + footH;
     const x = out.getContext('2d');
     x.fillStyle = '#ffffff'; x.fillRect(0, 0, out.width, out.height);
     x.drawImage(base, 0, 0);
 
-    // the legend, so the colors can be read
-    const lg = legendEl && !legendEl.classList.contains('collapsed') ? legendEl : null;
-    if (lg) {
-      try {
-        const lc = await h2c(lg, { useCORS: true, backgroundColor: '#ffffff', scale, logging: false });
-        const lx = base.width - lc.width - pad, ly = pad;
-        x.save(); x.shadowColor = 'rgba(0,0,0,.25)'; x.shadowBlur = 8 * scale;
-        x.fillStyle = '#fff'; x.fillRect(lx - 4 * scale, ly - 4 * scale, lc.width + 8 * scale, lc.height + 8 * scale);
-        x.restore();
-        x.drawImage(lc, lx, ly);
-      } catch (e) {}
+    // the key, so the colours can be read, wherever it was sitting
+    const lc = await legendShot(h2c, scale);
+    if (lc && lc.width > 4) {
+      // on a narrow picture the key at full size swallows the map, so it is held to a third of the width
+      const kw = Math.min(lc.width, Math.round(base.width * 0.3));
+      const kh = Math.round(lc.height * (kw / lc.width));
+      const lx = base.width - kw - pad, ly = pad;
+      x.save(); x.shadowColor = 'rgba(0,0,0,.25)'; x.shadowBlur = 8 * scale;
+      x.fillStyle = '#fff'; x.fillRect(lx - 4 * scale, ly - 4 * scale, kw + 8 * scale, kh + 8 * scale);
+      x.restore();
+      x.drawImage(lc, 0, 0, lc.width, lc.height, lx, ly, kw, kh);
     }
 
-    x.fillStyle = '#0f172a'; x.font = `600 ${Math.round(14 * scale)}px -apple-system, Segoe UI, Roboto, sans-serif`;
-    x.fillText(cap.title, pad, base.height + Math.round(18 * scale));
-    x.fillStyle = '#64748b'; x.font = `${Math.round(10.5 * scale)}px -apple-system, Segoe UI, Roboto, sans-serif`;
-    x.fillText([cap.when, cap.credit].filter(Boolean).join('  \u00b7  '), pad, base.height + Math.round(33 * scale));
+    let ty = base.height + Math.round(16 * scale);
+    x.fillStyle = '#0f172a'; x.font = titleF;
+    for (const t of titleLines) { x.fillText(t, pad, ty); ty += lineT; }
+    x.fillStyle = '#64748b'; x.font = subF;
+    ty -= Math.round(3 * scale);
+    for (const t of subLines) { x.fillText(t, pad, ty); ty += lineS; }
 
     const name = '4 Corners Precip Map ' + stampNow() + '.png';
     await new Promise(res => out.toBlob(b => {
@@ -2065,7 +2082,7 @@ async function exportPNG() {
       const u = URL.createObjectURL(b), a = document.createElement('a');
       a.href = u; a.download = name; a.click();
       setTimeout(() => URL.revokeObjectURL(u), 10000);
-      pngMsg(`Saved ${out.width}\u00d7${out.height}`);
+      pngMsg(`Saved ${out.width}\u00d7${out.height}${trim ? ' (trimmed to the data)' : ''}`);
       res();
     }, 'image/png'));
   } catch (e) {
@@ -2096,13 +2113,81 @@ function loadGIF() {
   return gifP;
 }
 // one frame, drawn like the PNG but without the caption
-async function frameCanvas(h2c, scale) {
+const EXPORT_HIDE = '#chrome-toggle, .leaflet-control-zoom, .leaflet-control-layers, .measure-ctl, #measure-hint, #zoom-hint, ' +
+                    '.leaflet-control-attribution, .leaflet-control-scale';
+// where the readings and the surface actually are, in the map's own pixels
+function dataRectPx(padPx) {
+  if (!leafletMap) return null;
+  const mapEl = leafletMap.getContainer(), mb = mapEl.getBoundingClientRect();
+  const pad = padPx == null ? 16 : padPx;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, any = false;
+  const add = r => {
+    if (!r || r.width < 1 || r.height < 1) return;
+    x0 = Math.min(x0, r.left - mb.left); y0 = Math.min(y0, r.top - mb.top);
+    x1 = Math.max(x1, r.right - mb.left); y1 = Math.max(y1, r.bottom - mb.top); any = true;
+  };
+  mapEl.querySelectorAll('.leaflet-marker-icon').forEach(e => add(e.getBoundingClientRect()));
+  if (!any) return null;
+  x0 = Math.max(0, Math.floor(x0 - pad)); y0 = Math.max(0, Math.floor(y0 - pad));
+  x1 = Math.min(mb.width, Math.ceil(x1 + pad)); y1 = Math.min(mb.height, Math.ceil(y1 + pad));
+  const w = x1 - x0, h = y1 - y0;
+  if (w < 120 || h < 120) return null;                       // nothing sensible to trim to
+  if (w > mb.width * 0.97 && h > mb.height * 0.97) return null;   // already full of data
+  return { x: x0, y: y0, w, h, full: { w: mb.width, h: mb.height } };
+}
+function cropCanvas(c, rect, scale) {
+  if (!rect) return c;
+  const sx = Math.round(rect.x * scale), sy = Math.round(rect.y * scale);
+  const sw = Math.min(c.width - sx, Math.round(rect.w * scale)), sh = Math.min(c.height - sy, Math.round(rect.h * scale));
+  if (sw < 8 || sh < 8) return c;
+  const o = document.createElement('canvas'); o.width = sw; o.height = sh;
+  o.getContext('2d').drawImage(c, sx, sy, sw, sh, 0, 0, sw, sh);
+  return o;
+}
+// the key, drawn even when it is folded away or living in a sheet
+async function legendShot(h2c, scale) {
+  if (!legendEl) return null;
+  const wasCollapsed = legendEl.classList.contains('collapsed');
+  const parent = legendEl.parentElement, next = legendEl.nextSibling;
+  const moved = getComputedStyle(legendEl).display === 'none';
+  let foot = null, footWas = '', chev = null, chevWas = '';
+  try {
+    legendEl.classList.remove('collapsed');
+    foot = legendEl.querySelector('.leg-foot');
+    chev = legendEl.querySelector('.leg-chev, .chev');
+    if (foot) { footWas = foot.style.display; foot.style.display = 'none'; }
+    if (chev) { chevWas = chev.style.visibility; chev.style.visibility = 'hidden'; }
+    if (moved) { legendEl.classList.add('for-export'); document.body.appendChild(legendEl); }
+    await new Promise(r => setTimeout(r, 30));
+    return await h2c(legendEl, { useCORS: true, backgroundColor: '#ffffff', scale, logging: false });
+  } catch (e) { return null; }
+  finally {
+    if (foot) foot.style.display = footWas;
+    if (chev) chev.style.visibility = chevWas;
+    legendEl.classList.remove('for-export');
+    if (wasCollapsed) legendEl.classList.add('collapsed');
+    if (moved && parent) parent.insertBefore(legendEl, next);
+  }
+}
+// a caption that stays inside the picture
+function capLines(ctx, text, maxW) {
+  const out = [];
+  let cur = '';
+  for (const w of String(text).split(' ')) {
+    const t = cur ? cur + ' ' + w : w;
+    if (cur && ctx.measureText(t).width > maxW) { out.push(cur); cur = w; } else cur = t;
+  }
+  if (cur) out.push(cur);
+  return out.slice(0, 3);
+}
+async function frameCanvas(h2c, scale, trim) {
   const mapEl = leafletMap.getContainer();
-  const hide = [...mapEl.querySelectorAll('#chrome-toggle, .leaflet-control-zoom, .leaflet-control-layers, #measure-hint')];
+  const hide = [...mapEl.querySelectorAll(EXPORT_HIDE)];
   const was = hide.map(e => e.style.visibility); hide.forEach(e => e.style.visibility = 'hidden');
   try {
-    return await h2c(mapEl, { useCORS: true, backgroundColor: '#ffffff', scale, logging: false,
-                              width: mapEl.clientWidth, height: mapEl.clientHeight });
+    const c = await h2c(mapEl, { useCORS: true, backgroundColor: '#ffffff', scale, logging: false,
+                                 width: mapEl.clientWidth, height: mapEl.clientHeight });
+    return trim ? cropCanvas(c, trim, scale) : c;
   } finally { hide.forEach((e, i) => e.style.visibility = was[i]); }
 }
 async function exportGIF() {
@@ -2121,15 +2206,17 @@ async function exportGIF() {
     const idx = []; for (let i = 0; i < total; i += step) idx.push(i);
     if (idx[idx.length - 1] !== total - 1) idx.push(total - 1);
     const mapEl = leafletMap.getContainer();
-    const gif = new GIFc({ workers: 2, quality: 18, workerScript: gifWorkerBlob,
-                           width: Math.round(mapEl.clientWidth * scale), height: Math.round(mapEl.clientHeight * scale) });
+    const trim = dataRectPx();
+    const gw = Math.round((trim ? trim.w : mapEl.clientWidth) * scale);
+    const gh = Math.round((trim ? trim.h : mapEl.clientHeight) * scale);
+    const gif = new GIFc({ workers: 2, quality: 18, workerScript: gifWorkerBlob, width: gw, height: gh });
     for (let k = 0; k < idx.length; k++) {
       if (gifStop) { pngMsg('Stopped.'); return; }
       pngMsg(`Frame ${k + 1} of ${idx.length}\u2026 (about ${Math.max(1, Math.round((idx.length - k) * 3 / 60))} min left)`);
       playGo(idx[k]);
       await new Promise(r => setTimeout(r, 260));
       await aiSettled(4000).catch(() => {});
-      const c = await frameCanvas(h2c, scale);
+      const c = await frameCanvas(h2c, scale, trim);
       gif.addFrame(c, { delay: 220, copy: true });
       await new Promise(r => setTimeout(r, 0));
     }
@@ -2140,7 +2227,7 @@ async function exportGIF() {
     const u = URL.createObjectURL(blob), a = document.createElement('a');
     a.href = u; a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(u), 20000);
-    pngMsg(`Saved ${idx.length} frames, ${Math.round(mapEl.clientWidth * scale)} px wide, ${(blob.size / 1048576).toFixed(1)} MB`);
+    pngMsg(`Saved ${idx.length} frames, ${gw} px wide, ${(blob.size / 1048576).toFixed(1)} MB`);
   } catch (e) {
     pngMsg('Could not make the GIF (' + String(e.message || e).slice(0, 60) + ')');
   } finally {
@@ -2405,8 +2492,9 @@ async function exportVideoDrawn(mime) {
     pngMsg('Measuring this device…');
     const h2c = await loadH2C();
     playPause();
+    const trim = dataRectPx();
     const t0 = performance.now();
-    await frameCanvas(h2c, scale);                       // one frame, to see how fast this machine is
+    await frameCanvas(h2c, scale, trim);                 // one frame, to see how fast this machine is
     const per = Math.max(60, performance.now() - t0);
     const MAXF = Math.max(12, Math.min(150, Math.round(75000 / per)));
     const total = play.n;
@@ -2414,10 +2502,11 @@ async function exportVideoDrawn(mime) {
     const idx = []; for (let i = 0; i < total; i += step) idx.push(i);
     if (idx[idx.length - 1] !== total - 1) idx.push(total - 1);
 
-    const fit = fitForCodec(mapEl.clientWidth * scale, mapEl.clientHeight * scale + 30 * scale);
-    if (fit.cut) scale *= fit.w / (mapEl.clientWidth * scale);
+    const vidW = trim ? trim.w : mapEl.clientWidth, vidH = trim ? trim.h : mapEl.clientHeight;
+    const fit = fitForCodec(vidW * scale, vidH * scale + 30 * scale);
+    if (fit.cut) scale *= fit.w / (vidW * scale);
     const footH = evenPx(30 * scale);
-    const W = evenPx(mapEl.clientWidth * scale), H = evenPx(mapEl.clientHeight * scale) + footH;
+    const W = evenPx(vidW * scale), H = evenPx(vidH * scale) + footH;
     const cap = exportCaption();
     const comp = document.createElement('canvas'); comp.width = W; comp.height = H;
     const cx = comp.getContext('2d');
@@ -2429,7 +2518,7 @@ async function exportVideoDrawn(mime) {
       playGo(idx[k]);
       await new Promise(r => setTimeout(r, 240));
       await aiSettled(4000).catch(() => {});
-      const c = await frameCanvas(h2c, scale);
+      const c = await frameCanvas(h2c, scale, trim);
       cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, W, H);
       cx.drawImage(c, 0, 0, W, H - footH);
       cx.fillStyle = '#0f172a'; cx.font = `600 ${Math.round(13 * scale)}px -apple-system, Segoe UI, Roboto, sans-serif`;

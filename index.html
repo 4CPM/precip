@@ -52,6 +52,63 @@ body.docked .info-panel .filters{margin-top:5px;padding-top:4px}
 body.docked .refresh-row{margin-top:6px;gap:6px}
 body.docked .panel-btn{margin-top:6px;padding:4px 0}
 body.docked .opt-grid{gap:3px 7px}
+
+/* ── The phone layout (v2.30). The old one kept the desktop's floating cards: a header card, a
+   111px time-bar card and an ask bar all sitting on the map, settings only as a full-screen scroll,
+   and every control under 30px against Apple's 44. The map now keeps the whole screen; one 54px bar
+   sits along the bottom, and anything with more to say opens as a sheet over the lower half, which
+   taps away. Nothing floats on the map but the title chip and the legend tab. ── */
+body.phone #phone-bar{position:fixed;left:0;right:0;bottom:0;z-index:1200;display:flex;align-items:center;gap:6px;
+  padding:7px 9px calc(7px + env(safe-area-inset-bottom));background:#fff;border-top:1px solid #e2e8f0;
+  box-shadow:0 -2px 14px rgba(15,23,42,.1);font-size:13px}
+body.phone .pbtn{flex:0 0 auto;min-height:38px;min-width:38px;padding:0 11px;border:1px solid #cbd5e1;border-radius:9px;
+  background:#f8fafc;color:#334155;font:inherit;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+body.phone .pbtn.on{background:#0891b2;border-color:#0891b2;color:#fff}
+body.phone .pbtn.play{background:#0891b2;border-color:#0891b2;color:#fff;font-size:15px;padding:0;width:42px;border-radius:50%}
+body.phone #pb-when{flex:1 1 auto;justify-content:flex-start;min-width:0;padding:0 10px;font-weight:700;color:#0f172a;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.phone #pb-when small{display:block;font-weight:500;font-size:10.5px;color:#64748b}
+body.phone #pb-when.on{color:#fff}
+body.phone #pb-when.on small{color:rgba(255,255,255,.82)}
+body.phone #sheet-scrim{position:fixed;inset:0;z-index:1190;background:transparent}
+body.phone #sheet[hidden],body.phone #sheet-scrim[hidden]{display:none}
+body.phone #sheet{position:fixed;left:0;right:0;z-index:1200;bottom:calc(53px + env(safe-area-inset-bottom));
+  background:#fff;border-radius:16px 16px 0 0;box-shadow:0 -6px 24px rgba(15,23,42,.18);
+  display:flex;flex-direction:column;max-height:58vh}
+body.phone .sheet-head{display:flex;align-items:center;gap:8px;padding:6px 12px 4px;border-bottom:1px solid #eef2f7}
+body.phone .sheet-grip{width:38px;height:4px;border-radius:2px;background:#cbd5e1;margin:4px auto 2px}
+body.phone .sheet-title{flex:1 1 auto;font-size:12px;font-weight:700;color:#0f172a}
+body.phone .sheet-x{width:34px;height:34px;border:none;background:none;color:#64748b;font-size:19px;cursor:pointer}
+body.phone .sheet-body{overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px 12px 14px}
+body.phone .sheet-body > *{position:static!important;transform:none!important;margin:0!important;max-width:none!important;
+  width:auto!important;box-shadow:none!important;border:none!important;background:transparent!important;max-height:none!important}
+body.phone .sheet-body .collapsed{max-height:none}
+body.phone .sheet-body .panel-head .chev,body.phone .sheet-body .leg-chev,body.phone .sheet-body #play-min{display:none}
+/* room at the bottom of the map for the bar, and bigger things to tap */
+body.phone .leaflet-bottom{bottom:calc(54px + env(safe-area-inset-bottom))}
+body.phone .leaflet-control-attribution{font-size:9px;max-width:62vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.phone .leaflet-control-scale{margin-bottom:3px}
+body.phone #info-panel.in-sheet .phone-credit{display:block;font-size:10px;line-height:1.4;color:#94a3b8;margin:8px 0 0}
+.phone-credit{display:none}
+body.phone .seg-btn{min-height:34px;padding:7px 11px;font-size:13px}
+body.phone .sw{transform:scale(1.45);transform-origin:left center;margin-right:7px}
+body.phone .sheet-body input[type=number],body.phone .sheet-body input[type=text],body.phone .sheet-body select{min-height:34px;font-size:14px;padding:4px 8px}
+body.phone .leg-num{width:62px}
+body.phone .panel-btn,body.phone #play-bar .step-btn,body.phone #play-btn{min-height:36px;min-width:36px;padding:6px 12px}
+body.phone .toggle-row,body.phone .opt-row{gap:9px}
+body.phone .opt-gear,body.phone .info-btn{min-width:34px;min-height:34px}
+body.phone .toggle-btn{min-height:38px;padding:4px 2px}
+body.phone .toggle-track{transform:scale(1.25);transform-origin:left center;margin-right:8px}
+body.phone #play-range{height:30px}
+body.phone #play-range::-webkit-slider-thumb{width:26px;height:26px}
+body.phone .opt-grid{gap:8px 10px}
+body.phone .draw-btn{min-height:34px}
+/* the only things left over the map */
+body.phone #info-panel{top:8px;left:8px;right:auto;max-width:72vw;padding:7px 9px}
+body.phone #info-panel .panel-body,body.phone #info-panel .arch-note{display:none}
+body.phone #info-panel.in-sheet .panel-body,body.phone #info-panel.in-sheet .arch-note{display:block}
+body.phone #play-bar:not(.in-sheet),body.phone #ask-box:not(.in-sheet){display:none!important}
+body.phone .legend:not(.in-sheet){display:none!important}
 body.docked .opt-sec{height:0;margin:7px 0 3px;padding:0;overflow:hidden;text-indent:-9999px;white-space:nowrap}
 body.docked .opt-sec.first{display:none}
 body.docked .opt-row{gap:5px}
@@ -547,7 +604,7 @@ body.docked #ask-box.tall #ask-log{min-height:56px}
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.29';
+const APP_VERSION = '2.30';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1058,10 +1115,10 @@ function initMap() {
     crossOrigin: true, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>', maxZoom: 20 });
   const cartoVoyager = carto('voyager'), cartoPositron = carto('light_all'), cartoDark = carto('dark_all');
   esriTopo.addTo(leafletMap);
+  const CREDIT_FULL = '<span class="cr">© 2026 4 Corners Precip Map ·</span> <span class="cr cr-d">Data: Ambient Weather Network; NWS, RAWS and NOAA; SNOTEL/' +
+    '<a href="https://wcc.sc.egov.usda.gov/" target="_blank" rel="noopener">NRCS</a> ·</span> <span class="cr">Readings are unofficial and unverified</span>';
   leafletMap.attributionControl.setPrefix(
-    // same words as before; the spans only keep each phrase whole when the line has to wrap
-    '<span class="cr">© 2026 4 Corners Precip Map ·</span> <span class="cr cr-d">Data: Ambient Weather Network; NWS, RAWS and NOAA; SNOTEL/' +
-    '<a href="https://wcc.sc.egov.usda.gov/" target="_blank" rel="noopener">NRCS</a> ·</span> <span class="cr">Readings are unofficial and unverified</span>');
+    IS_PHONE ? '<span class="cr">© 4CPM · AWN, NWS, SNOTEL · unverified</span>' : CREDIT_FULL);
   L.control.layers({
     'Light gray': light, 'CARTO Voyager': cartoVoyager, 'CARTO Positron': cartoPositron, 'CARTO Dark Matter': cartoDark, 'Streets (OSM)': osm, 'Topographic (OpenTopoMap)': topo,
     'USGS Topo': usgsTopo, 'USGS Imagery + topo': usgsImgTopo, 'USGS Shaded relief': usgsRelief,
@@ -1092,6 +1149,7 @@ function initMap() {
   addPlayBar();
   addAskBox();
   dockPanels();
+  phoneBar();
   addSplitters();
   window.addEventListener('resize', () => { clearTimeout(dockT); dockT = setTimeout(dockPanels, 180); });
   enableDragging();
@@ -1688,6 +1746,96 @@ function aiSettled(ms = 20000) {
 // it back and the phone layout is untouched.
 const DOCK_MIN = 900;
 let dockT = null, docked = null;
+
+// ── The phone's own layout (v2.30): one bar along the bottom, and a sheet for anything that needs
+//    room. Panels are moved in and out of the sheet, remembering where they came from, so turning
+//    the phone or opening the page on a desktop puts them back where they belong. ──
+const SHEETS = { time: ['play-bar', 'Timeline'], options: ['options-panel', 'Settings'],
+                 legend: ['legend', 'Legend'], ask: ['ask-box', 'Talk to the map'],
+                 info: ['info-panel', 'This map'] };
+let sheetKey = null;
+function sheetEl(key) {
+  const id = (SHEETS[key] || [])[0];
+  return id === 'legend' ? legendEl : document.getElementById(id);
+}
+function closeSheet() {
+  if (!sheetKey) return;
+  const el = sheetEl(sheetKey), home = dockHome.get(el);
+  if (el && home) { el.classList.remove('in-sheet'); home.appendChild(el); }
+  document.getElementById('sheet').hidden = true;
+  document.getElementById('sheet-scrim').hidden = true;
+  document.querySelectorAll('#phone-bar .pbtn[data-sheet]').forEach(b => b.classList.remove('on'));
+  sheetKey = null;
+  if (leafletMap) leafletMap.invalidateSize();
+}
+function openSheet(key) {
+  if (sheetKey === key) { closeSheet(); return; }
+  closeSheet();
+  const el = sheetEl(key);
+  if (!el) return;
+  if (!dockHome.has(el)) dockHome.set(el, el.parentElement);
+  el.classList.remove('collapsed');
+  el.classList.add('in-sheet');
+  el.style.transform = ''; boxOffsets.delete(el);
+  const sheet = document.getElementById('sheet');
+  sheet.querySelector('.sheet-title').textContent = SHEETS[key][1];
+  sheet.querySelector('.sheet-body').appendChild(el);
+  sheet.hidden = false;
+  document.getElementById('sheet-scrim').hidden = false;
+  const btn = document.querySelector(`#phone-bar .pbtn[data-sheet="${key}"]`);
+  if (btn) btn.classList.add('on');
+  sheetKey = key;
+  if (key === 'ask') setTimeout(() => { const i = el.querySelector('#ask-input'); i && i.focus(); }, 60);
+}
+function phoneBar() {
+  if (!IS_PHONE || document.getElementById('phone-bar')) return;
+  document.body.classList.add('phone');
+  const note = document.getElementById('arch-note');
+  if (note && !note.dataset.credited) {
+    note.dataset.credited = '1';
+    const c = document.createElement('div');
+    c.className = 'phone-credit';
+    c.innerHTML = '© 2026 4 Corners Precip Map · Data: Ambient Weather Network; NWS, RAWS and NOAA; SNOTEL/NRCS · Tiles © Esri · Readings are unofficial and unverified';
+    note.after(c);
+  }
+  const scrim = document.createElement('div'); scrim.id = 'sheet-scrim'; scrim.hidden = true;
+  scrim.addEventListener('click', closeSheet);
+  const sheet = document.createElement('div'); sheet.id = 'sheet'; sheet.hidden = true;
+  sheet.innerHTML = `<div class="sheet-grip"></div>
+    <div class="sheet-head"><span class="sheet-title"></span><button class="sheet-x" type="button" aria-label="Close">\u2715</button></div>
+    <div class="sheet-body"></div>`;
+  sheet.querySelector('.sheet-x').addEventListener('click', closeSheet);
+  const bar = document.createElement('nav'); bar.id = 'phone-bar';
+  bar.innerHTML = `<button class="pbtn play" id="pb-play" type="button" aria-label="Play">\u25b6</button>
+    <button class="pbtn" id="pb-when" type="button" data-sheet="time"><span id="pb-time">Timeline</span></button>
+    <button class="pbtn" type="button" data-sheet="options" aria-label="Settings">\u2699</button>
+    <button class="pbtn" type="button" data-sheet="legend">Key</button>
+    <button class="pbtn" type="button" data-sheet="ask">Ask</button>`;
+  document.body.append(scrim, sheet, bar);
+  bar.querySelectorAll('[data-sheet]').forEach(b => b.addEventListener('click', () => openSheet(b.dataset.sheet)));
+  document.getElementById('pb-play').addEventListener('click', () => {
+    if (!play) { openSheet('time'); return; }
+    play.playing ? playPause() : playStart();
+  });
+  // the title chip is the way into the numbers behind it
+  const ip = document.getElementById('info-panel');
+  if (ip) ip.addEventListener('click', e => {
+    if (!e.isTrusted || ip.classList.contains('in-sheet')) return;
+    e.stopPropagation(); openSheet('info');
+  });
+  // keep the bar reading what the time bar reads
+  const t = document.getElementById('play-time'), pb = document.getElementById('play-btn');
+  const sync = () => {
+    const to = document.getElementById('pb-time');
+    if (t && to) to.innerHTML = t.innerHTML || 'Timeline';
+    const p = document.getElementById('pb-play');
+    if (pb && p) p.textContent = pb.textContent;
+  };
+  if (t) new MutationObserver(sync).observe(t, { childList: true, subtree: true, characterData: true });
+  if (pb) new MutationObserver(sync).observe(pb, { childList: true, characterData: true });
+  sync();
+  addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
+}
 const dockHome = new Map();
 function dockPanels() {
   const want = window.innerWidth >= DOCK_MIN && !IS_PHONE;

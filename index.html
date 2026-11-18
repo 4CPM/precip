@@ -27,6 +27,7 @@ body.docked #dock-left{width:332px;border-right:1px solid #e2e8f0;padding:10px;b
 body.docked #dock-right{width:188px;border-left:1px solid #e2e8f0;padding:10px;box-sizing:border-box}
 body.docked #dock-left.gone,body.docked #dock-right.gone{width:0!important;padding:0;border:none;overflow:hidden}
 body.docked #ask-bar.gone{height:0;overflow:hidden;border:none}
+body.docked #dock-bottom.gone{height:0;overflow:hidden;border:none}
 body.docked #dock-bottom{flex:0 0 auto;background:#fff;border-top:1px solid #e2e8f0}
 body.docked #dock-bottom:empty{display:none}
 body:not(.docked) #stage{display:contents}
@@ -38,12 +39,18 @@ body.docked #dock-bottom #play-bar{position:static;transform:none!important;disp
 body.docked #dock-bottom #play-bar.on{display:block}
 body.docked .info-panel .drag-handle,body.docked .legend .drag-handle{cursor:default}
 /* a grab strip on each dock's inner edge: drag to resize, double-click to put back (v2.08) */
-.splitter{position:fixed;z-index:1002;background:#e2e8f0;border:0;padding:0;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:9px;line-height:1}
-.splitter:hover{background:#bae6fd;color:#0369a1}
-.splitter.dragging{background:#38bdf8}
-.splitter.v{width:9px;cursor:col-resize;writing-mode:vertical-rl}
-.splitter.h{height:9px;cursor:row-resize}
-.splitter.off{background:#cbd5e1;color:#475569}
+.splitter{position:fixed;z-index:1002;background:#cbd5e1;border:0;padding:0;display:flex;align-items:center;justify-content:center;
+  color:#1e293b;font-size:12px;font-weight:700;line-height:1;box-shadow:inset 0 0 0 1px rgba(15,23,42,.08)}
+.splitter:hover{background:#7dd3fc}
+.splitter:active,.splitter.dragging{background:#38bdf8}
+.splitter.v{width:14px;cursor:col-resize}
+.splitter.h{height:14px;cursor:row-resize}
+.splitter.off{background:#0e7490;color:#fff}
+.splitter .grip{position:absolute;border-radius:2px;background:rgba(15,23,42,.35)}
+.splitter.v .grip{width:2px;height:26px}
+.splitter.h .grip{height:2px;width:26px}
+.splitter .mark{position:relative;z-index:1;background:inherit;padding:6px 0;display:flex;align-items:center;justify-content:center}
+.splitter.h .mark{padding:0 6px}
 body:not(.docked) .splitter{display:none}
 body.docked{position:relative}
 /* the whole page's chrome out of the way, so the map is the window */
@@ -488,7 +495,7 @@ body.docked .ask-msg .rep{display:inline-flex;margin:0 0 0 8px;vertical-align:ba
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.11';
+const APP_VERSION = '2.12';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1655,7 +1662,7 @@ function placeDockables() {
 
 // Drag a dock's edge to resize it, double-click the edge to put it back, and one button takes
 // every piece of chrome away so the map has the whole window (v2.08). Sizes last across visits.
-const DOCK_DEF = { left: 332, right: 188, ask: 122 };
+const DOCK_DEF = { left: 332, right: 188, ask: 122, bottom: 0 };
 function dockSize(k, px) {
   const v = Math.round(px);
   if (k === 'ask') { const l = document.getElementById('ask-log'); if (l) l.style.maxHeight = Math.max(0, v) + 'px'; }
@@ -1675,6 +1682,7 @@ function addSplitters() {
     const sp = document.createElement('div');
     sp.className = 'splitter for-' + key + ' ' + kind;
     sp.title = 'Click to hide this margin, drag to resize';
+    sp.innerHTML = '<span class="grip"></span><span class="mark"></span>';
     document.body.appendChild(sp);
     let from = 0, base = 0, moved = 0;
     const move = e => { const p = e.touches ? e.touches[0] : e; const d = (kind === 'v' ? p.clientX - from : p.clientY - from);
@@ -1698,6 +1706,7 @@ function addSplitters() {
      px => { dockSize('right', Math.max(0, Math.min(520, px))); placeSplitters(); }, -1);
   mk('ask', 'h', 'ask', () => document.getElementById('ask-log').getBoundingClientRect().height,
      px => { dockSize('ask', Math.max(0, Math.min(window.innerHeight * 0.6, px))); placeSplitters(); });
+  mk('bottom', 'h', 'bottom', () => document.getElementById('dock-bottom').offsetHeight, () => {});   // the time bar: click to hide, no resize
   const chrome = document.createElement('button');
   chrome.id = 'chrome-toggle'; chrome.type = 'button';
   chrome.title = 'Hide everything but the map';
@@ -1713,10 +1722,8 @@ function addSplitters() {
   let off = false; try { off = !!localStorage.getItem('cpmChromeOff'); } catch (e) {}
   if (off) { document.body.classList.add('chrome-off'); chrome.title = 'Bring the panels back'; }
   restoreDockSizes();
-  for (const k of ['left', 'right', 'ask']) {
-    let v = null; try { v = localStorage.getItem('cpmOff' + k); } catch (e) {}
-    if (v) { marginOff[k] = true; const el = marginEl(k); if (el) el.classList.add('gone'); }
-  }
+  // a hidden margin is a thing you did this visit, never how the map greets you
+  try { for (const k of ['left', 'right', 'ask', 'bottom']) localStorage.removeItem('cpmOff' + k); } catch (e) {}
   placeSplitters();
   new ResizeObserver(() => placeSplitters()).observe(document.getElementById('stage'));
   // the settings grid drops its label column when the margin is too narrow for two
@@ -1734,14 +1741,13 @@ function marginEl(key) { return document.getElementById(key === 'ask' ? 'ask-bar
 function toggleMargin(key) {
   const el = marginEl(key); if (!el) return;
   if (!marginOff[key]) {
-    marginWas[key] = key === 'ask' ? document.getElementById('ask-log').getBoundingClientRect().height
-                                   : document.getElementById('dock-' + key).offsetWidth;
+    if (key !== 'bottom') marginWas[key] = key === 'ask' ? document.getElementById('ask-log').getBoundingClientRect().height
+                                                         : document.getElementById('dock-' + key).offsetWidth;
     marginOff[key] = true; el.classList.add('gone');
   } else {
     marginOff[key] = false; el.classList.remove('gone');
-    dockSize(key, marginWas[key] || DOCK_DEF[key]);
+    if (key !== 'bottom') dockSize(key, marginWas[key] || DOCK_DEF[key]);
   }
-  try { marginOff[key] ? localStorage.setItem('cpmOff' + key, '1') : localStorage.removeItem('cpmOff' + key); } catch (e) {}
   if (leafletMap) setTimeout(() => leafletMap.invalidateSize(), 40);
   placeSplitters();
 }
@@ -1752,13 +1758,16 @@ function placeSplitters() {
   const put = (key, css) => { const sp = document.querySelector('.splitter.for-' + key); if (!sp) return sp;
     Object.assign(sp.style, css); return sp; };
   const lw = l ? l.offsetWidth : 0, rw = r ? r.offsetWidth : 0, ah = ab ? ab.offsetHeight : 0;
-  const sl = put('left', { left: Math.max(0, lw - 4) + 'px', top: sr0.top + 'px', height: sr0.height + 'px', right: 'auto', bottom: 'auto', width: '9px' });
-  const sr = put('right', { right: Math.max(0, rw - 4) + 'px', top: sr0.top + 'px', height: sr0.height + 'px', left: 'auto', bottom: 'auto', width: '9px' });
-  const sa = put('ask', { top: Math.max(0, ah - 4) + 'px', left: '0px', right: '0px', height: '9px', bottom: 'auto', width: 'auto' });
+  const sl = put('left', { left: Math.max(0, lw - 5) + 'px', top: sr0.top + 'px', height: sr0.height + 'px', right: 'auto', bottom: 'auto', width: '14px' });
+  const sr = put('right', { right: Math.max(0, rw - 5) + 'px', top: sr0.top + 'px', height: sr0.height + 'px', left: 'auto', bottom: 'auto', width: '14px' });
+  const sa = put('ask', { top: Math.max(0, ah - 5) + 'px', left: '0px', right: '0px', height: '14px', bottom: 'auto', width: 'auto' });
+  const db = document.getElementById('dock-bottom'), bh = db ? db.offsetHeight : 0;
+  const sb = put('bottom', { bottom: Math.max(0, bh - 5) + 'px', left: '0px', right: '0px', height: '14px', top: 'auto', width: 'auto' });
   const mark = (sp, key, glyph) => { if (!sp) return; const gone = !!marginOff[key];
-    sp.classList.toggle('off', gone); sp.textContent = gone ? glyph : '\u22EE';
-    sp.title = gone ? 'Click to bring this margin back' : 'Click to hide this margin, drag to resize'; };
-  mark(sl, 'left', '\u203A'); mark(sr, 'right', '\u2039'); mark(sa, 'ask', '\u2304');
+    sp.classList.toggle('off', gone);
+    const m = sp.querySelector('.mark'); if (m) m.textContent = gone ? glyph : '';
+    sp.title = gone ? 'Click to bring this back' : 'Click to hide this, drag to resize'; };
+  mark(sl, 'left', '\u203A'); mark(sr, 'right', '\u2039'); mark(sa, 'ask', '\u2304'); mark(sb, 'bottom', '\u2303');
 }
 
 // A PNG of the map as it stands (v2.09). The tile servers all send CORS headers and the layers ask

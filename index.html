@@ -605,7 +605,7 @@ body.docked #ask-box.tall #ask-log{min-height:56px}
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.32';
+const APP_VERSION = '2.33';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1073,7 +1073,7 @@ function visible(s, ignoreRegion) {
 function initMap() {
   // Any scale, not just whole zoom levels (v2.08): zoomSnap 0 lets the wheel, the buttons and
   // every fitBounds land on a fractional zoom instead of rounding to the nearest step.
-  leafletMap = L.map('map', { zoomControl: false, zoomSnap: 0, zoomDelta: 0.5, wheelPxPerZoomLevel: 100 })
+  leafletMap = L.map('map', { zoomControl: false, zoomSnap: 0, zoomDelta: 0.5, wheelPxPerZoomLevel: 100, preferCanvas: true })
     .setView([CENTER.lat, CENTER.lon], 10);
   L.control.zoom({ position: 'topright' }).addTo(leafletMap);
   leafletMap.createPane('contourFill').style.zIndex = 350;

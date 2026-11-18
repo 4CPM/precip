@@ -195,10 +195,11 @@ body.docked #dock-left,body.docked #dock-right{overflow-x:hidden}
 .opt-sec{grid-column:1 / -1;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#64748b;margin:9px 0 1px;padding-top:7px;border-top:1px solid #e2e8f0}
 .opt-sec.first{margin-top:2px;padding-top:0;border-top:none}
 .opt-l{font-size:11px;font-weight:600;color:#64748b;text-align:right;white-space:nowrap}
+.opt-l.two{white-space:normal;line-height:1.15}
 .sus-count{font-size:11px;color:#64748b;white-space:nowrap}
 .opt-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .seg-ctrl.wrap{flex-wrap:wrap;max-width:420px}
-.seg-ctrl.stack{flex-direction:column;align-items:stretch;justify-self:stretch;width:100%;max-width:100%}
+.seg-ctrl.stack{flex-direction:column;align-items:stretch;justify-self:start;width:max-content;max-width:100%}
 .seg-ctrl.stack .seg-btn{text-align:left;white-space:normal;padding:3px 8px;flex:0 0 auto}
 .seg-ctrl.stack .seg-btn:not(:last-child){border-right:none;border-bottom:1px solid rgba(0,0,0,.12)}
 .info-btn{width:17px;height:17px;border-radius:50%;border:1.5px solid #94a3b8;background:#fff;color:#64748b;font:italic 700 11px Georgia,serif;line-height:1;padding:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
@@ -541,7 +542,7 @@ body.docked .ask-msg .rep{display:inline-flex;margin:0 0 0 8px;vertical-align:ba
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.19';
+const APP_VERSION = '2.20';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -3067,7 +3068,7 @@ function addFilterBar() {
           </div>
           <div id="h-msg" hidden>Past rain for personal (Ambient) stations and SNOTEL sites, up to a year back, with NWS and RAWS gauges for periods up to 10 days. Each day is the station's end-of-day daily total; a period is the sum of its days. One or two days use 5-minute readings, longer periods hourly. Loads station by station for the area on screen.</div>
         </div>
-        <span class="opt-l">Events</span>
+        <span class="opt-l two">Major<br>events</span>
         <div class="seg-ctrl stack">${EVENTS.map(e => `<button class="seg-btn" data-ev="${e.id}" title="${e.title}">${e.label}</button>`).join('')}</div>
         <div class="opt-sec">Which gauges</div>
         <span class="opt-l">Gauges</span>
@@ -3958,8 +3959,8 @@ const HR_FIRST_DAY = '2026-10-19';
 // Named events (Filters & tools → Events), hour by hour, Mountain Time. The address keeps them as ?event=<id>.
 // An event's end in the future (or 'now') means up to the present, so the view grows until the storm's last hour.
 const EVENTS = [
-  { id: 'oct30', label: 'Oct 30 – Nov 2 storm', title: 'The Oct 30 – Nov 2, 2026 storm: Oct 30, 12 AM to Nov 2, 11 PM, hour by hour (to now while it lasts)', from: '2026-10-30T00', to: '2026-11-02T23' },
-  { id: 'oct21', label: 'Oct 21–25 storm', title: 'Remnants of Hurricane Trudy: Oct 21, 12 AM to Oct 25, 11 PM, 2026, hour by hour', from: '2026-10-21T00', to: '2026-10-25T23' },
+  { id: 'oct30', label: 'Oct 30 – Nov 2', title: 'The Oct 30 – Nov 2, 2026 storm: Oct 30, 12 AM to Nov 2, 11 PM, hour by hour (to now while it lasts)', from: '2026-10-30T00', to: '2026-11-02T23' },
+  { id: 'oct21', label: 'Oct 21–25', title: 'Remnants of Hurricane Trudy: Oct 21, 12 AM to Oct 25, 11 PM, 2026, hour by hour', from: '2026-10-21T00', to: '2026-10-25T23' },
 ];
 let hrIndex = null, hrIndexAt = 0, hrTzfix = {};
 const archTz = {};   // station address -> the zone its archived hours are on (tzfix applied)

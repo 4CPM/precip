@@ -605,7 +605,7 @@ body.docked #ask-box.tall #ask-log{min-height:56px}
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.31';
+const APP_VERSION = '2.32';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -2030,10 +2030,8 @@ async function exportPNG() {
     const was = hide.map(e => e.style.visibility); hide.forEach(e => e.style.visibility = 'hidden');
     let base, trim = null;
     try {
-      trim = dataRectPx();
       base = await h2c(mapEl, { useCORS: true, allowTaint: false, backgroundColor: '#ffffff', scale,
                                 logging: false, width: mapEl.clientWidth, height: mapEl.clientHeight });
-      base = cropCanvas(base, trim, scale);
     } finally { hide.forEach((e, i) => e.style.visibility = was[i]); }
 
     const cap = exportCaption();
@@ -2206,9 +2204,9 @@ async function exportGIF() {
     const idx = []; for (let i = 0; i < total; i += step) idx.push(i);
     if (idx[idx.length - 1] !== total - 1) idx.push(total - 1);
     const mapEl = leafletMap.getContainer();
-    const trim = dataRectPx();
-    const gw = Math.round((trim ? trim.w : mapEl.clientWidth) * scale);
-    const gh = Math.round((trim ? trim.h : mapEl.clientHeight) * scale);
+    const trim = null;
+    const gw = Math.round(mapEl.clientWidth * scale);
+    const gh = Math.round(mapEl.clientHeight * scale);
     const gif = new GIFc({ workers: 2, quality: 18, workerScript: gifWorkerBlob, width: gw, height: gh });
     for (let k = 0; k < idx.length; k++) {
       if (gifStop) { pngMsg('Stopped.'); return; }
@@ -2492,7 +2490,7 @@ async function exportVideoDrawn(mime) {
     pngMsg('Measuring this device…');
     const h2c = await loadH2C();
     playPause();
-    const trim = dataRectPx();
+    const trim = null;
     const t0 = performance.now();
     await frameCanvas(h2c, scale, trim);                 // one frame, to see how fast this machine is
     const per = Math.max(60, performance.now() - t0);

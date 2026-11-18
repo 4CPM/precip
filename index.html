@@ -546,7 +546,7 @@ body.docked #ask-box.tall #ask-log{min-height:56px}
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.26';
+const APP_VERSION = '2.27';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1846,11 +1846,21 @@ function loadH2C() {
   return h2cP;
 }
 // how wide the export comes out, in real pixels, for the PNG, the GIF and the video alike
-function expScale() {
-  const want = +(document.getElementById('exp-size') || {}).value || 2560;
-  const w = Math.max(1, leafletMap.getContainer().clientWidth);
-  return want ? Math.max(.25, Math.min(6, want / w)) : 1;
+const screenPx = () => Math.round(Math.max(1, leafletMap.getContainer().clientWidth) * (devicePixelRatio || 1));
+function expWidth() {   // what the export should be, in pixels across
+  const sel = document.getElementById('exp-size');
+  const want = sel ? +sel.value : 0;
+  return want || screenPx();
 }
+function expScale() {
+  const w = Math.max(1, leafletMap.getContainer().clientWidth);
+  return Math.max(.25, Math.min(8, expWidth() / w));
+}
+function labelScreenOption() {
+  const o = document.querySelector('#exp-size option[value="0"]');
+  if (o) o.textContent = 'Screen \u2014 ' + screenPx() + ' px';
+}
+addEventListener('resize', () => setTimeout(labelScreenOption, 250));
 const pngMsg = t => { const e = document.getElementById('png-msg'); if (e) e.textContent = t || ''; };
 // what the picture is of, written along the bottom
 function exportCaption() {
@@ -2019,6 +2029,13 @@ function loadMuxer() {
   return muxP;
 }
 const canCodec = () => !!(window.VideoEncoder && window.VideoFrame && window.EncodedVideoChunk);
+const CODEC_MAX_PX = 9100000;   // H.264 level 5.2 tops out near 9.4 million samples a frame
+function fitForCodec(w, h) {
+  const px = w * h;
+  if (px <= CODEC_MAX_PX) return { w: evenPx(w), h: evenPx(h), cut: 0 };
+  const k = Math.sqrt(CODEC_MAX_PX / px);
+  return { w: evenPx(w * k), h: evenPx(h * k), cut: Math.round((1 - k) * 100) };
+}
 // an encoder that writes real MP4 at the rate it is asked for
 async function makeEncoder(W, H, bitrate) {
   const M = await loadMuxer();
@@ -2056,6 +2073,8 @@ async function makeEncoder(W, H, bitrate) {
                      return new Blob([muxer.target.buffer], { type: 'video/mp4' }); }
   };
 }
+let capStream = null;   // one screen share for the whole visit
+addEventListener('pagehide', () => { try { capStream && capStream.getTracks().forEach(t => t.stop()); } catch (e) {} });
 let keepCtx = null, keepNode = null;
 function keepAwake(on) {
   try {
@@ -2088,22 +2107,23 @@ async function exportVideo() {
   const mime = vidMime();
   if (!mime) { pngMsg('This browser will not record video — the GIF still works.'); setTimeout(() => pngMsg(''), 8000); return; }
   // asked for first, while the click still counts as a gesture
-  let stream = null;
-  if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
+  let stream = capStream && capStream.getVideoTracks()[0] && capStream.getVideoTracks()[0].readyState === 'live' ? capStream : null;
+  if (!stream && navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
         video: { frameRate: 30, width: { ideal: 3840 }, height: { ideal: 2160 }, cursor: 'never' },
         audio: false, preferCurrentTab: true, selfBrowserSurface: 'include', surfaceSwitching: 'exclude' });
+      capStream = stream;
+      stream.getVideoTracks()[0].addEventListener('ended', () => { if (capStream === stream) capStream = null; });
     } catch (e) { stream = null; }
   }
   if (stream) return exportVideoLive(stream, mime);
   pngMsg('Not recording the screen — drawing it frame by frame instead, which is slower.');
   return exportVideoDrawn(mime);
 }
-// the quick one: the browser's own drawing. Region Capture crops the recording to the map element
-// itself, so there is no guessing at coordinates. Each step is waited for, grabbed once, and written
-// as a fixed run of frames, so the pace is exact however the capture behaves and nothing stalls when
-// the tab goes behind another window.
+// the quick one: the browser's own drawing. The recording is cropped to the page itself, and the
+// frame is put together from two pieces of it: the map, and the time bar underneath, which sits
+// outside the map element and so never appeared in the old map-only crop.
 const HOLD_MS = 340;
 const nextCapture = (v, ms) => new Promise(res => {
   let done = false; const fin = () => { if (!done) { done = true; res(); } };
@@ -2127,60 +2147,68 @@ async function exportVideoLive(stream, mime) {
     for (let i = 0; i < 40 && !vid.videoWidth; i++) await new Promise(r => setTimeout(r, 50));
     if (!vid.videoWidth) throw new Error('the recording never started');
 
+    const host = document.body;
     let cropped = false;
     if (window.CropTarget && CropTarget.fromElement && track.cropTo) {
-      try { await track.cropTo(await CropTarget.fromElement(mapEl)); cropped = true; } catch (e) { cropped = false; }
+      try { await track.cropTo(await CropTarget.fromElement(host)); cropped = true; } catch (e) { cropped = false; }
     }
-    const r0 = mapEl.getBoundingClientRect();
-    let ratio, sx, sy, sw, sh;
-    if (cropped) {
-      const was = vid.videoWidth;
+    if (cropped) { const was = vid.videoWidth;
       for (let i = 0; i < 30 && vid.videoWidth === was; i++) await new Promise(r => setTimeout(r, 50));
-      await new Promise(r => setTimeout(r, 250));
-      sx = sy = 0; sw = vid.videoWidth; sh = vid.videoHeight;
-      ratio = sw / Math.max(1, r0.width);
-    } else {
-      ratio = vid.videoWidth / Math.max(1, window.innerWidth);
-      sx = Math.round(r0.x * ratio); sy = Math.round(r0.y * ratio);
-      sw = Math.round(r0.width * ratio); sh = Math.round(r0.height * ratio);
-    }
-    // the width asked for is the width delivered; the screen cannot be stretched, so anything
-    // wider than it holds goes to the slow path, which draws the frames at full size
-    const want = +(document.getElementById('exp-size') || {}).value || 2560;
-    if (sw < want * 0.98) {
+      await new Promise(r => setTimeout(r, 250)); }
+    const hostBox = host.getBoundingClientRect();
+    const ratio = vid.videoWidth / Math.max(1, cropped ? hostBox.width : window.innerWidth);
+    const ox0 = cropped ? hostBox.x : 0, oy0 = cropped ? hostBox.y : 0;
+    const pxOf = el => { const r = el.getBoundingClientRect();
+      return { x: Math.round((r.x - ox0) * ratio), y: Math.round((r.y - oy0) * ratio),
+               w: Math.round(r.width * ratio), h: Math.round(r.height * ratio) }; };
+
+    const bar = document.getElementById('play-bar');
+    const barOn = !!(bar && bar.classList.contains('on') && bar.getBoundingClientRect().height > 10
+                     && bar.getBoundingClientRect().width > 10);
+    const m0 = pxOf(mapEl);
+    const want = expWidth();
+    if (m0.w < want * 0.98) {
       fellBack = true;
-      pngMsg(`The screen only holds ${Math.round(sw)} px across the map \u2014 drawing every frame instead to reach ${want}. This takes a few minutes.`);
+      pngMsg(`The screen only holds ${Math.round(m0.w)} px across the map \u2014 drawing every frame instead to reach ${want}. This takes a few minutes.`);
       return;
     }
-    const shrink = want / sw;
-    const footH = evenPx(Math.max(28, 30 * ratio * shrink));
-    const W = evenPx(want), H = evenPx(sh * shrink) + footH;
+    let shrink = want / m0.w;
+    const b0 = barOn ? pxOf(bar) : null;
+    const rawW = want;
+    const rawH = m0.h * shrink + (b0 ? b0.h * (rawW / b0.w) : 0) + Math.max(22, 22 * ratio * shrink);
+    const fit = fitForCodec(rawW, rawH);
+    if (fit.cut) shrink *= fit.w / rawW;
+    const W = fit.w;
+    const mapH = evenPx(m0.h * shrink);
+    const barH = b0 ? evenPx(b0.h * (W / b0.w)) : 0;     // the bar is wider than the map, so it is set to the frame width
+    const footH = evenPx(Math.max(22, 22 * ratio * shrink));
+    const H = mapH + barH + footH;
+
     const out = document.createElement('canvas'); out.width = W; out.height = H;
     const ox = out.getContext('2d', { alpha: false });
     const cap = exportCaption();
-    const fs1 = Math.round(Math.max(13, 13 * ratio * shrink)), fs2 = Math.round(Math.max(10, 10 * ratio * shrink));
-    const pad = Math.round(Math.max(8, 8 * ratio * shrink));
+    const fs1 = Math.round(Math.max(11, 11 * ratio * shrink)), pad = Math.round(Math.max(8, 8 * ratio * shrink));
     const grab = () => {
-      if (!cropped) { const r = mapEl.getBoundingClientRect();
-        sx = Math.round(r.x * ratio); sy = Math.round(r.y * ratio);
-        sw = Math.round(r.width * ratio); sh = Math.round(r.height * ratio); }
-      try { ox.drawImage(vid, sx, sy, sw, sh, 0, 0, W, H - footH); } catch (e) {}
-      ox.fillStyle = '#ffffff'; ox.fillRect(0, H - footH, W, footH);
-      const base = H - Math.round(footH * .32);
-      ox.textAlign = 'left'; ox.fillStyle = '#0f172a';
-      ox.font = `600 ${fs1}px -apple-system, Segoe UI, Roboto, sans-serif`;
-      ox.fillText(frameLabel() || cap.title, pad, base);
-      if (W > 900) {
-        ox.textAlign = 'right'; ox.fillStyle = '#64748b';
-        ox.font = `${fs2}px -apple-system, Segoe UI, Roboto, sans-serif`;
-        ox.fillText('4 Corners Precip Map', W - pad, base);
-        ox.textAlign = 'left';
+      const m = pxOf(mapEl);
+      ox.fillStyle = '#ffffff'; ox.fillRect(0, 0, W, H);
+      try { ox.drawImage(vid, m.x, m.y, m.w, m.h, 0, 0, W, mapH); } catch (e) {}
+      if (b0) { const b = pxOf(bar);
+        try { ox.drawImage(vid, b.x, b.y, b.w, b.h, 0, mapH, W, barH); } catch (e) {} }
+      // the bar already carries the date, so the strip under it is only the credit
+      const base = H - Math.round(footH * .3);
+      if (!b0) {
+        ox.textAlign = 'left'; ox.fillStyle = '#0f172a';
+        ox.font = `600 ${fs1}px -apple-system, Segoe UI, Roboto, sans-serif`;
+        ox.fillText(frameLabel() || cap.title, pad, base);
       }
+      ox.textAlign = 'right'; ox.fillStyle = '#64748b';
+      ox.font = `${Math.round(fs1 * .82)}px -apple-system, Segoe UI, Roboto, sans-serif`;
+      ox.fillText(cap.title + '  \u00b7  4 Corners Precip Map', W - pad, base);
+      ox.textAlign = 'left';
     };
 
-    const bits = codecBits(W, H);
     let enc;
-    try { enc = await makeEncoder(W, H, bits); }
+    try { enc = await makeEncoder(W, H, codecBits(W, H)); }
     catch (e) { fellBack = true; pngMsg('The encoder would not start (' + String(e.message || e).slice(0, 40) + ') \u2014 drawing it frame by frame instead.'); return; }
 
     const REPEAT = Math.max(2, Math.round(EFPS * HOLD_MS / 1000));
@@ -2203,13 +2231,13 @@ async function exportVideoLive(stream, mime) {
     const u = URL.createObjectURL(blob), a = document.createElement('a');
     a.href = u; a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(u), 20000);
-    pngMsg(`Saved ${W}\u00d7${H}, ${enc.frames} frames, ${(blob.size / 1048576).toFixed(1)} MB MP4 (${enc.mode})${gifStop ? ' (stopped early)' : ''}`);
+    pngMsg(`Saved ${W}\u00d7${H}${barOn ? ' with the time bar' : ''}, ${enc.frames} frames, ${(blob.size / 1048576).toFixed(1)} MB MP4 (${enc.mode})${gifStop ? ' (stopped early)' : ''}`);
   } catch (e) {
     fellBack = true;
     pngMsg('The recording failed (' + String(e.message || e).slice(0, 44) + ') \u2014 drawing it frame by frame instead.');
   } finally {
     keepAwake(false);
-    stream.getTracks().forEach(t => t.stop());
+    if (stream !== capStream) stream.getTracks().forEach(t => t.stop());
     btn.disabled = false; stopBtn.hidden = true;
     if (play) playGo(wasI);
     if (fellBack && !gifStop) setTimeout(() => exportVideoDrawn(mime), 900);
@@ -2220,7 +2248,7 @@ async function exportVideoLive(stream, mime) {
 async function exportVideoDrawn(mime) {
   const btn = document.getElementById('vid-btn'), stopBtn = document.getElementById('gif-stop');
   const mapEl = leafletMap.getContainer();
-  const scale = expScale();
+  let scale = expScale();
   const wasI = play.i, HOLD = 340;
   gifStop = false; btn.disabled = true; stopBtn.hidden = false;
   try {
@@ -2232,6 +2260,8 @@ async function exportVideoDrawn(mime) {
     const idx = []; for (let i = 0; i < total; i += step) idx.push(i);
     if (idx[idx.length - 1] !== total - 1) idx.push(total - 1);
 
+    const fit = fitForCodec(mapEl.clientWidth * scale, mapEl.clientHeight * scale + 30 * scale);
+    if (fit.cut) scale *= fit.w / (mapEl.clientWidth * scale);
     const footH = evenPx(30 * scale);
     const W = evenPx(mapEl.clientWidth * scale), H = evenPx(mapEl.clientHeight * scale) + footH;
     const cap = exportCaption();
@@ -2296,10 +2326,11 @@ async function exportVideoDrawn(mime) {
         if (bmp.close) bmp.close();
         if (track.requestFrame) track.requestFrame(); else if (stream.requestFrame) stream.requestFrame();
         pngMsg(`Recording ${k + 1} of ${shots.length}\u2026`);
-        if (gifStop) { rec.stop(); await ended; pngMsg('Stopped.'); return; }
+        if (gifStop) { rec.stop(); await Promise.race([ended, new Promise(r => setTimeout(r, 15000))]); pngMsg('Stopped.'); return; }
         await new Promise(r => setTimeout(r, k === shots.length - 1 ? HOLD * 3 : HOLD));
       }
-      rec.stop(); await ended;
+      rec.stop();
+      await Promise.race([ended, new Promise(r => setTimeout(r, 30000))]);
       track.stop();
       blob = new Blob(chunks, { type: mime });
       ext = mime.indexOf('mp4') >= 0 ? '.mp4' : '.webm';
@@ -3449,14 +3480,16 @@ function addFilterBar() {
         </div>
         <span class="opt-l">Width</span>
         <div class="opt-row">
-          <select id="exp-size" class="opt-sel" aria-label="Export width" title="How wide the picture, GIF or video comes out. Bigger is sharper and slower, and a wide GIF gets very large. A recorded video uses the screen’s own pixels instead.">
+          <select id="exp-size" class="opt-sel" aria-label="Export width" title="How wide the picture, GIF or video comes out. Screen is this map at its own pixels, which is the sharpest and the quickest, since nothing is resized. A size above the screen has to be drawn frame by frame, which takes minutes.">
+            <option value="0" selected>Screen</option>
             <option value="1920">1920 — HD</option>
-            <option value="2560" selected>2560</option>
+            <option value="2560">2560</option>
             <option value="3840">3840 — 4K</option>
           </select>
           <span id="png-msg" class="con-desc" style="margin:0"></span>
         </div>
 `;
+    labelScreenOption();
     el.querySelector('#png-btn').addEventListener('click', exportPNG);
     el.querySelector('#gif-btn').addEventListener('click', exportGIF);
     el.querySelector('#vid-btn').addEventListener('click', exportVideo);

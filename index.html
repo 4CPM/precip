@@ -40,7 +40,7 @@ body.docked #dock-left .info-panel,body.docked #dock-right .legend,body.docked #
 body.docked .app-name{font-size:9px;letter-spacing:.04em;margin:0;line-height:1.25}
 body.docked .info-panel h2{font-size:13.5px;line-height:1.25;margin-bottom:0}
 body.docked .panel-head{gap:6px}
-body.docked .info-panel .asof{margin:1px 0 3px;font-size:10.5px}
+body.docked .info-panel .asof{margin:0 0 2px;font-size:10.5px}
 /* the figures flow along one line instead of a row each, with Reset on the end */
 body.docked .info-panel .stat{display:inline-flex;width:auto;padding:0;gap:5px;margin:0 12px 0 0}
 body.docked .refresh-row{display:inline-flex;margin:0;gap:5px;vertical-align:middle}
@@ -166,7 +166,7 @@ body:not(.docked) #info-panel,body:not(.docked) .legend{resize:both;overflow:aut
 .refresh-row{display:flex;align-items:center;gap:8px;margin-top:10px}
 .refresh-row .panel-btn{margin-top:0;flex:1}
 .info-panel h2{font-size:14px;font-weight:700;color:#0f172a;margin-bottom:2px;letter-spacing:-.01em}
-.info-panel .asof{font-size:11px;color:#64748b;margin-bottom:8px}
+.info-panel .asof{font-size:11px;color:#64748b;margin:0 0 3px}
 .info-panel .stat{display:flex;justify-content:space-between;padding:1px 0;gap:16px;font-size:11px}
 .info-panel .stat > span:first-child{color:#64748b;font-weight:600}
 .info-panel .stat .val{font-weight:700;color:#0f172a;white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -491,7 +491,7 @@ body.docked #ask-box.tall #ask-log{min-height:56px}
   .leaflet-right .leaflet-control{margin-right:8px}
   .info-panel{width:auto;max-width:calc(100vw - 72px);padding:7px 10px 8px;font-size:12px;line-height:1.4}
   .info-panel h2{font-size:13px}
-  .info-panel .asof{font-size:10px;margin-bottom:4px}
+  .info-panel .asof{font-size:10px;margin:0 0 3px}
   .info-panel .stat{padding:0}
   .refresh-row{margin-top:6px}
   .refresh-msg{height:0;margin-top:0}
@@ -546,7 +546,7 @@ body.docked #ask-box.tall #ask-log{min-height:56px}
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.22';
+const APP_VERSION = '2.23';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -2998,10 +2998,10 @@ function addInfoPanel() {
     el.id = 'info-panel';
     el.innerHTML = `
       <div class="app-name">4 Corners Precip Map <span id="app-ver"></span></div>
+      <div class="asof" id="asof"></div>
       <button class="panel-head" type="button"><h2 id="info-title">Rain Today</h2><span class="chev">▾</span></button>
       <div class="arch-note" id="arch-note"></div>
       <div class="panel-body">
-        <div class="asof" id="asof"></div>
         <div class="stat"><span>Gauges</span><span class="val" id="st-n"></span></div>
         <div class="stat"><span>Range</span><span class="val" id="st-rng"></span></div>
         <div class="refresh-row"><button class="panel-btn small" id="refresh-btn" title="Back to the opening view and default settings, with fresh live data">↺ Reset to default</button><button class="info-btn" id="status-btn" type="button" aria-expanded="false" aria-controls="refresh-msg" title="About the data shown">i</button></div>
@@ -5004,7 +5004,7 @@ async function loadData() {
   try { await loadOfficial(); } catch (e) { offErr = true; }
   loadSnotel().then(() => { if (!loading) setStatus(); })
     .catch(() => setStatus('SNOTEL sites could not be loaded (no connection, or the browser blocked it).', true));
-  dataTime = `Live as of ${fmtTime(now)}, ${new Date(now).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'long', day: 'numeric' })}`;
+  dataTime = `Live ${new Date(now).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'long', day: 'numeric' })}, ${fmtTime(now)}`;
   rebuild();
   await ensureCells(true);
   if (hist) await ensureHist();

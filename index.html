@@ -193,7 +193,8 @@ body:not(.docked) #info-panel,body:not(.docked) .legend{resize:both;overflow:aut
 #options-panel{min-width:0;overflow-x:hidden}
 #options-panel .seg-ctrl{flex-wrap:wrap;max-width:100%}
 body.docked #dock-left,body.docked #dock-right{overflow-x:hidden}
-.opt-sec{grid-column:1 / -1;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#64748b;margin:9px 0 1px;padding-top:7px;border-top:1px solid #e2e8f0}
+.opt-sec{grid-column:1 / -1;height:0;margin:8px 0 3px;padding:0;overflow:hidden;text-indent:-9999px;white-space:nowrap;border-top:1px solid #e2e8f0}
+.opt-sec.first{display:none}
 .opt-sec.first{margin-top:2px;padding-top:0;border-top:none}
 .opt-l{font-size:11px;font-weight:600;color:#64748b;text-align:right;white-space:nowrap}
 .opt-l.two{white-space:normal;line-height:1.15}
@@ -546,7 +547,7 @@ body.docked #ask-box.tall #ask-log{min-height:56px}
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.28';
+const APP_VERSION = '2.29';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -2253,10 +2254,14 @@ async function exportVideoDrawn(mime) {
   const wasI = play.i, HOLD = 340;
   gifStop = false; btn.disabled = true; stopBtn.hidden = false;
   try {
-    pngMsg('Drawing frame by frame…');
+    pngMsg('Measuring this device…');
     const h2c = await loadH2C();
     playPause();
-    const total = play.n, MAXF = 150;
+    const t0 = performance.now();
+    await frameCanvas(h2c, scale);                       // one frame, to see how fast this machine is
+    const per = Math.max(60, performance.now() - t0);
+    const MAXF = Math.max(12, Math.min(150, Math.round(75000 / per)));
+    const total = play.n;
     const step = Math.max(1, Math.ceil(total / MAXF));
     const idx = []; for (let i = 0; i < total; i += step) idx.push(i);
     if (idx[idx.length - 1] !== total - 1) idx.push(total - 1);
@@ -2272,7 +2277,7 @@ async function exportVideoDrawn(mime) {
     const shots = [];
     for (let k = 0; k < idx.length; k++) {
       if (gifStop) { pngMsg('Stopped.'); return; }
-      pngMsg(`Frame ${k + 1} of ${idx.length}… (about ${Math.max(1, Math.round((idx.length - k) * 2 / 60))} min left)`);
+      pngMsg(`Frame ${k + 1} of ${idx.length}${idx.length < total ? ' (of ' + total + ' steps)' : ''}… about ${Math.max(5, Math.round((idx.length - k) * per / 1000))}s left`);
       playGo(idx[k]);
       await new Promise(r => setTimeout(r, 240));
       await aiSettled(4000).catch(() => {});

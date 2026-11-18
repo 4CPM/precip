@@ -546,7 +546,7 @@ body.docked #ask-box.tall #ask-log{min-height:56px}
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.23';
+const APP_VERSION = '2.24';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1839,7 +1839,7 @@ function loadH2C() {
 }
 // how wide the export comes out, in real pixels, for the PNG, the GIF and the video alike
 function expScale() {
-  const want = +(document.getElementById('exp-size') || {}).value || 0;
+  const want = +(document.getElementById('exp-size') || {}).value || 2560;
   const w = Math.max(1, leafletMap.getContainer().clientWidth);
   return want ? Math.max(.25, Math.min(6, want / w)) : 1;
 }
@@ -1853,7 +1853,7 @@ function exportCaption() {
 async function exportPNG() {
   const btn = document.getElementById('png-btn');
   const scale = expScale();
-  btn.disabled = true; pngMsg('Drawing\u2026');
+  btn.disabled = true; keepAwake(true); pngMsg('Drawing\u2026');
   try {
     const h2c = await loadH2C();
     const mapEl = leafletMap.getContainer();
@@ -1902,7 +1902,7 @@ async function exportPNG() {
     }, 'image/png'));
   } catch (e) {
     pngMsg('Could not make the picture (' + String(e.message || e).slice(0, 60) + ')');
-  } finally { btn.disabled = false; setTimeout(() => pngMsg(''), 6000); }
+  } finally { keepAwake(false); btn.disabled = false; setTimeout(() => pngMsg(''), 6000); }
 }
 
 // An animated GIF of the timeline (v2.10): the playback is stepped frame by frame, each frame drawn
@@ -1942,7 +1942,7 @@ async function exportGIF() {
   const btn = document.getElementById('gif-btn'), stopBtn = document.getElementById('gif-stop');
   const scale = expScale();
   gifStop = false;
-  btn.disabled = true; stopBtn.hidden = false;
+  btn.disabled = true; stopBtn.hidden = false; keepAwake(true);
   const wasI = play.i;
   try {
     pngMsg('Loading\u2026');
@@ -1976,6 +1976,7 @@ async function exportGIF() {
   } catch (e) {
     pngMsg('Could not make the GIF (' + String(e.message || e).slice(0, 60) + ')');
   } finally {
+    keepAwake(false);
     btn.disabled = false; stopBtn.hidden = true;
     if (play) playGo(wasI);
     setTimeout(() => pngMsg(''), 8000);
@@ -1994,6 +1995,73 @@ function vidMime() {
   return null;
 }
 const evenPx = n => Math.max(2, Math.round(n / 2) * 2);   // H.264 wants even dimensions
+const vidBits = (w, h) => Math.min(45e6, Math.max(10e6, Math.round(w * h * 30 * 0.15)));
+const MUX_URL = 'https://unpkg.com/mp4-muxer@5.2.1/build/mp4-muxer.js';
+const EFPS = 15;                                   // frames a second in the finished file
+const codecBits = (w, h) => Math.min(70e6, Math.max(14e6, Math.round(w * h * EFPS * 0.20)));
+let muxP = null;
+function loadMuxer() {
+  if (window.Mp4Muxer) return Promise.resolve(window.Mp4Muxer);
+  if (!muxP) muxP = new Promise((res, rej) => {
+    const sc = document.createElement('script');
+    sc.src = MUX_URL; sc.crossOrigin = 'anonymous';
+    sc.onload = () => res(window.Mp4Muxer); sc.onerror = () => { muxP = null; rej(new Error('could not load the video packer')); };
+    document.head.appendChild(sc);
+  });
+  return muxP;
+}
+const canCodec = () => !!(window.VideoEncoder && window.VideoFrame && window.EncodedVideoChunk);
+// an encoder that writes real MP4 at the rate it is asked for
+async function makeEncoder(W, H, bitrate) {
+  const M = await loadMuxer();
+  const muxer = new M.Muxer({ target: new M.ArrayBufferTarget(),
+                              video: { codec: 'avc', width: W, height: H, frameRate: EFPS },
+                              fastStart: 'in-memory' });
+  let err = null;
+  const enc = new VideoEncoder({ output: (c, meta) => muxer.addVideoChunk(c, meta), error: e => { err = e; } });
+  const tries = ['avc1.640034', 'avc1.64002A', 'avc1.4D4034', 'avc1.42E034'];
+  let cfg = null;
+  for (const codec of tries) {
+    const c = { codec, width: W, height: H, bitrate, framerate: EFPS, latencyMode: 'quality',
+                bitrateMode: 'variable', avc: { format: 'avc' } };
+    try { const s = await VideoEncoder.isConfigSupported(c); if (s && s.supported) { cfg = c; break; } } catch (e) {}
+  }
+  if (!cfg) throw new Error('no H.264 encoder for this size');
+  enc.configure(cfg);
+  const dur = Math.round(1e6 / EFPS);
+  let t = 0, n = 0;
+  return {
+    async push(canvas) {
+      if (err) throw err;
+      while (enc.encodeQueueSize > 20) await new Promise(r => setTimeout(r, 12));
+      const f = new VideoFrame(canvas, { timestamp: t, duration: dur });
+      enc.encode(f, { keyFrame: n % 45 === 0 });
+      f.close(); t += dur; n++;
+    },
+    get frames() { return n; },
+    async finish() { await enc.flush(); if (err) throw err; muxer.finalize();
+                     return new Blob([muxer.target.buffer], { type: 'video/mp4' }); }
+  };
+}
+let keepCtx = null, keepNode = null;
+function keepAwake(on) {
+  try {
+    if (on) {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      if (!keepCtx) keepCtx = new AC();
+      if (keepCtx.state === 'suspended') keepCtx.resume();
+      if (keepNode) return;
+      const osc = keepCtx.createOscillator(), g = keepCtx.createGain();
+      g.gain.value = 0.0015; osc.frequency.value = 40;   // inaudible, but the tab counts as playing
+      osc.connect(g); g.connect(keepCtx.destination); osc.start();
+      keepNode = { osc, g };
+    } else if (keepNode) {
+      try { keepNode.osc.stop(); } catch (e) {}
+      keepNode.osc.disconnect(); keepNode.g.disconnect(); keepNode = null;
+      if (keepCtx && keepCtx.suspend) keepCtx.suspend();
+    }
+  } catch (e) {}
+}
 // what the time bar is reading right now, so each frame carries its own date
 function frameLabel() {
   const t = document.getElementById('play-time');
@@ -2006,13 +2074,142 @@ async function exportVideo() {
   if (!play) { pngMsg('The video needs a period with a timeline — pick days, hours or a storm first.'); setTimeout(() => pngMsg(''), 6000); return; }
   const mime = vidMime();
   if (!mime) { pngMsg('This browser will not record video — the GIF still works.'); setTimeout(() => pngMsg(''), 8000); return; }
+  // asked for first, while the click still counts as a gesture
+  let stream = null;
+  if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: 30, width: { ideal: 3840 }, height: { ideal: 2160 }, cursor: 'never' },
+        audio: false, preferCurrentTab: true, selfBrowserSurface: 'include', surfaceSwitching: 'exclude' });
+    } catch (e) { stream = null; }
+  }
+  if (stream) return exportVideoLive(stream, mime);
+  pngMsg('Not recording the screen — drawing it frame by frame instead, which is slower.');
+  return exportVideoDrawn(mime);
+}
+// the quick one: the browser's own drawing. Region Capture crops the recording to the map element
+// itself, so there is no guessing at coordinates. Each step is waited for, grabbed once, and written
+// as a fixed run of frames, so the pace is exact however the capture behaves and nothing stalls when
+// the tab goes behind another window.
+const HOLD_MS = 340;
+const nextCapture = (v, ms) => new Promise(res => {
+  let done = false; const fin = () => { if (!done) { done = true; res(); } };
+  if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(() => setTimeout(fin, 70));
+  setTimeout(fin, ms);
+});
+async function exportVideoLive(stream, mime) {
+  const btn = document.getElementById('vid-btn'), stopBtn = document.getElementById('gif-stop');
+  const mapEl = leafletMap.getContainer();
+  const wasI = play.i;
+  gifStop = false; btn.disabled = true; stopBtn.hidden = false; keepAwake(true);
+  let fellBack = false;
+  const track = stream.getVideoTracks()[0];
+  track.addEventListener('ended', () => { gifStop = true; });
+  try {
+    if (!canCodec()) { fellBack = true; pngMsg('This browser has no video encoder \u2014 drawing it frame by frame instead.'); return; }
+    pngMsg('Starting\u2026');
+    const vid = document.createElement('video');
+    vid.muted = true; vid.playsInline = true; vid.srcObject = stream;
+    await vid.play();
+    for (let i = 0; i < 40 && !vid.videoWidth; i++) await new Promise(r => setTimeout(r, 50));
+    if (!vid.videoWidth) throw new Error('the recording never started');
+
+    let cropped = false;
+    if (window.CropTarget && CropTarget.fromElement && track.cropTo) {
+      try { await track.cropTo(await CropTarget.fromElement(mapEl)); cropped = true; } catch (e) { cropped = false; }
+    }
+    const r0 = mapEl.getBoundingClientRect();
+    let ratio, sx, sy, sw, sh;
+    if (cropped) {
+      const was = vid.videoWidth;
+      for (let i = 0; i < 30 && vid.videoWidth === was; i++) await new Promise(r => setTimeout(r, 50));
+      await new Promise(r => setTimeout(r, 250));
+      sx = sy = 0; sw = vid.videoWidth; sh = vid.videoHeight;
+      ratio = sw / Math.max(1, r0.width);
+    } else {
+      ratio = vid.videoWidth / Math.max(1, window.innerWidth);
+      sx = Math.round(r0.x * ratio); sy = Math.round(r0.y * ratio);
+      sw = Math.round(r0.width * ratio); sh = Math.round(r0.height * ratio);
+    }
+    // below HD the screen gives less than drawing it would, so let the slow path have it
+    if (sw < 1600) {
+      fellBack = true;
+      pngMsg(`The screen would only give ${Math.round(sw)} px \u2014 drawing it frame by frame instead for a sharper file.`);
+      return;
+    }
+
+    const footH = evenPx(Math.max(28, 30 * ratio));
+    const W = evenPx(sw), H = evenPx(sh) + footH;
+    const out = document.createElement('canvas'); out.width = W; out.height = H;
+    const ox = out.getContext('2d', { alpha: false });
+    const cap = exportCaption();
+    const fs1 = Math.round(Math.max(13, 13 * ratio)), fs2 = Math.round(Math.max(10, 10 * ratio));
+    const pad = Math.round(Math.max(8, 8 * ratio));
+    const grab = () => {
+      if (!cropped) { const r = mapEl.getBoundingClientRect();
+        sx = Math.round(r.x * ratio); sy = Math.round(r.y * ratio);
+        sw = Math.round(r.width * ratio); sh = Math.round(r.height * ratio); }
+      try { ox.drawImage(vid, sx, sy, sw, sh, 0, 0, W, H - footH); } catch (e) {}
+      ox.fillStyle = '#ffffff'; ox.fillRect(0, H - footH, W, footH);
+      const base = H - Math.round(footH * .32);
+      ox.textAlign = 'left'; ox.fillStyle = '#0f172a';
+      ox.font = `600 ${fs1}px -apple-system, Segoe UI, Roboto, sans-serif`;
+      ox.fillText(frameLabel() || cap.title, pad, base);
+      if (W > 900) {
+        ox.textAlign = 'right'; ox.fillStyle = '#64748b';
+        ox.font = `${fs2}px -apple-system, Segoe UI, Roboto, sans-serif`;
+        ox.fillText('4 Corners Precip Map', W - pad, base);
+        ox.textAlign = 'left';
+      }
+    };
+
+    const bits = codecBits(W, H);
+    let enc;
+    try { enc = await makeEncoder(W, H, bits); }
+    catch (e) { fellBack = true; pngMsg('The encoder would not start (' + String(e.message || e).slice(0, 40) + ') \u2014 drawing it frame by frame instead.'); return; }
+
+    const REPEAT = Math.max(2, Math.round(EFPS * HOLD_MS / 1000));
+    playPause(); playGo(0);
+    await nextCapture(vid, 600);
+    for (let i = 0; i < play.n; i++) {
+      if (gifStop) break;
+      playGo(i);
+      await nextCapture(vid, 300);
+      await aiSettled(1500).catch(() => {});
+      grab();
+      for (let k = 0; k < REPEAT; k++) await enc.push(out);
+      pngMsg(`Recording step ${i + 1} of ${play.n}\u2026`);
+    }
+    for (let k = 0; k < REPEAT * 2 && !gifStop; k++) await enc.push(out);
+    pngMsg('Packing\u2026');
+    const blob = await enc.finish();
+    if (!blob.size) { fellBack = true; pngMsg('The recording came back empty \u2014 drawing it frame by frame instead.'); return; }
+    const name = '4 Corners Precip Map ' + new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '') + '.mp4';
+    const u = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = u; a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(u), 20000);
+    pngMsg(`Saved ${W}\u00d7${H}, ${enc.frames} frames, ${(blob.size / 1048576).toFixed(1)} MB MP4 at ${Math.round(bits / 1e6)} Mbps${gifStop ? ' (stopped early)' : ''}`);
+  } catch (e) {
+    fellBack = true;
+    pngMsg('The recording failed (' + String(e.message || e).slice(0, 44) + ') \u2014 drawing it frame by frame instead.');
+  } finally {
+    keepAwake(false);
+    stream.getTracks().forEach(t => t.stop());
+    btn.disabled = false; stopBtn.hidden = true;
+    if (play) playGo(wasI);
+    if (fellBack && !gifStop) setTimeout(() => exportVideoDrawn(mime), 900);
+    else setTimeout(() => pngMsg(''), 9000);
+  }
+}
+// the slow one, kept for when the screen is not shared: every frame redrawn in the page
+async function exportVideoDrawn(mime) {
   const btn = document.getElementById('vid-btn'), stopBtn = document.getElementById('gif-stop');
   const mapEl = leafletMap.getContainer();
   const scale = expScale();
   const wasI = play.i, HOLD = 340;
   gifStop = false; btn.disabled = true; stopBtn.hidden = false;
   try {
-    pngMsg('Loading…');
+    pngMsg('Drawing frame by frame…');
     const h2c = await loadH2C();
     playPause();
     const total = play.n, MAXF = 150;
@@ -2044,42 +2241,64 @@ async function exportVideo() {
         cx.fillText('4 Corners Precip Map', W - base, foot);
         cx.textAlign = 'left';
       }
-      shots.push(await new Promise(r => comp.toBlob(r, 'image/jpeg', .92)));
+      shots.push(await new Promise(r => comp.toBlob(r, 'image/jpeg', .97)));
       await new Promise(r => setTimeout(r, 0));
     }
     if (gifStop) { pngMsg('Stopped.'); return; }
 
     const out = document.createElement('canvas'); out.width = W; out.height = H;
-    const ox = out.getContext('2d');
+    const ox = out.getContext('2d', { alpha: false });
     ox.fillStyle = '#ffffff'; ox.fillRect(0, 0, W, H);
-    const stream = out.captureStream(0), track = stream.getVideoTracks()[0];
-    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8e6 });
-    const chunks = [];
-    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
-    const ended = new Promise(res => { rec.onstop = res; });
-    rec.start();
-    for (let k = 0; k < shots.length; k++) {
-      const bmp = await createImageBitmap(shots[k]);
-      ox.drawImage(bmp, 0, 0, W, H);
-      if (bmp.close) bmp.close();
-      if (track.requestFrame) track.requestFrame(); else if (stream.requestFrame) stream.requestFrame();
-      pngMsg(`Recording ${k + 1} of ${shots.length}…`);
-      if (gifStop) { rec.stop(); await ended; pngMsg('Stopped.'); return; }
-      await new Promise(r => setTimeout(r, k === shots.length - 1 ? HOLD * 3 : HOLD));
+    const REPEAT = Math.max(2, Math.round(EFPS * HOLD / 1000));
+    let blob = null, ext = '.mp4';
+    const bits = codecBits(W, H);
+    if (canCodec()) {
+      let enc = null;
+      try { enc = await makeEncoder(W, H, bits); } catch (e) { enc = null; }
+      if (enc) {
+        for (let k = 0; k < shots.length; k++) {
+          if (gifStop) { pngMsg('Stopped.'); return; }
+          const bmp = await createImageBitmap(shots[k]);
+          ox.drawImage(bmp, 0, 0, W, H);
+          if (bmp.close) bmp.close();
+          pngMsg(`Packing ${k + 1} of ${shots.length}\u2026`);
+          const times = k === shots.length - 1 ? REPEAT * 3 : REPEAT;
+          for (let j = 0; j < times; j++) await enc.push(out);
+        }
+        blob = await enc.finish();
+      }
     }
-    rec.stop(); await ended;
-    track.stop();
-    const blob = new Blob(chunks, { type: mime });
+    if (!blob) {   // no encoder in this browser: the old recorder, softer but it works
+      const stream = out.captureStream(0), track = stream.getVideoTracks()[0];
+      const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: vidBits(W, H) });
+      const chunks = [];
+      rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+      const ended = new Promise(res => { rec.onstop = res; });
+      rec.start();
+      for (let k = 0; k < shots.length; k++) {
+        const bmp = await createImageBitmap(shots[k]);
+        ox.drawImage(bmp, 0, 0, W, H);
+        if (bmp.close) bmp.close();
+        if (track.requestFrame) track.requestFrame(); else if (stream.requestFrame) stream.requestFrame();
+        pngMsg(`Recording ${k + 1} of ${shots.length}\u2026`);
+        if (gifStop) { rec.stop(); await ended; pngMsg('Stopped.'); return; }
+        await new Promise(r => setTimeout(r, k === shots.length - 1 ? HOLD * 3 : HOLD));
+      }
+      rec.stop(); await ended;
+      track.stop();
+      blob = new Blob(chunks, { type: mime });
+      ext = mime.indexOf('mp4') >= 0 ? '.mp4' : '.webm';
+    }
     if (!blob.size) { pngMsg('The video came back empty.'); return; }
-    const ext = mime.indexOf('mp4') >= 0 ? '.mp4' : '.webm';
     const name = '4 Corners Precip Map ' + new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '') + ext;
     const u = URL.createObjectURL(blob), a = document.createElement('a');
     a.href = u; a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(u), 20000);
-    pngMsg(`Saved ${shots.length} frames, ${W}×${H}, ${(blob.size / 1048576).toFixed(1)} MB ${ext.slice(1).toUpperCase()}`);
+    pngMsg(`Saved ${shots.length} steps, ${W}×${H}, ${(blob.size / 1048576).toFixed(1)} MB ${ext.slice(1).toUpperCase()} at ${Math.round(bits / 1e6)} Mbps`);
   } catch (e) {
     pngMsg('Could not make the video (' + String(e.message || e).slice(0, 60) + ')');
   } finally {
+    keepAwake(false);
     btn.disabled = false; stopBtn.hidden = true;
     if (play) playGo(wasI);
     setTimeout(() => pngMsg(''), 8000);
@@ -3210,14 +3429,12 @@ function addFilterBar() {
         <div class="opt-row">
           <button class="draw-btn" id="png-btn" type="button" title="A PNG of the map as it looks now, with the legend and a caption">PNG of the map</button>
           <button class="draw-btn" id="gif-btn" type="button" title="An animated GIF of the playback, frame by frame. Only while a period with a timeline is showing.">GIF of the playback</button>
-          <button class="draw-btn" id="vid-btn" type="button" title="A video of the playback — MP4 where the browser will record one, otherwise WebM. Smoother and much smaller than the GIF, and it carries the date on every frame. Only while a period with a timeline is showing.">Video of the playback</button>
+          <button class="draw-btn" id="vid-btn" type="button" title="A video of the playback. Chrome asks to share a tab — pick this one and it records the map as the browser draws it, which takes seconds instead of minutes and comes out at your screen’s own resolution. Cancel the prompt and it draws every frame instead, slower, at the width set here. Only while a period with a timeline is showing.">Video of the playback</button>
           <button class="draw-btn" id="gif-stop" type="button" hidden>Stop</button>
           <span class="opt-l" style="margin:0 2px 0 6px">Width</span>
           <select id="exp-size" class="opt-sel" aria-label="Export width" title="How wide the picture, GIF or video comes out. Bigger is sharper and slower, and a wide GIF gets very large.">
-            <option value="0">Same as the screen</option>
-            <option value="1280">1280 px wide</option>
-            <option value="1920" selected>1920 px wide — HD</option>
-            <option value="2560">2560 px wide</option>
+            <option value="1920">1920 px wide — HD</option>
+            <option value="2560" selected>2560 px wide</option>
             <option value="3840">3840 px wide — 4K</option>
           </select>
           <span id="png-msg" class="con-desc" style="margin:0"></span>

@@ -54,9 +54,19 @@ body.docked .legend-sw{width:22px;height:11px}
 body.docked .leg-foot{margin:5px 0 1px;gap:8px}
 body.docked .leg-notes{margin-top:4px;max-width:none}
 /* the time bar, tightened */
-body.docked #dock-bottom #play-bar{padding:4px 10px 5px;font-size:11.5px}
-body.docked #dock-bottom #play-btn{width:28px;height:28px;font-size:12px}
+body.docked #dock-bottom #play-bar{padding:4px 10px;font-size:11.5px}
+body.docked #dock-bottom #play-btn{width:26px;height:26px;font-size:11px}
 body.docked #dock-bottom .pb-top{gap:8px}
+@media (min-width:1100px){
+  body.docked #dock-bottom #play-bar.on:not(.min){display:flex;align-items:center;gap:12px;flex-wrap:nowrap}
+  body.docked #dock-bottom #play-bar.on:not(.min) .pb-top{flex:0 0 auto;gap:7px;order:1}
+  body.docked #dock-bottom #play-bar.on:not(.min) #play-range{flex:1 1 auto;margin:0;order:2;min-width:120px;width:auto}
+  body.docked #dock-bottom #play-bar.on:not(.min) .pb-row{flex:0 0 auto;gap:10px;order:3;margin:0}
+  body.docked #dock-bottom #play-bar.on:not(.min) #play-time{white-space:nowrap}
+  body.docked #dock-bottom #play-bar.on:not(.min) #play-time small{display:inline;margin-left:7px;font-size:11px}
+  body.docked #dock-bottom #play-bar.on:not(.min) #play-time{flex:0 0 auto}
+  body.docked #dock-bottom .pb-chev{order:4}
+}
 body.docked #ask-box .ask-body{padding:3px 12px 5px}
 body.docked #dock-bottom #play-bar{position:static;transform:none!important;display:none;box-shadow:none;background:transparent;width:auto;max-width:none;margin:0}
 body.docked #dock-bottom #play-bar.on{display:block}
@@ -518,7 +528,7 @@ body.docked .ask-msg .rep{display:inline-flex;margin:0 0 0 8px;vertical-align:ba
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.14';
+const APP_VERSION = '2.15';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown

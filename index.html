@@ -23,8 +23,8 @@ body.docked{display:flex;flex-direction:column;height:100dvh;overflow:hidden}
 body.docked #stage{flex:1 1 auto;display:flex;min-height:0}
 body.docked #map{flex:1 1 auto;height:auto;min-width:0}
 body.docked #dock-left,body.docked #dock-right{flex:0 0 auto;overflow-y:auto;background:#fff;z-index:2;contain:layout style}
-body.docked #dock-left{width:332px;border-right:1px solid #e2e8f0;padding:10px;box-sizing:border-box}
-body.docked #dock-right{width:188px;border-left:1px solid #e2e8f0;padding:10px;box-sizing:border-box}
+body.docked #dock-left{width:292px;border-right:1px solid #e2e8f0;padding:7px 8px;box-sizing:border-box}
+body.docked #dock-right{width:150px;border-left:1px solid #e2e8f0;padding:7px 8px;box-sizing:border-box}
 body.docked #dock-left.gone,body.docked #dock-right.gone{width:0!important;padding:0;border:none;overflow:hidden}
 body.docked #ask-bar.gone{height:0;overflow:hidden;border:none}
 body.docked #dock-bottom.gone{height:0;overflow:hidden;border:none}
@@ -34,8 +34,31 @@ body:not(.docked) #stage{display:contents}
 body:not(.docked) #dock-left,body:not(.docked) #dock-right,body:not(.docked) #dock-bottom,body:not(.docked) #ask-bar{display:none}
 /* the panels, once docked, are plain blocks: no shadow, no float, full column width */
 body.docked #dock-left .info-panel,body.docked #dock-right .legend,body.docked #dock-left #sel-panel{
-  position:static;transform:none!important;box-shadow:none;max-width:none;width:auto;margin:0 0 10px;backdrop-filter:none;background:transparent}
-body.docked #dock-bottom #play-bar{position:static;transform:none!important;display:none;box-shadow:none;background:transparent;width:auto;max-width:none;margin:0;padding:8px 12px}
+  position:static;transform:none!important;box-shadow:none;max-width:none;width:auto;margin:0 0 6px;padding:0;
+  backdrop-filter:none;background:transparent;line-height:1.3}
+/* the panel, tightened: nothing here is decoration, so the rows sit close together */
+body.docked .info-panel h2{font-size:14px;margin-bottom:0}
+body.docked .info-panel .asof{margin-bottom:4px}
+body.docked .info-panel .stat{padding:0;gap:10px}
+body.docked .info-panel .filters{margin-top:6px;padding-top:5px}
+body.docked .refresh-row{margin-top:6px;gap:6px}
+body.docked .panel-btn{margin-top:6px;padding:4px 0}
+body.docked .opt-grid{gap:3px 7px}
+body.docked .opt-sec{margin:6px 0 0;padding-top:4px}
+body.docked .opt-row{gap:5px}
+body.docked .con-desc,body.docked .leg-notes{line-height:1.3}
+/* the legend, tightened: smaller chips, rows touching */
+body.docked .legend h4{margin:0 0 3px}
+body.docked .legend-row{padding:0;gap:6px}
+body.docked .legend-sw{width:22px;height:11px}
+body.docked .leg-foot{margin:5px 0 1px;gap:8px}
+body.docked .leg-notes{margin-top:4px;max-width:none}
+/* the time bar, tightened */
+body.docked #dock-bottom #play-bar{padding:4px 10px 5px;font-size:11.5px}
+body.docked #dock-bottom #play-btn{width:28px;height:28px;font-size:12px}
+body.docked #dock-bottom .pb-top{gap:8px}
+body.docked #ask-box .ask-body{padding:3px 12px 5px}
+body.docked #dock-bottom #play-bar{position:static;transform:none!important;display:none;box-shadow:none;background:transparent;width:auto;max-width:none;margin:0}
 body.docked #dock-bottom #play-bar.on{display:block}
 body.docked .info-panel .drag-handle,body.docked .legend .drag-handle{cursor:default}
 /* a grab strip on each dock's inner edge: drag to resize, double-click to put back (v2.08) */
@@ -495,7 +518,7 @@ body.docked .ask-msg .rep{display:inline-flex;margin:0 0 0 8px;vertical-align:ba
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.13';
+const APP_VERSION = '2.14';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1662,7 +1685,7 @@ function placeDockables() {
 
 // Drag a dock's edge to resize it, double-click the edge to put it back, and one button takes
 // every piece of chrome away so the map has the whole window (v2.08). Sizes last across visits.
-const DOCK_DEF = { left: 332, right: 188, ask: 122, bottom: 0 };
+const DOCK_DEF = { left: 292, right: 150, ask: 122, bottom: 0 };
 function dockSize(k, px) {
   const v = Math.round(px);
   if (k === 'ask') { const l = document.getElementById('ask-log'); if (l) l.style.maxHeight = Math.max(0, v) + 'px'; }
@@ -1729,7 +1752,7 @@ function addSplitters() {
   // the settings grid drops its label column when the margin is too narrow for two
   const op = document.getElementById('options-panel'), dl = document.getElementById('dock-left');
   const fitOpts = () => { if (!op) return; const w = (docked && dl ? dl.clientWidth : op.clientWidth) - 20;
-    op.classList.toggle('narrow', w > 0 && w < 272); };
+    op.classList.toggle('narrow', w > 0 && w < 252); };
   if (dl) new ResizeObserver(fitOpts).observe(dl);
   if (op) new ResizeObserver(fitOpts).observe(op);
   fitOpts();
@@ -3008,15 +3031,7 @@ function addFilterBar() {
           </div>
           <div class="con-desc" id="con-desc"></div>
         </div>
-        <div class="opt-sec">Save a picture</div>
-        <span class="opt-l">Export</span>
-        <div class="opt-row">
-          <button class="draw-btn" id="png-btn" type="button" title="A PNG of the map as it looks now, with the legend and a caption">PNG of the map</button>
-          <button class="draw-btn" id="gif-btn" type="button" title="An animated GIF of the playback, frame by frame. Only while a period with a timeline is showing.">GIF of the playback</button>
-          <button class="draw-btn" id="gif-stop" type="button" hidden>Stop</button>
-          <span class="leg-num-wrap"><input type="number" class="leg-num" id="png-scale" min="1" max="4" step="1" value="2" inputmode="numeric" aria-label="Picture scale" title="1 is screen size; 2 or 3 makes a sharper picture"> ×</span>
-          <span id="png-msg" class="con-desc" style="margin:0"></span>
-        </div>
+        <div class="opt-sec">Boundaries</div>
         <span class="opt-l">Boundaries</span>
         <div class="opt-row" id="bnd-row">
           <button class="toggle-btn" id="bnd-state-btn" type="button" title="State lines (Census Bureau)"><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-label-text">States</span></button>
@@ -3048,6 +3063,15 @@ function addFilterBar() {
         </div>
         <span class="opt-l" id="bnd-sel-lab" hidden>Picked</span>
         <div class="opt-row" id="bnd-sel-row" hidden></div>
+        <div class="opt-sec">Save a picture</div>
+        <span class="opt-l">Export</span>
+        <div class="opt-row">
+          <button class="draw-btn" id="png-btn" type="button" title="A PNG of the map as it looks now, with the legend and a caption">PNG of the map</button>
+          <button class="draw-btn" id="gif-btn" type="button" title="An animated GIF of the playback, frame by frame. Only while a period with a timeline is showing.">GIF of the playback</button>
+          <button class="draw-btn" id="gif-stop" type="button" hidden>Stop</button>
+          <span class="leg-num-wrap"><input type="number" class="leg-num" id="png-scale" min="1" max="4" step="1" value="2" inputmode="numeric" aria-label="Picture scale" title="1 is screen size; 2 or 3 makes a sharper picture"> ×</span>
+          <span id="png-msg" class="con-desc" style="margin:0"></span>
+        </div>
 `;
     el.querySelector('#png-btn').addEventListener('click', exportPNG);
     el.querySelector('#gif-btn').addEventListener('click', exportGIF);

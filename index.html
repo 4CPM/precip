@@ -165,17 +165,18 @@ body:not(.docked) #info-panel,body:not(.docked) .legend{resize:both;overflow:aut
 .info-panel .filters{margin-top:10px;padding-top:9px;border-top:1px solid rgba(0,0,0,.08)}
 .refresh-row{display:flex;align-items:center;gap:8px;margin-top:10px}
 .refresh-row .panel-btn{margin-top:0;flex:1}
-.info-panel h2{font-size:15px;color:#1e293b;margin-bottom:2px}
+.info-panel h2{font-size:14px;font-weight:700;color:#0f172a;margin-bottom:2px;letter-spacing:-.01em}
 .info-panel .asof{font-size:11px;color:#64748b;margin-bottom:8px}
-.info-panel .stat{display:flex;justify-content:space-between;padding:2px 0;gap:16px}
-.info-panel .stat .val{font-weight:600;color:#2563eb;white-space:nowrap;font-variant-numeric:tabular-nums}
+.info-panel .stat{display:flex;justify-content:space-between;padding:1px 0;gap:16px;font-size:11px}
+.info-panel .stat > span:first-child{color:#64748b;font-weight:600}
+.info-panel .stat .val{font-weight:700;color:#0f172a;white-space:nowrap;font-variant-numeric:tabular-nums}
 .panel-btn{
   display:block;width:100%;margin-top:10px;padding:6px 0;
-  border:1px solid rgba(37,99,235,.35);border-radius:6px;
-  background:#eff6ff;color:#2563eb;font-size:12px;font-weight:600;
+  border:1px solid #cbd5e1;border-radius:6px;
+  background:#f8fafc;color:#334155;font-size:11px;font-weight:600;
   cursor:pointer;text-align:center;font-family:inherit;
 }
-.panel-btn:hover{background:#dbeafe}
+.panel-btn:hover{background:#eef2f7;border-color:#94a3b8}
 .panel-btn:disabled{opacity:.6;cursor:wait}
 .refresh-msg{font-size:11px;color:#64748b;margin-top:5px;line-height:1.4;height:15px;overflow:hidden;visibility:hidden}
 .refresh-msg.show{height:auto;visibility:visible}
@@ -202,7 +203,7 @@ body.docked #dock-left,body.docked #dock-right{overflow-x:hidden}
 .seg-ctrl.stack{flex-direction:column;align-items:stretch;justify-self:start;width:max-content;max-width:100%}
 .seg-ctrl.stack .seg-btn{text-align:left;white-space:normal;padding:3px 8px;flex:0 0 auto}
 .seg-ctrl.stack .seg-btn:not(:last-child){border-right:none;border-bottom:1px solid rgba(0,0,0,.12)}
-.info-btn{width:17px;height:17px;border-radius:50%;border:1.5px solid #94a3b8;background:#fff;color:#64748b;font:italic 700 11px Georgia,serif;line-height:1;padding:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.info-btn{width:17px;height:17px;border-radius:50%;border:1px solid #cbd5e1;background:#f8fafc;color:#475569;font-family:inherit;font-size:10.5px;font-weight:700;font-style:normal;line-height:1;line-height:1;padding:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
 .info-btn:hover,.info-btn.active{border-color:#0891b2;color:#0891b2;background:#ecfeff}
 .info-btn:focus-visible{outline:2px solid #0891b2;outline-offset:1px}
 .hist-row{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-bottom:6px}
@@ -542,7 +543,7 @@ body.docked .ask-msg .rep{display:inline-flex;margin:0 0 0 8px;vertical-align:ba
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.20';
+const APP_VERSION = '2.21';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -4995,7 +4996,7 @@ async function loadData() {
   try { await loadOfficial(); } catch (e) { offErr = true; }
   loadSnotel().then(() => { if (!loading) setStatus(); })
     .catch(() => setStatus('SNOTEL sites could not be loaded (no connection, or the browser blocked it).', true));
-  dataTime = `${new Date(now).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'long', day: 'numeric' })}, live as of ${fmtTime(now)}`;
+  dataTime = `Live as of ${fmtTime(now)}, ${new Date(now).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'long', day: 'numeric' })}`;
   rebuild();
   await ensureCells(true);
   if (hist) await ensureHist();

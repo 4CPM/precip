@@ -40,15 +40,15 @@ body.docked #dock-bottom #play-bar.on{display:block}
 body.docked .info-panel .drag-handle,body.docked .legend .drag-handle{cursor:default}
 /* a grab strip on each dock's inner edge: drag to resize, double-click to put back (v2.08) */
 .splitter{position:fixed;z-index:1002;background:#cbd5e1;border:0;padding:0;display:flex;align-items:center;justify-content:center;
-  color:#1e293b;font-size:12px;font-weight:700;line-height:1;box-shadow:inset 0 0 0 1px rgba(15,23,42,.08)}
+  color:#1e293b;font-size:10px;font-weight:700;line-height:1;box-shadow:inset 0 0 0 1px rgba(15,23,42,.10)}
 .splitter:hover{background:#7dd3fc}
 .splitter:active,.splitter.dragging{background:#38bdf8}
-.splitter.v{width:14px;cursor:col-resize}
-.splitter.h{height:14px;cursor:row-resize}
+.splitter.v{width:8px;cursor:col-resize}
+.splitter.h{height:8px;cursor:row-resize}
 .splitter.off{background:#0e7490;color:#fff}
-.splitter .grip{position:absolute;border-radius:2px;background:rgba(15,23,42,.35)}
-.splitter.v .grip{width:2px;height:26px}
-.splitter.h .grip{height:2px;width:26px}
+.splitter .grip{position:absolute;border-radius:2px;background:rgba(15,23,42,.45)}
+.splitter.v .grip{width:2px;height:30px}
+.splitter.h .grip{height:2px;width:30px}
 .splitter .mark{position:relative;z-index:1;background:inherit;padding:6px 0;display:flex;align-items:center;justify-content:center}
 .splitter.h .mark{padding:0 6px}
 body:not(.docked) .splitter{display:none}
@@ -495,7 +495,7 @@ body.docked .ask-msg .rep{display:inline-flex;margin:0 0 0 8px;vertical-align:ba
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.12';
+const APP_VERSION = '2.13';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1758,11 +1758,11 @@ function placeSplitters() {
   const put = (key, css) => { const sp = document.querySelector('.splitter.for-' + key); if (!sp) return sp;
     Object.assign(sp.style, css); return sp; };
   const lw = l ? l.offsetWidth : 0, rw = r ? r.offsetWidth : 0, ah = ab ? ab.offsetHeight : 0;
-  const sl = put('left', { left: Math.max(0, lw - 5) + 'px', top: sr0.top + 'px', height: sr0.height + 'px', right: 'auto', bottom: 'auto', width: '14px' });
-  const sr = put('right', { right: Math.max(0, rw - 5) + 'px', top: sr0.top + 'px', height: sr0.height + 'px', left: 'auto', bottom: 'auto', width: '14px' });
-  const sa = put('ask', { top: Math.max(0, ah - 5) + 'px', left: '0px', right: '0px', height: '14px', bottom: 'auto', width: 'auto' });
+  const sl = put('left', { left: Math.max(0, lw - 4) + 'px', top: sr0.top + 'px', height: sr0.height + 'px', right: 'auto', bottom: 'auto', width: '8px' });
+  const sr = put('right', { right: Math.max(0, rw - 4) + 'px', top: sr0.top + 'px', height: sr0.height + 'px', left: 'auto', bottom: 'auto', width: '8px' });
+  const sa = put('ask', { top: Math.max(0, ah - 4) + 'px', left: '0px', right: '0px', height: '8px', bottom: 'auto', width: 'auto' });
   const db = document.getElementById('dock-bottom'), bh = db ? db.offsetHeight : 0;
-  const sb = put('bottom', { bottom: Math.max(0, bh - 5) + 'px', left: '0px', right: '0px', height: '14px', top: 'auto', width: 'auto' });
+  const sb = put('bottom', { bottom: Math.max(0, bh - 4) + 'px', left: '0px', right: '0px', height: '8px', top: 'auto', width: 'auto' });
   const mark = (sp, key, glyph) => { if (!sp) return; const gone = !!marginOff[key];
     sp.classList.toggle('off', gone);
     const m = sp.querySelector('.mark'); if (m) m.textContent = gone ? glyph : '';

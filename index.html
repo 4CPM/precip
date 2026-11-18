@@ -546,7 +546,7 @@ body.docked #ask-box.tall #ask-log{min-height:56px}
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.24';
+const APP_VERSION = '2.25';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -3427,15 +3427,17 @@ function addFilterBar() {
         <div class="opt-sec">Save a picture</div>
         <span class="opt-l">Export</span>
         <div class="opt-row">
-          <button class="draw-btn" id="png-btn" type="button" title="A PNG of the map as it looks now, with the legend and a caption">PNG of the map</button>
-          <button class="draw-btn" id="gif-btn" type="button" title="An animated GIF of the playback, frame by frame. Only while a period with a timeline is showing.">GIF of the playback</button>
-          <button class="draw-btn" id="vid-btn" type="button" title="A video of the playback. Chrome asks to share a tab — pick this one and it records the map as the browser draws it, which takes seconds instead of minutes and comes out at your screen’s own resolution. Cancel the prompt and it draws every frame instead, slower, at the width set here. Only while a period with a timeline is showing.">Video of the playback</button>
+          <button class="draw-btn" id="png-btn" type="button" title="A PNG of the map as it looks now, with the legend and a caption">PNG</button>
+          <button class="draw-btn" id="gif-btn" type="button" title="An animated GIF of the playback, frame by frame. Only while a period with a timeline is showing.">GIF</button>
+          <button class="draw-btn" id="vid-btn" type="button" title="A video of the playback. Chrome asks to share a tab — pick this one and it records the map as the browser draws it, which takes seconds instead of minutes and comes out at your screen’s own resolution. Cancel the prompt and it draws every frame instead, slower, at the width set here. Only while a period with a timeline is showing.">Video</button>
           <button class="draw-btn" id="gif-stop" type="button" hidden>Stop</button>
-          <span class="opt-l" style="margin:0 2px 0 6px">Width</span>
-          <select id="exp-size" class="opt-sel" aria-label="Export width" title="How wide the picture, GIF or video comes out. Bigger is sharper and slower, and a wide GIF gets very large.">
-            <option value="1920">1920 px wide — HD</option>
-            <option value="2560" selected>2560 px wide</option>
-            <option value="3840">3840 px wide — 4K</option>
+        </div>
+        <span class="opt-l">Width</span>
+        <div class="opt-row">
+          <select id="exp-size" class="opt-sel" aria-label="Export width" title="How wide the picture, GIF or video comes out. Bigger is sharper and slower, and a wide GIF gets very large. A recorded video uses the screen’s own pixels instead.">
+            <option value="1920">1920 — HD</option>
+            <option value="2560" selected>2560</option>
+            <option value="3840">3840 — 4K</option>
           </select>
           <span id="png-msg" class="con-desc" style="margin:0"></span>
         </div>

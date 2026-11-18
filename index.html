@@ -204,6 +204,7 @@ body.docked #dock-left,body.docked #dock-right{overflow-x:hidden}
 .hist-row{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-bottom:6px}
 .hist-row label{display:flex;align-items:center;gap:4px;font-weight:600;color:#475569}
 .hist-row select{font:inherit;font-size:12px;padding:2px 4px;border:1px solid rgba(0,0,0,.2);border-radius:5px;background:#fff;color:#1e293b}
+.opt-sel{font:inherit;font-size:11.5px;padding:2px 5px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#1e293b;cursor:pointer}
 .hist-row input[type=date]{font:inherit;font-size:12px;padding:2px 4px;border:1px solid rgba(0,0,0,.2);border-radius:5px;background:#fff;color:#1e293b}
 .hist-days{margin:4px 0 6px;max-height:160px;overflow-y:auto;border-top:1px solid #f1f5f9}
 .hist-gap{font-size:11px;color:#92400e;margin:3px 0}
@@ -537,7 +538,7 @@ body.docked .ask-msg .rep{display:inline-flex;margin:0 0 0 8px;vertical-align:ba
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.17';
+const APP_VERSION = '2.18';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1827,6 +1828,12 @@ function loadH2C() {
   });
   return h2cP;
 }
+// how wide the export comes out, in real pixels, for the PNG, the GIF and the video alike
+function expScale() {
+  const want = +(document.getElementById('exp-size') || {}).value || 0;
+  const w = Math.max(1, leafletMap.getContainer().clientWidth);
+  return want ? Math.max(.25, Math.min(6, want / w)) : 1;
+}
 const pngMsg = t => { const e = document.getElementById('png-msg'); if (e) e.textContent = t || ''; };
 // what the picture is of, written along the bottom
 function exportCaption() {
@@ -1836,7 +1843,7 @@ function exportCaption() {
 }
 async function exportPNG() {
   const btn = document.getElementById('png-btn');
-  const scale = Math.max(1, Math.min(4, +(document.getElementById('png-scale') || {}).value || 2));
+  const scale = expScale();
   btn.disabled = true; pngMsg('Drawing\u2026');
   try {
     const h2c = await loadH2C();
@@ -1924,8 +1931,7 @@ async function frameCanvas(h2c, scale) {
 async function exportGIF() {
   if (!play) { pngMsg('The GIF needs a period with a timeline \u2014 pick days, hours or a storm first.'); setTimeout(() => pngMsg(''), 6000); return; }
   const btn = document.getElementById('gif-btn'), stopBtn = document.getElementById('gif-stop');
-  const mapW = leafletMap.getContainer().clientWidth;
-  const scale = Math.min(1, 900 / Math.max(1, mapW));   // a GIF frame is uncompressed-ish; keep it under ~900px wide
+  const scale = expScale();
   gifStop = false;
   btn.disabled = true; stopBtn.hidden = false;
   const wasI = play.i;
@@ -1957,9 +1963,113 @@ async function exportGIF() {
     const u = URL.createObjectURL(blob), a = document.createElement('a');
     a.href = u; a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(u), 20000);
-    pngMsg(`Saved ${idx.length} frames, ${(blob.size / 1048576).toFixed(1)} MB`);
+    pngMsg(`Saved ${idx.length} frames, ${Math.round(mapEl.clientWidth * scale)} px wide, ${(blob.size / 1048576).toFixed(1)} MB`);
   } catch (e) {
     pngMsg('Could not make the GIF (' + String(e.message || e).slice(0, 60) + ')');
+  } finally {
+    btn.disabled = false; stopBtn.hidden = true;
+    if (play) playGo(wasI);
+    setTimeout(() => pngMsg(''), 8000);
+  }
+}
+
+// A video of the timeline (v2.18). Every step is drawn the way the PNG is, kept as a JPEG, then
+// played back in real time into MediaRecorder, so what comes out is an MP4 where the browser will
+// record one and a WebM where it will not. It takes many more frames than the GIF, runs smoother and
+// lands about a tenth of the size. Nothing is uploaded anywhere; the recording is made in the page.
+const VID_MIMES = ['video/mp4;codecs=avc1.4d002a', 'video/mp4;codecs=avc1.42E01E', 'video/mp4',
+                   'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+function vidMime() {
+  if (typeof MediaRecorder === 'undefined' || !HTMLCanvasElement.prototype.captureStream) return null;
+  for (const m of VID_MIMES) { try { if (MediaRecorder.isTypeSupported(m)) return m; } catch (e) {} }
+  return null;
+}
+const evenPx = n => Math.max(2, Math.round(n / 2) * 2);   // H.264 wants even dimensions
+// what the time bar is reading right now, so each frame carries its own date
+function frameLabel() {
+  const t = document.getElementById('play-time');
+  if (!t) return '';
+  const sm = t.querySelector('small'), sub = sm ? sm.textContent.trim() : '';
+  const main = (sm ? t.textContent.replace(sm.textContent, '') : t.textContent).trim();
+  return [main, sub].filter(Boolean).join('  ·  ');
+}
+async function exportVideo() {
+  if (!play) { pngMsg('The video needs a period with a timeline — pick days, hours or a storm first.'); setTimeout(() => pngMsg(''), 6000); return; }
+  const mime = vidMime();
+  if (!mime) { pngMsg('This browser will not record video — the GIF still works.'); setTimeout(() => pngMsg(''), 8000); return; }
+  const btn = document.getElementById('vid-btn'), stopBtn = document.getElementById('gif-stop');
+  const mapEl = leafletMap.getContainer();
+  const scale = expScale();
+  const wasI = play.i, HOLD = 340;
+  gifStop = false; btn.disabled = true; stopBtn.hidden = false;
+  try {
+    pngMsg('Loading…');
+    const h2c = await loadH2C();
+    playPause();
+    const total = play.n, MAXF = 150;
+    const step = Math.max(1, Math.ceil(total / MAXF));
+    const idx = []; for (let i = 0; i < total; i += step) idx.push(i);
+    if (idx[idx.length - 1] !== total - 1) idx.push(total - 1);
+
+    const footH = evenPx(30 * scale);
+    const W = evenPx(mapEl.clientWidth * scale), H = evenPx(mapEl.clientHeight * scale) + footH;
+    const cap = exportCaption();
+    const comp = document.createElement('canvas'); comp.width = W; comp.height = H;
+    const cx = comp.getContext('2d');
+    const base = Math.round(8 * scale), foot = H - Math.round(10 * scale);
+    const shots = [];
+    for (let k = 0; k < idx.length; k++) {
+      if (gifStop) { pngMsg('Stopped.'); return; }
+      pngMsg(`Frame ${k + 1} of ${idx.length}… (about ${Math.max(1, Math.round((idx.length - k) * 2 / 60))} min left)`);
+      playGo(idx[k]);
+      await new Promise(r => setTimeout(r, 240));
+      await aiSettled(4000).catch(() => {});
+      const c = await frameCanvas(h2c, scale);
+      cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, W, H);
+      cx.drawImage(c, 0, 0, W, H - footH);
+      cx.fillStyle = '#0f172a'; cx.font = `600 ${Math.round(13 * scale)}px -apple-system, Segoe UI, Roboto, sans-serif`;
+      cx.fillText(frameLabel() || cap.title, base, foot);
+      if (W > 640) {   // the credit only where there is room for it without crowding the date
+        cx.textAlign = 'right';
+        cx.fillStyle = '#64748b'; cx.font = `${Math.round(10 * scale)}px -apple-system, Segoe UI, Roboto, sans-serif`;
+        cx.fillText('4 Corners Precip Map', W - base, foot);
+        cx.textAlign = 'left';
+      }
+      shots.push(await new Promise(r => comp.toBlob(r, 'image/jpeg', .92)));
+      await new Promise(r => setTimeout(r, 0));
+    }
+    if (gifStop) { pngMsg('Stopped.'); return; }
+
+    const out = document.createElement('canvas'); out.width = W; out.height = H;
+    const ox = out.getContext('2d');
+    ox.fillStyle = '#ffffff'; ox.fillRect(0, 0, W, H);
+    const stream = out.captureStream(0), track = stream.getVideoTracks()[0];
+    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8e6 });
+    const chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    const ended = new Promise(res => { rec.onstop = res; });
+    rec.start();
+    for (let k = 0; k < shots.length; k++) {
+      const bmp = await createImageBitmap(shots[k]);
+      ox.drawImage(bmp, 0, 0, W, H);
+      if (bmp.close) bmp.close();
+      if (track.requestFrame) track.requestFrame(); else if (stream.requestFrame) stream.requestFrame();
+      pngMsg(`Recording ${k + 1} of ${shots.length}…`);
+      if (gifStop) { rec.stop(); await ended; pngMsg('Stopped.'); return; }
+      await new Promise(r => setTimeout(r, k === shots.length - 1 ? HOLD * 3 : HOLD));
+    }
+    rec.stop(); await ended;
+    track.stop();
+    const blob = new Blob(chunks, { type: mime });
+    if (!blob.size) { pngMsg('The video came back empty.'); return; }
+    const ext = mime.indexOf('mp4') >= 0 ? '.mp4' : '.webm';
+    const name = '4 Corners Precip Map ' + new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '') + ext;
+    const u = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = u; a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(u), 20000);
+    pngMsg(`Saved ${shots.length} frames, ${W}×${H}, ${(blob.size / 1048576).toFixed(1)} MB ${ext.slice(1).toUpperCase()}`);
+  } catch (e) {
+    pngMsg('Could not make the video (' + String(e.message || e).slice(0, 60) + ')');
   } finally {
     btn.disabled = false; stopBtn.hidden = true;
     if (play) playGo(wasI);
@@ -3087,13 +3197,22 @@ function addFilterBar() {
         <div class="opt-row">
           <button class="draw-btn" id="png-btn" type="button" title="A PNG of the map as it looks now, with the legend and a caption">PNG of the map</button>
           <button class="draw-btn" id="gif-btn" type="button" title="An animated GIF of the playback, frame by frame. Only while a period with a timeline is showing.">GIF of the playback</button>
+          <button class="draw-btn" id="vid-btn" type="button" title="A video of the playback — MP4 where the browser will record one, otherwise WebM. Smoother and much smaller than the GIF, and it carries the date on every frame. Only while a period with a timeline is showing.">Video of the playback</button>
           <button class="draw-btn" id="gif-stop" type="button" hidden>Stop</button>
-          <span class="leg-num-wrap"><input type="number" class="leg-num" id="png-scale" min="1" max="4" step="1" value="2" inputmode="numeric" aria-label="Picture scale" title="1 is screen size; 2 or 3 makes a sharper picture"> ×</span>
+          <span class="opt-l" style="margin:0 2px 0 6px">Width</span>
+          <select id="exp-size" class="opt-sel" aria-label="Export width" title="How wide the picture, GIF or video comes out. Bigger is sharper and slower, and a wide GIF gets very large.">
+            <option value="0">Same as the screen</option>
+            <option value="1280">1280 px wide</option>
+            <option value="1920" selected>1920 px wide — HD</option>
+            <option value="2560">2560 px wide</option>
+            <option value="3840">3840 px wide — 4K</option>
+          </select>
           <span id="png-msg" class="con-desc" style="margin:0"></span>
         </div>
 `;
     el.querySelector('#png-btn').addEventListener('click', exportPNG);
     el.querySelector('#gif-btn').addEventListener('click', exportGIF);
+    el.querySelector('#vid-btn').addEventListener('click', exportVideo);
     el.querySelector('#gif-stop').addEventListener('click', () => { gifStop = true; });
     el.querySelector('#sus-set .con-desc').insertAdjacentHTML('afterend', `<div class="tag-tools" id="tag-tools"><span id="tag-count" style="color:#475569"></span><button class="draw-btn" id="tag-copy" type="button" title="Copy your tags in the format of the site\u2019s tags.json, to apply them for everyone">Copy for the site</button><button class="draw-btn" id="tag-clear" type="button" title="Remove all your tags on this device">Clear tags</button></div><div class="tag-list" id="tag-list"></div><div class="con-desc">Tag a gauge from its popup: Tag as error, or Trust this gauge against an automatic flag. Tags are kept in this browser; the site file tags.json in the repo applies to everyone.</div>`);
     document.querySelector('#info-panel .panel-body').appendChild(el);

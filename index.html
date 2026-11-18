@@ -546,7 +546,7 @@ body.docked #ask-box.tall #ask-log{min-height:56px}
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.25';
+const APP_VERSION = '2.26';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1825,6 +1825,14 @@ function placeSplitters() {
 // A PNG of the map as it stands (v2.09). The tile servers all send CORS headers and the layers ask
 // for them, so the tiles can be read back out of a canvas; html2canvas is fetched only when someone
 // actually exports, so an ordinary visit never pays for it.
+// local time, in the same zone as every reading on the map
+function stampNow() {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  const f = new Intl.DateTimeFormat('en-US', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+                                               hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d);
+  const g = t => (f.find(x => x.type === t) || {}).value || '00';
+  return `${g('year')}-${g('month')}-${g('day')} ${g('hour')}${g('minute')}`;
+}
 const H2C_URL = 'https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js';
 let h2cP = null;
 function loadH2C() {
@@ -1891,7 +1899,7 @@ async function exportPNG() {
     x.fillStyle = '#64748b'; x.font = `${Math.round(10.5 * scale)}px -apple-system, Segoe UI, Roboto, sans-serif`;
     x.fillText([cap.when, cap.credit].filter(Boolean).join('  \u00b7  '), pad, base.height + Math.round(33 * scale));
 
-    const name = '4 Corners Precip Map ' + new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '') + '.png';
+    const name = '4 Corners Precip Map ' + stampNow() + '.png';
     await new Promise(res => out.toBlob(b => {
       if (!b) { pngMsg('The picture could not be made.'); return res(); }
       const u = URL.createObjectURL(b), a = document.createElement('a');
@@ -1968,7 +1976,7 @@ async function exportGIF() {
     pngMsg('Encoding\u2026');
     const blob = await new Promise((res, rej) => { gif.on('finished', res); gif.on('abort', () => rej(new Error('stopped'))); gif.render(); });
     if (gifStop) { pngMsg('Stopped.'); return; }
-    const name = '4 Corners Precip Map ' + new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '') + '.gif';
+    const name = '4 Corners Precip Map ' + stampNow() + '.gif';
     const u = URL.createObjectURL(blob), a = document.createElement('a');
     a.href = u; a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(u), 20000);
@@ -2020,11 +2028,15 @@ async function makeEncoder(W, H, bitrate) {
   let err = null;
   const enc = new VideoEncoder({ output: (c, meta) => muxer.addVideoChunk(c, meta), error: e => { err = e; } });
   const tries = ['avc1.640034', 'avc1.64002A', 'avc1.4D4034', 'avc1.42E034'];
-  let cfg = null;
-  for (const codec of tries) {
-    const c = { codec, width: W, height: H, bitrate, framerate: EFPS, latencyMode: 'quality',
-                bitrateMode: 'variable', avc: { format: 'avc' } };
-    try { const s = await VideoEncoder.isConfigSupported(c); if (s && s.supported) { cfg = c; break; } } catch (e) {}
+  let cfg = null, byQ = false;
+  for (const mode of ['quantizer', 'variable']) {
+    for (const codec of tries) {
+      const c = { codec, width: W, height: H, framerate: EFPS, latencyMode: 'quality',
+                  bitrateMode: mode, avc: { format: 'avc' } };
+      if (mode !== 'quantizer') c.bitrate = bitrate;
+      try { const s = await VideoEncoder.isConfigSupported(c); if (s && s.supported) { cfg = c; byQ = mode === 'quantizer'; break; } } catch (e) {}
+    }
+    if (cfg) break;
   }
   if (!cfg) throw new Error('no H.264 encoder for this size');
   enc.configure(cfg);
@@ -2035,10 +2047,11 @@ async function makeEncoder(W, H, bitrate) {
       if (err) throw err;
       while (enc.encodeQueueSize > 20) await new Promise(r => setTimeout(r, 12));
       const f = new VideoFrame(canvas, { timestamp: t, duration: dur });
-      enc.encode(f, { keyFrame: n % 45 === 0 });
+      enc.encode(f, byQ ? { keyFrame: n % 45 === 0, avc: { quantizer: 18 } } : { keyFrame: n % 45 === 0 });
       f.close(); t += dur; n++;
     },
     get frames() { return n; },
+    get mode() { return byQ ? 'quality 18' : Math.round(bitrate / 1e6) + ' Mbps'; },
     async finish() { await enc.flush(); if (err) throw err; muxer.finalize();
                      return new Blob([muxer.target.buffer], { type: 'video/mp4' }); }
   };
@@ -2131,20 +2144,22 @@ async function exportVideoLive(stream, mime) {
       sx = Math.round(r0.x * ratio); sy = Math.round(r0.y * ratio);
       sw = Math.round(r0.width * ratio); sh = Math.round(r0.height * ratio);
     }
-    // below HD the screen gives less than drawing it would, so let the slow path have it
-    if (sw < 1600) {
+    // the width asked for is the width delivered; the screen cannot be stretched, so anything
+    // wider than it holds goes to the slow path, which draws the frames at full size
+    const want = +(document.getElementById('exp-size') || {}).value || 2560;
+    if (sw < want * 0.98) {
       fellBack = true;
-      pngMsg(`The screen would only give ${Math.round(sw)} px \u2014 drawing it frame by frame instead for a sharper file.`);
+      pngMsg(`The screen only holds ${Math.round(sw)} px across the map \u2014 drawing every frame instead to reach ${want}. This takes a few minutes.`);
       return;
     }
-
-    const footH = evenPx(Math.max(28, 30 * ratio));
-    const W = evenPx(sw), H = evenPx(sh) + footH;
+    const shrink = want / sw;
+    const footH = evenPx(Math.max(28, 30 * ratio * shrink));
+    const W = evenPx(want), H = evenPx(sh * shrink) + footH;
     const out = document.createElement('canvas'); out.width = W; out.height = H;
     const ox = out.getContext('2d', { alpha: false });
     const cap = exportCaption();
-    const fs1 = Math.round(Math.max(13, 13 * ratio)), fs2 = Math.round(Math.max(10, 10 * ratio));
-    const pad = Math.round(Math.max(8, 8 * ratio));
+    const fs1 = Math.round(Math.max(13, 13 * ratio * shrink)), fs2 = Math.round(Math.max(10, 10 * ratio * shrink));
+    const pad = Math.round(Math.max(8, 8 * ratio * shrink));
     const grab = () => {
       if (!cropped) { const r = mapEl.getBoundingClientRect();
         sx = Math.round(r.x * ratio); sy = Math.round(r.y * ratio);
@@ -2184,11 +2199,11 @@ async function exportVideoLive(stream, mime) {
     pngMsg('Packing\u2026');
     const blob = await enc.finish();
     if (!blob.size) { fellBack = true; pngMsg('The recording came back empty \u2014 drawing it frame by frame instead.'); return; }
-    const name = '4 Corners Precip Map ' + new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '') + '.mp4';
+    const name = '4 Corners Precip Map ' + stampNow() + '.mp4';
     const u = URL.createObjectURL(blob), a = document.createElement('a');
     a.href = u; a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(u), 20000);
-    pngMsg(`Saved ${W}\u00d7${H}, ${enc.frames} frames, ${(blob.size / 1048576).toFixed(1)} MB MP4 at ${Math.round(bits / 1e6)} Mbps${gifStop ? ' (stopped early)' : ''}`);
+    pngMsg(`Saved ${W}\u00d7${H}, ${enc.frames} frames, ${(blob.size / 1048576).toFixed(1)} MB MP4 (${enc.mode})${gifStop ? ' (stopped early)' : ''}`);
   } catch (e) {
     fellBack = true;
     pngMsg('The recording failed (' + String(e.message || e).slice(0, 44) + ') \u2014 drawing it frame by frame instead.');
@@ -2290,7 +2305,7 @@ async function exportVideoDrawn(mime) {
       ext = mime.indexOf('mp4') >= 0 ? '.mp4' : '.webm';
     }
     if (!blob.size) { pngMsg('The video came back empty.'); return; }
-    const name = '4 Corners Precip Map ' + new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '') + ext;
+    const name = '4 Corners Precip Map ' + stampNow() + ext;
     const u = URL.createObjectURL(blob), a = document.createElement('a');
     a.href = u; a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(u), 20000);
@@ -3429,7 +3444,7 @@ function addFilterBar() {
         <div class="opt-row">
           <button class="draw-btn" id="png-btn" type="button" title="A PNG of the map as it looks now, with the legend and a caption">PNG</button>
           <button class="draw-btn" id="gif-btn" type="button" title="An animated GIF of the playback, frame by frame. Only while a period with a timeline is showing.">GIF</button>
-          <button class="draw-btn" id="vid-btn" type="button" title="A video of the playback. Chrome asks to share a tab — pick this one and it records the map as the browser draws it, which takes seconds instead of minutes and comes out at your screen’s own resolution. Cancel the prompt and it draws every frame instead, slower, at the width set here. Only while a period with a timeline is showing.">Video</button>
+          <button class="draw-btn" id="vid-btn" type="button" title="An MP4 of the playback at the width set below. Up to what the screen itself holds, Chrome asks to share a tab — pick this one and it records the map as the browser draws it, in seconds. Above that there are no screen pixels to record, so it draws every frame instead, which is slower. Only while a period with a timeline is showing.">MP4</button>
           <button class="draw-btn" id="gif-stop" type="button" hidden>Stop</button>
         </div>
         <span class="opt-l">Width</span>
@@ -5223,7 +5238,7 @@ async function loadData() {
   try { await loadOfficial(); } catch (e) { offErr = true; }
   loadSnotel().then(() => { if (!loading) setStatus(); })
     .catch(() => setStatus('SNOTEL sites could not be loaded (no connection, or the browser blocked it).', true));
-  dataTime = `Live ${new Date(now).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'long', day: 'numeric' })}, ${fmtTime(now)}`;
+  dataTime = `Live ${new Date(now).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', year: 'numeric' })} ${fmtTime(now)}`;
   rebuild();
   await ensureCells(true);
   if (hist) await ensureHist();

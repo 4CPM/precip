@@ -344,7 +344,10 @@ body.docked .ask-msg .rep{display:inline-flex;margin:0 0 0 8px;vertical-align:ba
 #ask-log{max-height:260px;overflow-y:auto;margin-bottom:8px;display:flex;flex-direction:column;gap:7px;resize:vertical;min-height:70px}
 #ask-box.tall{width:470px;margin-left:-235px}
 #ask-box.tall #ask-log{max-height:min(62vh,580px)}
-#ask-log:empty{display:none}
+#ask-box:not(.tall) #ask-log:empty{display:none}
+#ask-log:empty::before{content:'Nothing asked yet — ask above and the back and forth shows here.';color:#94a3b8;font-size:12px;line-height:1.4}
+#ask-box.tall #ask-log:empty{display:flex;align-items:flex-start;min-height:56px}
+body.docked #ask-box.tall #ask-log{min-height:56px}
 .ask-msg{font-size:12px;line-height:1.45;border-radius:8px;padding:5px 9px;max-width:100%;overflow-wrap:break-word}
 .ask-msg.you{background:#e2e8f0;color:#0f172a;align-self:flex-end}
 .ask-msg.map{background:#ecfeff;color:#0f172a;border:1px solid #a5f3fc}
@@ -543,7 +546,7 @@ body.docked .ask-msg .rep{display:inline-flex;margin:0 0 0 8px;vertical-align:ba
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.21';
+const APP_VERSION = '2.22';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1711,6 +1714,7 @@ function placeDockables() {
 // Drag a dock's edge to resize it, double-click the edge to put it back, and one button takes
 // every piece of chrome away so the map has the whole window (v2.08). Sizes last across visits.
 const DOCK_DEF = { left: 292, right: 150, ask: 122, bottom: 0 };
+const ASK_TALL = 300;   // what Expand opens the conversation to
 function dockSize(k, px) {
   const v = Math.round(px);
   if (k === 'ask') { const l = document.getElementById('ask-log'); if (l) l.style.maxHeight = Math.max(0, v) + 'px'; }
@@ -2111,8 +2115,12 @@ function addAskBox() {
   const setBig = on => {
     el.classList.toggle('tall', on);
     bigBtn.textContent = on ? 'Shrink' : 'Expand';
-    el.querySelector('#ask-log').style.height = '';   // drop any hand-dragged height
+    const lg = el.querySelector('#ask-log');
+    lg.style.height = '';   // drop any hand-dragged height
     try { on ? localStorage.setItem('cpmAskTall', '1') : localStorage.removeItem('cpmAskTall'); } catch (e) {}
+    // docked, the height is the dock's own, the one the splitter drags, so both write the same place
+    if (docked) dockSize('ask', on ? ASK_TALL : DOCK_DEF.ask);
+    else lg.style.maxHeight = '';
     askLayout();
   };
   bigBtn.addEventListener('click', () => setBig(!el.classList.contains('tall')));

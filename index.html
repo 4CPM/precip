@@ -546,7 +546,7 @@ body.docked #ask-box.tall #ask-log{min-height:56px}
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.27';
+const APP_VERSION = '2.28';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -1858,7 +1858,8 @@ function expScale() {
 }
 function labelScreenOption() {
   const o = document.querySelector('#exp-size option[value="0"]');
-  if (o) o.textContent = 'Screen \u2014 ' + screenPx() + ' px';
+  if (!o || typeof leafletMap === 'undefined' || !leafletMap) return;
+  o.textContent = 'Screen \u2014 ' + screenPx() + ' px';
 }
 addEventListener('resize', () => setTimeout(labelScreenOption, 250));
 const pngMsg = t => { const e = document.getElementById('png-msg'); if (e) e.textContent = t || ''; };
@@ -3489,7 +3490,7 @@ function addFilterBar() {
           <span id="png-msg" class="con-desc" style="margin:0"></span>
         </div>
 `;
-    labelScreenOption();
+    setTimeout(labelScreenOption, 0);
     el.querySelector('#png-btn').addEventListener('click', exportPNG);
     el.querySelector('#gif-btn').addEventListener('click', exportGIF);
     el.querySelector('#vid-btn').addEventListener('click', exportVideo);

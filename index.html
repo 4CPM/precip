@@ -605,7 +605,7 @@ body.docked #ask-box.tall #ask-log{min-height:56px}
 // gauges, NOAA USCRN via the Iowa Environmental Mesonet) load live each time
 // the page opens and on Refresh.
 // Version shown on the map. Bump it with every published change.
-const APP_VERSION = '2.33';
+const APP_VERSION = '2.34';
 const CENTER = { name: 'Four Corners', lat: 36.99898, lon: -109.04517 };
 const DATA_CENTER = { lat: CENTER.lat, lon: CENTER.lon };   // Four Corners Monument, 36°59′56″N 109°02′43″W
 const MAX_RADIUS = 500;    // miles; nothing beyond this is loaded or shown
@@ -2046,7 +2046,8 @@ async function exportPNG() {
     m.font = subF;
     const subLines = capLines(m, [cap.when, scaleTxt, cap.credit].filter(Boolean).join('  \u00b7  '), base.width - pad * 2);
     const lineT = Math.round(19 * scale), lineS = Math.round(14 * scale);
-    const footH = Math.round(14 * scale) + titleLines.length * lineT + subLines.length * lineS;
+    const key = keyStrip(scale, base.width - pad * 2);
+    const footH = Math.round(14 * scale) + key.h + titleLines.length * lineT + subLines.length * lineS;
 
     const out = document.createElement('canvas');
     out.width = base.width; out.height = base.height + footH;
@@ -2055,19 +2056,8 @@ async function exportPNG() {
     x.drawImage(base, 0, 0);
 
     // the key, so the colours can be read, wherever it was sitting
-    const lc = await legendShot(h2c, scale);
-    if (lc && lc.width > 4) {
-      // on a narrow picture the key at full size swallows the map, so it is held to a third of the width
-      const kw = Math.min(lc.width, Math.round(base.width * 0.3));
-      const kh = Math.round(lc.height * (kw / lc.width));
-      const lx = base.width - kw - pad, ly = pad;
-      x.save(); x.shadowColor = 'rgba(0,0,0,.25)'; x.shadowBlur = 8 * scale;
-      x.fillStyle = '#fff'; x.fillRect(lx - 4 * scale, ly - 4 * scale, kw + 8 * scale, kh + 8 * scale);
-      x.restore();
-      x.drawImage(lc, 0, 0, lc.width, lc.height, lx, ly, kw, kh);
-    }
-
-    let ty = base.height + Math.round(16 * scale);
+    drawKeyStrip(x, key, pad, base.height + Math.round(10 * scale), scale);
+    let ty = base.height + key.h + Math.round(16 * scale);
     x.fillStyle = '#0f172a'; x.font = titleF;
     for (const t of titleLines) { x.fillText(t, pad, ty); ty += lineT; }
     x.fillStyle = '#64748b'; x.font = subF;
@@ -2112,7 +2102,9 @@ function loadGIF() {
 }
 // one frame, drawn like the PNG but without the caption
 const EXPORT_HIDE = '#chrome-toggle, .leaflet-control-zoom, .leaflet-control-layers, .measure-ctl, #measure-hint, #zoom-hint, ' +
-                    '.leaflet-control-attribution, .leaflet-control-scale';
+                    '.leaflet-control-attribution, .leaflet-control-scale, ' +
+                    // on a phone the title chip and the key float over the map; the caption carries both
+                    '#info-panel, .legend';
 // where the readings and the surface actually are, in the map's own pixels
 function dataRectPx(padPx) {
   if (!leafletMap) return null;
@@ -2165,6 +2157,42 @@ async function legendShot(h2c, scale) {
     legendEl.classList.remove('for-export');
     if (wasCollapsed) legendEl.classList.add('collapsed');
     if (moved && parent) parent.insertBefore(legendEl, next);
+  }
+}
+// the key as a strip, measured first so the picture can be made tall enough for it
+function keyStrip(scale, maxW) {
+  const rows = [], list = CLASSES.slice().reverse();        // low to high, left to right
+  const sw = Math.round(26 * scale), sh = Math.round(11 * scale);
+  const gap = Math.round(6 * scale), pair = Math.round(14 * scale);
+  const font = `${Math.round(10 * scale)}px -apple-system, Segoe UI, Roboto, sans-serif`;
+  const m = document.createElement('canvas').getContext('2d'); m.font = font;
+  let row = [], w = 0;
+  for (const c of list) {
+    const tw = m.measureText(c.label).width, iw = sw + gap + tw + pair;
+    if (w + iw > maxW && row.length) { rows.push({ items: row, w }); row = []; w = 0; }
+    row.push({ c, tw, iw }); w += iw;
+  }
+  if (row.length) rows.push({ items: row, w });
+  const lineH = Math.round(17 * scale);
+  return { rows, sw, sh, gap, pair, font, lineH, h: rows.length * lineH + Math.round(4 * scale) };
+}
+function drawKeyStrip(x, key, left, top, scale) {
+  x.font = key.font; x.textAlign = 'left';
+  let y = top;
+  for (const row of key.rows) {
+    let cx = left;
+    for (const it of row.items) {
+      const r = Math.round(key.sh / 2);
+      x.fillStyle = it.c.bg || '#e2e8f0';
+      x.beginPath();
+      if (x.roundRect) x.roundRect(cx, y, key.sw, key.sh, r); else x.rect(cx, y, key.sw, key.sh);
+      x.fill();
+      x.strokeStyle = 'rgba(15,23,42,.25)'; x.lineWidth = Math.max(1, scale * .6); x.stroke();
+      x.fillStyle = '#334155';
+      x.fillText(it.c.label, cx + key.sw + key.gap, y + key.sh - Math.round(1.5 * scale));
+      cx += it.iw;
+    }
+    y += key.lineH;
   }
 }
 // a caption that stays inside the picture

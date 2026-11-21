@@ -56,6 +56,29 @@ function denverMidnight(ds) {   // ms of 00:00 Denver time on date ds
   return Date.parse(ds + 'T07:00:00Z');
 }
 
+// what went wrong, counted by reason, so a failure names itself in the log
+function tally() {
+  const m = new Map();
+  return {
+    add(e) {
+      let k;
+      if (e && e.name === 'AbortError') k = 'timed out after 30s';
+      else if (e && e.message) {
+        k = String(e.message).slice(0, 60);
+        // 'fetch failed' on its own says nothing; the cause carries the real reason
+        const c = e.cause;
+        if (c) k += ' (' + String(c.code || c.message || c).slice(0, 40) + ')';
+      } else k = 'unknown';
+      m.set(k, (m.get(k) || 0) + 1);
+    },
+    get total() { let n = 0; for (const v of m.values()) n += v; return n; },
+    report() {
+      return [...m.entries()].sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => `${v}\u00d7 ${k}`).join(', ');
+    }
+  };
+}
+
 // ── HTTP with retries ──
 async function getJSON(url, tries = 3) {
   for (let k = 1; ; k++) {
@@ -95,8 +118,10 @@ async function listStations() {
     }
   const seen = new Map();
   let failed = 0;
+  const why = tally();
   await pool(cells, 8, async ([i, j]) => {
-    try { await fetchBox(j * CELL_LON, i * CELL_LAT, (j + 1) * CELL_LON, (i + 1) * CELL_LAT, 0, seen); } catch (e) { failed++; }
+    try { await fetchBox(j * CELL_LON, i * CELL_LAT, (j + 1) * CELL_LON, (i + 1) * CELL_LAT, 0, seen); }
+    catch (e) { failed++; why.add(e); }
   });
   const out = [];
   for (const x of seen.values()) {
@@ -108,7 +133,7 @@ async function listStations() {
     out.push({ mac: x.macAddress, key: x.info.slug, lat: +lat.toFixed(5), lon: +lon.toFixed(5),
       name: ((x.public && x.public.name) || x.info.name || 'Ambient station').trim(), tz: x.tz?.name || TZ, last, hasRain: x.lastData?.dailyrainin != null });
   }
-  return { stations: out, cells: cells.length, failed };
+  return { stations: out, cells: cells.length, failed, why };
 }
 
 // ── 2. one station's daily totals ──
@@ -153,9 +178,14 @@ async function main() {
   log(`Rebuilding ${first} to ${yesterday} from ${BASE}`);
   if (process.env.PLAN_ONLY) return;
 
-  const { stations, cells, failed } = await listStations();
+  const { stations, cells, failed, why } = await listStations();
   log(`Station list: ${stations.length} stations with rain gauges and dashboards from ${cells} cells (${failed} cells failed)`);
-  if (!stations.length) { console.error('No stations returned. Ambient may be refusing requests from this server.'); process.exit(1); }
+  if (failed) log(`  cell failures: ${why.report()}`);
+  if (!stations.length) {
+    console.error(`No stations returned from ${cells} cells. What came back: ${why.report() || 'nothing recorded'}`);
+    console.error('Ambient may be refusing requests from this server.');
+    process.exit(1);
+  }
 
   // skip stations that stopped reporting before the period began
   const active = stations.filter(s => s.hasRain && (!s.last || s.last >= denverMidnight(first) - 2 * 86400e3));
@@ -163,14 +193,19 @@ async function main() {
 
   const results = new Map();
   let done = 0, errs = 0, lastLog = Date.now();
+  const stWhy = tally();
   const t0 = Date.now();
   await pool(active, PAR, async st => {
-    try { results.set(st.mac, await stationDays(st, first, yesterday)); } catch (e) { errs++; }
+    try { results.set(st.mac, await stationDays(st, first, yesterday)); } catch (e) { errs++; stWhy.add(e); }
     done++;
     if (Date.now() - lastLog > 30000) { lastLog = Date.now(); log(`  ${done} of ${active.length} stations (${errs} failed)`); }
   });
   log(`Fetched ${done} stations in ${Math.round((Date.now() - t0) / 1000)} s; ${errs} failed`);
-  if (errs > active.length / 2) { console.error('More than half the stations failed; not writing files.'); process.exit(1); }
+  if (errs) log(`  station failures: ${stWhy.report()}`);
+  if (errs > active.length / 2) {
+    console.error(`More than half the stations failed; not writing files. What came back: ${stWhy.report()}`);
+    process.exit(1);
+  }
 
   await fs.mkdir(OUT, { recursive: true });
   // station list: keep stations seen before, update the rest

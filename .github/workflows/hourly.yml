@@ -10,7 +10,9 @@ name: Ambient hourly
 on:
   schedule:
     - cron: '13 9 * * *'    # 3:13 AM MDT / 2:13 AM MST, after the daily archive
+    - cron: '13 15 * * *'   # 9:13 AM MDT / 8:13 AM MST: only if a cron was dropped
     - cron: '13 21 * * *'   # 3:13 PM MDT / 2:13 PM MST: makes up a failed night
+    - cron: '13 3 * * *'    # 9:13 PM MDT / 8:13 PM MST: only if a cron was dropped
   workflow_dispatch:
     inputs:
       days:

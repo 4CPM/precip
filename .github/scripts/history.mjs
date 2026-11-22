@@ -24,7 +24,7 @@ import path from 'node:path';
 const BASE = process.env.AWN_BASE || 'https://lightning.ambientweather.net';
 const OUT = process.env.OUT_DIR || 'history';
 const DAYS = Math.max(1, Math.min(366, +(process.env.DAYS || 3)));
-const PAR = +(process.env.PAR || 40);                 // requests at a time
+const PAR = +(process.env.PAR || 24);                 // requests at a time
 const CENTER = { lat: 36.99898, lon: -109.04517 };    // Four Corners Monument
 const MAX_MI = 500;
 const CELL_LAT = 1.0, CELL_LON = 1.2;                 // same cells as the map
@@ -79,14 +79,53 @@ function tally() {
   };
 }
 
+// ── staying under Ambient's rate limit ──
+// Ambient caps how fast one server may ask, and answers anything over the cap with
+// HTTP 429 and a Cloudflare page (Nov 22 2026: 48 cells and 4,787 stations lost).
+// Backing off only the request that was refused does not help, because the other
+// workers keep the rate just as high. So this does two things: a 429 parks every
+// worker for the cooldown Ambient asks for, and the pace of new requests is set
+// globally and tightened each time one is refused, loosening again once a long run
+// of requests has gone through. The job ends up running at whatever rate Ambient
+// will take, instead of a fixed rate that is either too slow or gets half the day
+// thrown away.
+let gateUntil = 0, gateCount = 0, gateMs = 0;
+let minGap = 0, nextAt = 0, okRun = 0;      // ms between request starts, 0 = no pacing
+const MAX_GAP = 160;                        // never slower than 6 requests a second
+
+function slower() { minGap = Math.min(MAX_GAP, minGap ? minGap * 1.4 : 15); okRun = 0; }
+function faster() { if (++okRun >= 40 && minGap) { minGap = minGap < 8 ? 0 : minGap * 0.85; okRun = 0; } }
+function hold(ms) {
+  const t = Date.now() + ms;
+  if (t > gateUntil) { gateMs += t - Math.max(gateUntil, Date.now()); gateUntil = t; }
+  gateCount++;
+}
+async function pace() {
+  for (let w = gateUntil - Date.now(); w > 0; w = gateUntil - Date.now()) await sleep(Math.min(w, 250));
+  if (!minGap) return;
+  const t = Math.max(Date.now(), nextAt);   // claim the next slot before any await, so workers queue
+  nextAt = t + minGap;
+  const w = t - Date.now();
+  if (w > 0) await sleep(w);
+}
+
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
 // ── HTTP with retries ──
-async function getJSON(url, tries = 3) {
+async function getJSON(url, tries = 6) {
   for (let k = 1; ; k++) {
+    await pace();
     const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 30000);
     try {
       const r = await fetch(url, { signal: ctl.signal, headers: { 'user-agent': UA } });
+      clearTimeout(timer);
+      if (r.status === 429 || r.status === 503) {
+        const ra = Number(r.headers.get('retry-after'));
+        slower();
+        hold(Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 60000) : Math.min(2000 * k, 30000));
+        throw new Error('HTTP ' + r.status + ' (asked to slow down)');
+      }
+      faster();
       if (!r.ok) {
         let body = '';
         try { body = (await r.text()).replace(/\s+/g, ' ').slice(0, 120); } catch (e) {}
@@ -95,7 +134,7 @@ async function getJSON(url, tries = 3) {
       return await r.json();
     } catch (e) {
       if (k >= tries) throw e;
-      await sleep(1500 * k);
+      await sleep(400 * k + Math.random() * 400);
     } finally { clearTimeout(timer); }
   }
 }
@@ -181,6 +220,10 @@ async function main() {
   let first = addDays(yesterday, -(DAYS - 1));
   const missing = await earliestMissing(yesterday);
   if (missing && missing < first) { log(`${missing} is not in the archive yet; reaching back to it`); first = missing; }
+  if (process.env.TOPUP && !missing) {
+    const idx = await readJSON(path.join(OUT, 'index.json'), null);
+    if (idx && idx.through >= yesterday) { log(`Archive is current through ${idx.through}; nothing to do.`); return; }
+  }
   log(`Rebuilding ${first} to ${yesterday} from ${BASE}`);
   if (process.env.PLAN_ONLY) return;
 
@@ -208,6 +251,7 @@ async function main() {
   });
   log(`Fetched ${done} stations in ${Math.round((Date.now() - t0) / 1000)} s; ${errs} failed`);
   if (errs) log(`  station failures: ${stWhy.report()}`);
+  if (gateCount) log(`  asked to slow down ${gateCount} times; waited ${Math.round(gateMs / 1000)} s, settled at ${minGap ? (1000 / minGap).toFixed(1) + ' requests a second' : 'full speed'}`);
   if (errs > active.length / 2) {
     console.error(`More than half the stations failed; not writing files. What came back: ${stWhy.report()}`);
     process.exit(1);

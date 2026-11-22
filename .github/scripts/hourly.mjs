@@ -38,7 +38,7 @@ import path from 'node:path';
 const BASE = process.env.AWN_BASE || 'https://lightning.ambientweather.net';
 const OUT = process.env.OUT_DIR || 'history';
 const DAYS = process.env.DAYS ? Math.max(1, Math.min(8, +process.env.DAYS || 1)) : 0;   // 0 = the days missing from the last 8
-const PAR = +(process.env.PAR || 40);
+const PAR = +(process.env.PAR || 24);
 const TZ = 'America/Denver';
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -72,14 +72,56 @@ function denverMidnight(ds) {
   return Date.parse(ds + 'T07:00:00Z');
 }
 
-async function getJSON(url, tries = 3) {
+// ── staying under Ambient's rate limit ──
+// Same as the daily archive: Ambient caps how fast one server may ask and answers
+// anything over the cap with HTTP 429. A 429 parks every worker for the cooldown
+// Ambient asks for, and the pace of new requests is set globally and tightened
+// each time one is refused, loosening again after a long run of requests gets
+// through — so the job runs at whatever rate Ambient will take.
+let gateUntil = 0, gateCount = 0, gateMs = 0;
+let minGap = 0, nextAt = 0, okRun = 0;      // ms between request starts, 0 = no pacing
+const MAX_GAP = 160;                        // never slower than 6 requests a second
+
+function slower() { minGap = Math.min(MAX_GAP, minGap ? minGap * 1.4 : 15); okRun = 0; }
+function faster() { if (++okRun >= 40 && minGap) { minGap = minGap < 8 ? 0 : minGap * 0.85; okRun = 0; } }
+function hold(ms) {
+  const t = Date.now() + ms;
+  if (t > gateUntil) { gateMs += t - Math.max(gateUntil, Date.now()); gateUntil = t; }
+  gateCount++;
+}
+async function pace() {
+  for (let w = gateUntil - Date.now(); w > 0; w = gateUntil - Date.now()) await sleep(Math.min(w, 250));
+  if (!minGap) return;
+  const t = Math.max(Date.now(), nextAt);   // claim the next slot before any await, so workers queue
+  nextAt = t + minGap;
+  const w = t - Date.now();
+  if (w > 0) await sleep(w);
+}
+
+// Ambient refuses a request whose user-agent names a robot (HTTP 403, Nov 21 2026)
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
+async function getJSON(url, tries = 6) {
   for (let k = 1; ; k++) {
+    await pace();
     const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 30000);
     try {
-      const r = await fetch(url, { signal: ctl.signal, headers: { 'user-agent': '4CPM history archive (github.com/4CPM/precip)' } });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const r = await fetch(url, { signal: ctl.signal, headers: { 'user-agent': UA } });
+      clearTimeout(timer);
+      if (r.status === 429 || r.status === 503) {
+        const ra = Number(r.headers.get('retry-after'));
+        slower();
+        hold(Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 60000) : Math.min(2000 * k, 30000));
+        throw new Error('HTTP ' + r.status + ' (asked to slow down)');
+      }
+      faster();
+      if (!r.ok) {
+        let body = '';
+        try { body = (await r.text()).replace(/\s+/g, ' ').slice(0, 120); } catch (e) {}
+        throw new Error('HTTP ' + r.status + (body ? ': ' + body : ''));
+      }
       return await r.json();
-    } catch (e) { if (k >= tries) throw e; await sleep(1500 * k); }
+    } catch (e) { if (k >= tries) throw e; await sleep(400 * k + Math.random() * 400); }
     finally { clearTimeout(timer); }
   }
 }
@@ -188,6 +230,7 @@ async function main() {
     if (Date.now() - lastLog > 30000) { lastLog = Date.now(); log(`  ${done} of ${stations.length} stations (${errs} failed)`); }
   });
   log(`Fetched ${done} stations in ${Math.round((Date.now() - t0) / 1000)} s; ${errs} failed`);
+  if (gateCount) log(`  asked to slow down ${gateCount} times; waited ${Math.round(gateMs / 1000)} s, settled at ${minGap ? (1000 / minGap).toFixed(1) + ' requests a second' : 'full speed'}`);
   if (errs > stations.length / 2) { console.error('More than half the stations failed; not writing files.'); process.exit(1); }
 
   const dir = path.join(OUT, 'hourly');

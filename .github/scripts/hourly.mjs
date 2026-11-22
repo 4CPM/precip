@@ -230,7 +230,7 @@ async function main() {
     if (Date.now() - lastLog > 30000) { lastLog = Date.now(); log(`  ${done} of ${stations.length} stations (${errs} failed)`); }
   });
   log(`Fetched ${done} stations in ${Math.round((Date.now() - t0) / 1000)} s; ${errs} failed`);
-  if (gateCount) log(`  asked to slow down ${gateCount} times; waited ${Math.round(gateMs / 1000)} s, settled at ${minGap ? (1000 / minGap).toFixed(1) + ' requests a second' : 'full speed'}`);
+  if (gateCount) log(`  asked to slow down ${gateCount} times; waited ${Math.round(gateMs / 1000)} s; managed ${(done / Math.max(1, (Date.now() - t0) / 1000)).toFixed(1)} stations a second`);
   if (errs > stations.length / 2) { console.error('More than half the stations failed; not writing files.'); process.exit(1); }
 
   const dir = path.join(OUT, 'hourly');

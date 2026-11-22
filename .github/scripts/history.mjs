@@ -251,7 +251,7 @@ async function main() {
   });
   log(`Fetched ${done} stations in ${Math.round((Date.now() - t0) / 1000)} s; ${errs} failed`);
   if (errs) log(`  station failures: ${stWhy.report()}`);
-  if (gateCount) log(`  asked to slow down ${gateCount} times; waited ${Math.round(gateMs / 1000)} s, settled at ${minGap ? (1000 / minGap).toFixed(1) + ' requests a second' : 'full speed'}`);
+  if (gateCount) log(`  asked to slow down ${gateCount} times; waited ${Math.round(gateMs / 1000)} s; managed ${(done / Math.max(1, (Date.now() - t0) / 1000)).toFixed(1)} stations a second`);
   if (errs > active.length / 2) {
     console.error(`More than half the stations failed; not writing files. What came back: ${stWhy.report()}`);
     process.exit(1);

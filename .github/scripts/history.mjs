@@ -79,13 +79,19 @@ function tally() {
   };
 }
 
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
 // ── HTTP with retries ──
 async function getJSON(url, tries = 3) {
   for (let k = 1; ; k++) {
     const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 30000);
     try {
-      const r = await fetch(url, { signal: ctl.signal, headers: { 'user-agent': '4CPM history archive (github.com/4CPM/precip)' } });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const r = await fetch(url, { signal: ctl.signal, headers: { 'user-agent': UA } });
+      if (!r.ok) {
+        let body = '';
+        try { body = (await r.text()).replace(/\s+/g, ' ').slice(0, 120); } catch (e) {}
+        throw new Error('HTTP ' + r.status + (body ? ': ' + body : ''));
+      }
       return await r.json();
     } catch (e) {
       if (k >= tries) throw e;
